@@ -9,9 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TradingviewRouteImport } from './routes/tradingview'
+import { Route as TradingBotsRouteImport } from './routes/trading-bots'
+import { Route as StrategiesRouteImport } from './routes/strategies'
 import { Route as DerivCallbackRouteImport } from './routes/deriv-callback'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as CopyTradingRouteImport } from './routes/copy-trading'
+import { Route as ChartsRouteImport } from './routes/charts'
+import { Route as BotBuilderRouteImport } from './routes/bot-builder'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AnalysisRouteImport } from './routes/analysis'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as DashboardTradeRouteImport } from './routes/dashboard.trade'
@@ -19,6 +26,21 @@ import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settin
 import { Route as DashboardBotRouteImport } from './routes/dashboard.bot'
 import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard.analytics'
 
+const TradingviewRoute = TradingviewRouteImport.update({
+  id: '/tradingview',
+  path: '/tradingview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TradingBotsRoute = TradingBotsRouteImport.update({
+  id: '/trading-bots',
+  path: '/trading-bots',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StrategiesRoute = StrategiesRouteImport.update({
+  id: '/strategies',
+  path: '/strategies',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DerivCallbackRoute = DerivCallbackRouteImport.update({
   id: '/deriv-callback',
   path: '/deriv-callback',
@@ -29,9 +51,29 @@ const DashboardRoute = DashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CopyTradingRoute = CopyTradingRouteImport.update({
+  id: '/copy-trading',
+  path: '/copy-trading',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChartsRoute = ChartsRouteImport.update({
+  id: '/charts',
+  path: '/charts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BotBuilderRoute = BotBuilderRouteImport.update({
+  id: '/bot-builder',
+  path: '/bot-builder',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalysisRoute = AnalysisRouteImport.update({
+  id: '/analysis',
+  path: '/analysis',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -67,9 +109,16 @@ const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analysis': typeof AnalysisRoute
   '/auth': typeof AuthRoute
+  '/bot-builder': typeof BotBuilderRoute
+  '/charts': typeof ChartsRoute
+  '/copy-trading': typeof CopyTradingRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/deriv-callback': typeof DerivCallbackRoute
+  '/strategies': typeof StrategiesRoute
+  '/trading-bots': typeof TradingBotsRoute
+  '/tradingview': typeof TradingviewRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/bot': typeof DashboardBotRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -78,8 +127,15 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analysis': typeof AnalysisRoute
   '/auth': typeof AuthRoute
+  '/bot-builder': typeof BotBuilderRoute
+  '/charts': typeof ChartsRoute
+  '/copy-trading': typeof CopyTradingRoute
   '/deriv-callback': typeof DerivCallbackRoute
+  '/strategies': typeof StrategiesRoute
+  '/trading-bots': typeof TradingBotsRoute
+  '/tradingview': typeof TradingviewRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/bot': typeof DashboardBotRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -89,9 +145,16 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analysis': typeof AnalysisRoute
   '/auth': typeof AuthRoute
+  '/bot-builder': typeof BotBuilderRoute
+  '/charts': typeof ChartsRoute
+  '/copy-trading': typeof CopyTradingRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/deriv-callback': typeof DerivCallbackRoute
+  '/strategies': typeof StrategiesRoute
+  '/trading-bots': typeof TradingBotsRoute
+  '/tradingview': typeof TradingviewRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/bot': typeof DashboardBotRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -102,9 +165,16 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/analysis'
     | '/auth'
+    | '/bot-builder'
+    | '/charts'
+    | '/copy-trading'
     | '/dashboard'
     | '/deriv-callback'
+    | '/strategies'
+    | '/trading-bots'
+    | '/tradingview'
     | '/dashboard/analytics'
     | '/dashboard/bot'
     | '/dashboard/settings'
@@ -113,8 +183,15 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/analysis'
     | '/auth'
+    | '/bot-builder'
+    | '/charts'
+    | '/copy-trading'
     | '/deriv-callback'
+    | '/strategies'
+    | '/trading-bots'
+    | '/tradingview'
     | '/dashboard/analytics'
     | '/dashboard/bot'
     | '/dashboard/settings'
@@ -123,9 +200,16 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/analysis'
     | '/auth'
+    | '/bot-builder'
+    | '/charts'
+    | '/copy-trading'
     | '/dashboard'
     | '/deriv-callback'
+    | '/strategies'
+    | '/trading-bots'
+    | '/tradingview'
     | '/dashboard/analytics'
     | '/dashboard/bot'
     | '/dashboard/settings'
@@ -135,13 +219,41 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalysisRoute: typeof AnalysisRoute
   AuthRoute: typeof AuthRoute
+  BotBuilderRoute: typeof BotBuilderRoute
+  ChartsRoute: typeof ChartsRoute
+  CopyTradingRoute: typeof CopyTradingRoute
   DashboardRoute: typeof DashboardRouteWithChildren
   DerivCallbackRoute: typeof DerivCallbackRoute
+  StrategiesRoute: typeof StrategiesRoute
+  TradingBotsRoute: typeof TradingBotsRoute
+  TradingviewRoute: typeof TradingviewRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/tradingview': {
+      id: '/tradingview'
+      path: '/tradingview'
+      fullPath: '/tradingview'
+      preLoaderRoute: typeof TradingviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/trading-bots': {
+      id: '/trading-bots'
+      path: '/trading-bots'
+      fullPath: '/trading-bots'
+      preLoaderRoute: typeof TradingBotsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/strategies': {
+      id: '/strategies'
+      path: '/strategies'
+      fullPath: '/strategies'
+      preLoaderRoute: typeof StrategiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/deriv-callback': {
       id: '/deriv-callback'
       path: '/deriv-callback'
@@ -156,11 +268,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/copy-trading': {
+      id: '/copy-trading'
+      path: '/copy-trading'
+      fullPath: '/copy-trading'
+      preLoaderRoute: typeof CopyTradingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/charts': {
+      id: '/charts'
+      path: '/charts'
+      fullPath: '/charts'
+      preLoaderRoute: typeof ChartsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bot-builder': {
+      id: '/bot-builder'
+      path: '/bot-builder'
+      fullPath: '/bot-builder'
+      preLoaderRoute: typeof BotBuilderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/analysis': {
+      id: '/analysis'
+      path: '/analysis'
+      fullPath: '/analysis'
+      preLoaderRoute: typeof AnalysisRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -230,9 +370,16 @@ const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalysisRoute: AnalysisRoute,
   AuthRoute: AuthRoute,
+  BotBuilderRoute: BotBuilderRoute,
+  ChartsRoute: ChartsRoute,
+  CopyTradingRoute: CopyTradingRoute,
   DashboardRoute: DashboardRouteWithChildren,
   DerivCallbackRoute: DerivCallbackRoute,
+  StrategiesRoute: StrategiesRoute,
+  TradingBotsRoute: TradingBotsRoute,
+  TradingviewRoute: TradingviewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
