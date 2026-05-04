@@ -79,7 +79,12 @@ export function DerivChart({
   }, []);
 
   // Status badge.
-  useEffect(() => onStatus(setStatus), []);
+  useEffect(() => {
+    const off = onStatus(setStatus);
+    return () => {
+      off();
+    };
+  }, []);
 
   // Build chart once.
   useEffect(() => {
