@@ -1,33 +1,108 @@
-// Deriv WebSocket helper. Single shared connection per browser tab.
-// ArkTrader Hub registered Deriv app_id. Override with VITE_DERIV_APP_ID if needed.
+// Deriv WebSocket helper with auto-reconnect, keepalive ping, connection
+// status notifications, and helpers for active_symbols / ticks_history /
+// tick & candle subscriptions.
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID || "133647";
 const WS_URL = `wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}&l=EN`;
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 
+export type ConnectionStatus =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected";
+
 type Listener = (msg: any) => void;
+type StatusListener = (s: ConnectionStatus) => void;
 
 let socket: WebSocket | null = null;
 let listeners = new Set<Listener>();
+let statusListeners = new Set<StatusListener>();
+let status: ConnectionStatus = "disconnected";
 let reqId = 1;
 let connecting: Promise<WebSocket> | null = null;
+let pingTimer: ReturnType<typeof setInterval> | null = null;
+let reconnectAttempts = 0;
+// Active subscriptions to replay after a reconnect.
+type Sub = { send: Record<string, any>; key: string };
+const activeSubs = new Map<string, Sub>();
+
+function setStatus(s: ConnectionStatus) {
+  if (status === s) return;
+  status = s;
+  statusListeners.forEach((l) => l(s));
+}
+
+export function onStatus(fn: StatusListener) {
+  statusListeners.add(fn);
+  fn(status);
+  return () => statusListeners.delete(fn);
+}
+
+export function getStatus() {
+  return status;
+}
+
+function startKeepalive() {
+  stopKeepalive();
+  pingTimer = setInterval(() => {
+    if (socket?.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({ ping: 1, req_id: reqId++ }));
+      } catch {
+        /* ignore */
+      }
+    }
+  }, 30000);
+}
+
+function stopKeepalive() {
+  if (pingTimer) {
+    clearInterval(pingTimer);
+    pingTimer = null;
+  }
+}
 
 function connect(): Promise<WebSocket> {
   if (socket && socket.readyState === WebSocket.OPEN) return Promise.resolve(socket);
   if (connecting) return connecting;
+  setStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
   connecting = new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL);
     ws.onopen = () => {
       socket = ws;
       connecting = null;
+      reconnectAttempts = 0;
+      setStatus("connected");
+      startKeepalive();
+      // Replay subscriptions
+      for (const sub of activeSubs.values()) {
+        try {
+          ws.send(JSON.stringify(sub.send));
+        } catch {
+          /* ignore */
+        }
+      }
       resolve(ws);
     };
-    ws.onerror = (e) => {
-      connecting = null;
-      reject(e);
+    ws.onerror = () => {
+      // Do not reject here: onclose will trigger reconnect cycle.
     };
     ws.onclose = () => {
       socket = null;
+      connecting = null;
+      stopKeepalive();
+      setStatus("disconnected");
+      // Schedule reconnect with backoff (cap 10s).
+      const delay = Math.min(10000, 500 * Math.pow(2, reconnectAttempts));
+      reconnectAttempts++;
+      setTimeout(() => {
+        if (activeSubs.size > 0 || statusListeners.size > 0) {
+          setStatus("reconnecting");
+          connect().catch(() => {});
+        }
+      }, delay);
+      reject(new Error("WebSocket closed"));
     };
     ws.onmessage = (event) => {
       try {
@@ -49,16 +124,15 @@ export function onMessage(fn: Listener) {
 export async function send(payload: Record<string, any>): Promise<any> {
   const ws = await connect();
   const id = reqId++;
-  const req_id = id;
   return new Promise((resolve, reject) => {
     const off = onMessage((msg) => {
-      if (msg.req_id === req_id) {
+      if (msg.req_id === id) {
         off();
         if (msg.error) reject(new Error(msg.error.message));
         else resolve(msg);
       }
     });
-    ws.send(JSON.stringify({ ...payload, req_id }));
+    ws.send(JSON.stringify({ ...payload, req_id: id }));
     setTimeout(() => {
       off();
       reject(new Error("Deriv request timed out"));
@@ -66,25 +140,73 @@ export async function send(payload: Record<string, any>): Promise<any> {
   });
 }
 
-export async function subscribeTicks(symbol: string, onTick: (price: number, time: number) => void) {
+export async function subscribeTicks(
+  symbol: string,
+  onTick: (price: number, time: number) => void,
+) {
   const ws = await connect();
+  const key = `ticks:${symbol}`;
+  const sub = { send: { ticks: symbol, subscribe: 1 }, key };
+  activeSubs.set(key, sub);
   const off = onMessage((msg) => {
     if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
       onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
     }
   });
-  ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
+  ws.send(JSON.stringify(sub.send));
   return () => {
     off();
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ forget_all: "ticks" }));
+    activeSubs.delete(key);
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ forget_all: "ticks" }));
     }
   };
 }
 
+export type Candle = {
+  time: number; // unix seconds
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+export async function fetchCandles(
+  symbol: string,
+  granularity: number,
+  count = 500,
+): Promise<Candle[]> {
+  const res = await send({
+    ticks_history: symbol,
+    style: "candles",
+    granularity,
+    count,
+    end: "latest",
+    adjust_start_time: 1,
+  });
+  const candles = res.candles ?? [];
+  return candles.map((c: any) => ({
+    time: Number(c.epoch),
+    open: Number(c.open),
+    high: Number(c.high),
+    low: Number(c.low),
+    close: Number(c.close),
+  }));
+}
+
+let symbolsCache: { symbol: string; display_name: string; market: string }[] | null = null;
+export async function getActiveSymbols() {
+  if (symbolsCache) return symbolsCache;
+  const res = await send({ active_symbols: "brief", product_type: "basic" });
+  symbolsCache = (res.active_symbols ?? []).map((s: any) => ({
+    symbol: s.symbol,
+    display_name: s.display_name,
+    market: s.market,
+  }));
+  return symbolsCache!;
+}
+
 export function buildOAuthUrl() {
-  // Deriv OAuth redirects back to the app's configured redirect URL with
-  // ?acct1=...&token1=...&cur1=... appended.
   return `https://oauth.deriv.com/oauth2/authorize?app_id=${DERIV_APP_ID}&l=EN&brand=deriv`;
 }
 
@@ -108,7 +230,6 @@ export const SYNTHETIC_MARKETS = [
   { symbol: "RDBULL", name: "Bull Market Index" },
 ];
 
-// Trade categories grouped by Deriv contract families.
 export type TradeCategory =
   | "rise_fall"
   | "higher_lower"
@@ -130,7 +251,6 @@ export const TRADE_CATEGORIES: { value: TradeCategory; label: string; descriptio
   { value: "multiplier", label: "Multipliers", description: "Amplify profit and loss with a multiplier." },
 ];
 
-// Map a category + side into a Deriv contract_type code.
 export function contractTypeFor(category: TradeCategory, side: string): string {
   const map: Record<string, string> = {
     "rise_fall:up": "CALL",
