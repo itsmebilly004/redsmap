@@ -44,7 +44,7 @@ function Index() {
               </Button>
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
-              Sign in or sign up routes through Deriv's official OAuth — your password is never stored.
+              Sign in or sign up redirects you to Deriv's official OAuth. We never see your password.
             </p>
           </div>
 
@@ -127,9 +127,9 @@ function Index() {
         </div>
         <div className="grid gap-6 md:grid-cols-3">
           {[
-            { step: "01", title: "Create an account", text: "Sign up with email or Google. We never see your Deriv password." },
-            { step: "02", title: "Connect via Deriv OAuth", text: "Authorize ArkTrader through Deriv's official OAuth flow — tokens stay encrypted." },
-            { step: "03", title: "Trade or automate", text: "Place trades manually or build a strategy in the bot builder. Demo by default." },
+            { step: "01", title: "Click Sign up", text: "We hand you off to Deriv to register or log in on their official site." },
+            { step: "02", title: "Authorize ArkTrader", text: "Deriv sends back a trading token. We never see your Deriv password." },
+            { step: "03", title: "Trade or automate", text: "Place Rise/Fall, digits, accumulators, multipliers — or run a bot. Demo by default." },
           ].map((s) => (
             <div key={s.step} className="glass-card rounded-xl p-6">
               <div className="font-mono text-2xl text-primary">{s.step}</div>

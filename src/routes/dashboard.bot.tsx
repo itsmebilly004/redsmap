@@ -16,9 +16,14 @@ export const Route = createFileRoute("/dashboard/bot")({
 });
 
 const STRATEGIES = [
+  { value: "rise_fall", label: "Rise / Fall (trend)" },
+  { value: "higher_lower", label: "Higher / Lower" },
+  { value: "touch_no_touch", label: "Touch / No Touch" },
   { value: "even_odd", label: "Even / Odd" },
   { value: "over_under", label: "Over / Under" },
-  { value: "trend", label: "Trend follow (Rise/Fall)" },
+  { value: "matches_differs", label: "Matches / Differs" },
+  { value: "accumulator", label: "Accumulators" },
+  { value: "multiplier", label: "Multipliers" },
 ];
 
 function BotPage() {
