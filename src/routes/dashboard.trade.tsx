@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -34,8 +34,6 @@ function TradePage() {
   const [isDemo, setIsDemo] = useState(true);
   const [busy, setBusy] = useState(false);
   const lastPrice = series.at(-1)?.price;
-  const seriesRef = useRef(series);
-  seriesRef.current = series;
 
   useEffect(() => {
     if (!user) return;
