@@ -14,7 +14,246 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      bot_logs: {
+        Row: {
+          bot_id: string
+          created_at: string
+          id: string
+          message: string | null
+          outcome: string | null
+          profit: number | null
+          trade_id: string | null
+          user_id: string
+        }
+        Insert: {
+          bot_id: string
+          created_at?: string
+          id?: string
+          message?: string | null
+          outcome?: string | null
+          profit?: number | null
+          trade_id?: string | null
+          user_id: string
+        }
+        Update: {
+          bot_id?: string
+          created_at?: string
+          id?: string
+          message?: string | null
+          outcome?: string | null
+          profit?: number | null
+          trade_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_logs_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bot_logs_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bots: {
+        Row: {
+          created_at: string
+          id: string
+          is_demo: boolean
+          market: string
+          martingale: boolean
+          martingale_factor: number
+          max_trades: number
+          name: string
+          stake: number
+          status: string
+          stop_loss: number | null
+          strategy: string
+          take_profit: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_demo?: boolean
+          market?: string
+          martingale?: boolean
+          martingale_factor?: number
+          max_trades?: number
+          name?: string
+          stake?: number
+          status?: string
+          stop_loss?: number | null
+          strategy: string
+          take_profit?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_demo?: boolean
+          market?: string
+          martingale?: boolean
+          martingale_factor?: number
+          max_trades?: number
+          name?: string
+          stake?: number
+          status?: string
+          stop_loss?: number | null
+          strategy?: string
+          take_profit?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      deriv_accounts: {
+        Row: {
+          api_token: string
+          balance: number | null
+          created_at: string
+          currency: string | null
+          deriv_account_id: string
+          id: string
+          is_active: boolean
+          is_demo: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_token: string
+          balance?: number | null
+          created_at?: string
+          currency?: string | null
+          deriv_account_id: string
+          id?: string
+          is_active?: boolean
+          is_demo?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_token?: string
+          balance?: number | null
+          created_at?: string
+          currency?: string | null
+          deriv_account_id?: string
+          id?: string
+          is_active?: boolean
+          is_demo?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      trades: {
+        Row: {
+          bot_id: string | null
+          contract_id: string | null
+          created_at: string
+          id: string
+          is_demo: boolean
+          market: string
+          payout: number | null
+          profit: number | null
+          result: string | null
+          stake: number
+          trade_type: string
+          user_id: string
+        }
+        Insert: {
+          bot_id?: string | null
+          contract_id?: string | null
+          created_at?: string
+          id?: string
+          is_demo?: boolean
+          market: string
+          payout?: number | null
+          profit?: number | null
+          result?: string | null
+          stake: number
+          trade_type: string
+          user_id: string
+        }
+        Update: {
+          bot_id?: string | null
+          contract_id?: string | null
+          created_at?: string
+          id?: string
+          is_demo?: boolean
+          market?: string
+          payout?: number | null
+          profit?: number | null
+          result?: string | null
+          stake?: number
+          trade_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          created_at: string
+          daily_loss_limit: number
+          default_demo: boolean
+          max_consecutive_losses: number
+          max_stake: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          daily_loss_limit?: number
+          default_demo?: boolean
+          max_consecutive_losses?: number
+          max_stake?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          daily_loss_limit?: number
+          default_demo?: boolean
+          max_consecutive_losses?: number
+          max_stake?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
