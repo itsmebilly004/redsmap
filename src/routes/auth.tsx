@@ -1,12 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { z } from "zod";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
+import { buildOAuthUrl } from "@/lib/deriv";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 
 const search = z.object({
   mode: z.enum(["signin", "signup"]).catch("signin"),
@@ -21,9 +19,6 @@ function AuthPage() {
   const { mode } = Route.useSearch();
   const navigate = useNavigate();
   const { user, loading } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -32,45 +27,12 @@ function AuthPage() {
 
   const isSignup = mode === "signup";
 
-  async function handleEmail(e: React.FormEvent) {
-    e.preventDefault();
+  function handleDeriv() {
     setBusy(true);
-    try {
-      if (isSignup) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/dashboard`,
-            data: { display_name: name || email.split("@")[0] },
-          },
-        });
-        if (error) throw error;
-        toast.success("Check your email to confirm your account.");
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        navigate({ to: "/dashboard" });
-      }
-    } catch (e: any) {
-      toast.error(e.message ?? "Auth failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleGoogle() {
-    setBusy(true);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: `${window.location.origin}/dashboard` },
-      });
-      if (error) throw error;
-    } catch (e: any) {
-      toast.error(e.message ?? "Google sign-in failed");
-      setBusy(false);
-    }
+    // Send the trader to Deriv's official OAuth endpoint. Deriv handles the
+    // sign-up / sign-in flow on their domain and redirects back to
+    // /deriv-callback with account tokens.
+    window.location.href = buildOAuthUrl();
   }
 
   return (
@@ -85,45 +47,45 @@ function AuthPage() {
         </Link>
 
         <div className="glass-card rounded-2xl p-8">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs text-primary">
+            <ShieldCheck className="size-3.5" /> Official Deriv OAuth
+          </div>
           <h1 className="text-2xl font-semibold tracking-tight">
             {isSignup ? "Create your account" : "Welcome back"}
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            {isSignup ? "Then connect your Deriv account in one click." : "Sign in to your dashboard."}
+            {isSignup
+              ? "You'll be redirected to Deriv to register, then sent straight back to your dashboard."
+              : "Continue with the Deriv account you already use to trade — no passwords stored here."}
           </p>
 
-          <Button onClick={handleGoogle} variant="outline" className="mt-6 w-full glass-card" disabled={busy}>
-            <GoogleIcon /> Continue with Google
+          <Button
+            onClick={handleDeriv}
+            size="lg"
+            disabled={busy}
+            className="mt-6 h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
+          >
+            {busy ? "Redirecting…" : isSignup ? "Sign up with Deriv" : "Sign in with Deriv"}
+            <ArrowRight className="ml-1 size-4" />
           </Button>
 
-          <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" />
-            or
-            <div className="h-px flex-1 bg-border" />
-          </div>
-
-          <form onSubmit={handleEmail} className="space-y-4">
-            {isSignup && (
-              <div className="space-y-1.5">
-                <Label htmlFor="name">Display name</Label>
-                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Trader" />
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} />
-            </div>
-            <Button type="submit" className="w-full" disabled={busy}>
-              {isSignup ? "Sign up" : "Sign in"}
-            </Button>
-          </form>
+          <ul className="mt-6 space-y-2 text-sm text-muted-foreground">
+            <li className="flex gap-2">
+              <span className="mt-1 size-1 shrink-0 rounded-full bg-primary" />
+              You authenticate on <span className="text-foreground">deriv.com</span> directly.
+            </li>
+            <li className="flex gap-2">
+              <span className="mt-1 size-1 shrink-0 rounded-full bg-primary" />
+              ArkTrader receives a trading token only — never your password.
+            </li>
+            <li className="flex gap-2">
+              <span className="mt-1 size-1 shrink-0 rounded-full bg-primary" />
+              Demo and live accounts both supported. Demo is selected by default.
+            </li>
+          </ul>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
-            {isSignup ? "Already have an account?" : "New to ArkTrader?"}{" "}
+            {isSignup ? "Already have a Deriv account?" : "New to Deriv?"}{" "}
             <Link
               to="/auth"
               search={{ mode: isSignup ? "signin" : "signup" }}
@@ -135,17 +97,10 @@ function AuthPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          By continuing you agree to trade at your own risk. Deriv access uses official OAuth — we never store passwords.
+          By continuing you agree to trade at your own risk. ArkTrader Hub is an independent third-party
+          interface for the Deriv API.
         </p>
       </div>
     </div>
-  );
-}
-
-function GoogleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="mr-1 size-4">
-      <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.4-1.6 4-5.5 4-3.3 0-6-2.7-6-6.1s2.7-6.1 6-6.1c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.7 3.3 14.6 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12S6.7 21.6 12 21.6c6.9 0 9.4-4.8 9.4-7.3 0-.5 0-.9-.1-1.3H12z" />
-    </svg>
   );
 }

@@ -83,6 +83,8 @@ export async function subscribeTicks(symbol: string, onTick: (price: number, tim
 }
 
 export function buildOAuthUrl() {
+  // Deriv OAuth redirects back to the app's configured redirect URL with
+  // ?acct1=...&token1=...&cur1=... appended.
   return `https://oauth.deriv.com/oauth2/authorize?app_id=${DERIV_APP_ID}&l=EN&brand=deriv`;
 }
 
@@ -93,5 +95,91 @@ export const SYNTHETIC_MARKETS = [
   { symbol: "R_75", name: "Volatility 75 Index" },
   { symbol: "R_100", name: "Volatility 100 Index" },
   { symbol: "1HZ10V", name: "Volatility 10 (1s) Index" },
+  { symbol: "1HZ25V", name: "Volatility 25 (1s) Index" },
+  { symbol: "1HZ50V", name: "Volatility 50 (1s) Index" },
+  { symbol: "1HZ75V", name: "Volatility 75 (1s) Index" },
   { symbol: "1HZ100V", name: "Volatility 100 (1s) Index" },
+  { symbol: "BOOM500", name: "Boom 500 Index" },
+  { symbol: "BOOM1000", name: "Boom 1000 Index" },
+  { symbol: "CRASH500", name: "Crash 500 Index" },
+  { symbol: "CRASH1000", name: "Crash 1000 Index" },
+  { symbol: "stpRNG", name: "Step Index" },
+  { symbol: "RDBEAR", name: "Bear Market Index" },
+  { symbol: "RDBULL", name: "Bull Market Index" },
 ];
+
+// Trade categories grouped by Deriv contract families.
+export type TradeCategory =
+  | "rise_fall"
+  | "higher_lower"
+  | "touch_no_touch"
+  | "even_odd"
+  | "over_under"
+  | "matches_differs"
+  | "accumulator"
+  | "multiplier";
+
+export const TRADE_CATEGORIES: { value: TradeCategory; label: string; description: string }[] = [
+  { value: "rise_fall", label: "Rise / Fall", description: "Predict if the market goes up or down." },
+  { value: "higher_lower", label: "Higher / Lower", description: "Predict vs. a barrier price." },
+  { value: "touch_no_touch", label: "Touch / No Touch", description: "Will the price touch a barrier?" },
+  { value: "even_odd", label: "Even / Odd", description: "Last digit of the exit spot is even or odd." },
+  { value: "over_under", label: "Over / Under", description: "Last digit over/under a chosen number." },
+  { value: "matches_differs", label: "Matches / Differs", description: "Last digit matches your prediction." },
+  { value: "accumulator", label: "Accumulators", description: "Compound profit while price stays in range." },
+  { value: "multiplier", label: "Multipliers", description: "Amplify profit and loss with a multiplier." },
+];
+
+// Map a category + side into a Deriv contract_type code.
+export function contractTypeFor(category: TradeCategory, side: string): string {
+  const map: Record<string, string> = {
+    "rise_fall:up": "CALL",
+    "rise_fall:down": "PUT",
+    "higher_lower:higher": "CALL",
+    "higher_lower:lower": "PUT",
+    "touch_no_touch:touch": "ONETOUCH",
+    "touch_no_touch:no_touch": "NOTOUCH",
+    "even_odd:even": "DIGITEVEN",
+    "even_odd:odd": "DIGITODD",
+    "over_under:over": "DIGITOVER",
+    "over_under:under": "DIGITUNDER",
+    "matches_differs:matches": "DIGITMATCH",
+    "matches_differs:differs": "DIGITDIFF",
+    "accumulator:buy": "ACCU",
+    "multiplier:up": "MULTUP",
+    "multiplier:down": "MULTDOWN",
+  };
+  return map[`${category}:${side}`] ?? "CALL";
+}
+
+export const SIDES_BY_CATEGORY: Record<TradeCategory, { value: string; label: string }[]> = {
+  rise_fall: [
+    { value: "up", label: "Rise" },
+    { value: "down", label: "Fall" },
+  ],
+  higher_lower: [
+    { value: "higher", label: "Higher" },
+    { value: "lower", label: "Lower" },
+  ],
+  touch_no_touch: [
+    { value: "touch", label: "Touch" },
+    { value: "no_touch", label: "No Touch" },
+  ],
+  even_odd: [
+    { value: "even", label: "Even" },
+    { value: "odd", label: "Odd" },
+  ],
+  over_under: [
+    { value: "over", label: "Over" },
+    { value: "under", label: "Under" },
+  ],
+  matches_differs: [
+    { value: "matches", label: "Matches" },
+    { value: "differs", label: "Differs" },
+  ],
+  accumulator: [{ value: "buy", label: "Buy Accumulator" }],
+  multiplier: [
+    { value: "up", label: "Multiplier Up" },
+    { value: "down", label: "Multiplier Down" },
+  ],
+};

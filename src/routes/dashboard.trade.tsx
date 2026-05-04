@@ -3,7 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { send, subscribeTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
+import {
+  send,
+  subscribeTicks,
+  SYNTHETIC_MARKETS,
+  TRADE_CATEGORIES,
+  SIDES_BY_CATEGORY,
+  contractTypeFor,
+  type TradeCategory,
+} from "@/lib/deriv";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,20 +28,28 @@ export const Route = createFileRoute("/dashboard/trade")({
   component: TradePage,
 });
 
-type TradeType = "CALL" | "PUT" | "DIGITEVEN" | "DIGITODD" | "DIGITOVER" | "DIGITUNDER";
-
 function TradePage() {
   const { user } = useAuth();
   const [market, setMarket] = useState("R_100");
-  const [tradeType, setTradeType] = useState<TradeType>("CALL");
+  const [category, setCategory] = useState<TradeCategory>("rise_fall");
+  const [side, setSide] = useState("up");
   const [stake, setStake] = useState(1);
   const [duration, setDuration] = useState(5);
-  const [barrier, setBarrier] = useState(5);
+  const [durationUnit, setDurationUnit] = useState<"t" | "s" | "m">("t");
+  const [barrierDigit, setBarrierDigit] = useState(5);
+  const [barrierOffset, setBarrierOffset] = useState("+0.10");
+  const [growthRate, setGrowthRate] = useState(0.03); // accumulators
+  const [multiplier, setMultiplier] = useState(100); // multipliers
   const [series, setSeries] = useState<{ t: number; price: number }[]>([]);
   const [token, setToken] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(true);
   const [busy, setBusy] = useState(false);
   const lastPrice = series.at(-1)?.price;
+
+  // Reset side when category changes
+  useEffect(() => {
+    setSide(SIDES_BY_CATEGORY[category][0].value);
+  }, [category]);
 
   useEffect(() => {
     if (!user) return;
@@ -65,8 +81,12 @@ function TradePage() {
     return () => off?.();
   }, [market]);
 
-  const isDigit = tradeType.startsWith("DIGIT");
-  const needsBarrier = tradeType === "DIGITOVER" || tradeType === "DIGITUNDER";
+  const isDigit = ["even_odd", "over_under", "matches_differs"].includes(category);
+  const needsDigit = category === "over_under" || category === "matches_differs";
+  const needsBarrierOffset = category === "higher_lower" || category === "touch_no_touch";
+  const isAccumulator = category === "accumulator";
+  const isMultiplier = category === "multiplier";
+  const showDuration = !isAccumulator && !isMultiplier;
 
   async function handleBuy() {
     if (!user) return;
@@ -77,31 +97,46 @@ function TradePage() {
     setBusy(true);
     try {
       await send({ authorize: token });
+      const contract_type = contractTypeFor(category, side);
+
       const proposal: any = {
         proposal: 1,
         amount: stake,
         basis: "stake",
-        contract_type: tradeType,
+        contract_type,
         currency: "USD",
-        duration,
-        duration_unit: isDigit ? "t" : "t",
         symbol: market,
       };
-      if (needsBarrier) proposal.barrier = String(barrier);
+
+      if (showDuration) {
+        proposal.duration = duration;
+        proposal.duration_unit = isDigit ? "t" : durationUnit;
+      }
+      if (needsDigit) proposal.barrier = String(barrierDigit);
+      if (needsBarrierOffset) proposal.barrier = barrierOffset;
+      if (isAccumulator) {
+        proposal.growth_rate = growthRate;
+        proposal.basis = "stake";
+      }
+      if (isMultiplier) {
+        proposal.multiplier = multiplier;
+        proposal.basis = "stake";
+      }
+
       const propResp = await send(proposal);
       const proposalId = propResp.proposal?.id;
+      if (!proposalId) throw new Error("No proposal returned");
       const buyResp = await send({ buy: proposalId, price: stake });
       const contract = buyResp.buy;
       toast.success(`Bought contract ${contract.contract_id}`);
 
-      // Insert open trade record
       const { data: trade } = await supabase
         .from("trades")
         .insert({
           user_id: user.id,
           contract_id: String(contract.contract_id),
           market,
-          trade_type: tradeType,
+          trade_type: contract_type,
           stake,
           payout: contract.payout,
           result: "open",
@@ -110,7 +145,6 @@ function TradePage() {
         .select()
         .single();
 
-      // Poll for outcome
       const poll = setInterval(async () => {
         try {
           const res = await send({ proposal_open_contract: 1, contract_id: contract.contract_id });
@@ -120,20 +154,17 @@ function TradePage() {
             const profit = Number(c.profit ?? 0);
             await supabase
               .from("trades")
-              .update({
-                profit,
-                result: profit >= 0 ? "win" : "loss",
-              })
+              .update({ profit, result: profit >= 0 ? "win" : "loss" })
               .eq("id", trade!.id);
             toast[profit >= 0 ? "success" : "error"](
               `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`,
             );
           }
-        } catch (e) {
+        } catch {
           /* ignore */
         }
       }, 1500);
-      setTimeout(() => clearInterval(poll), 60000);
+      setTimeout(() => clearInterval(poll), 120000);
     } catch (e: any) {
       toast.error(e.message ?? "Trade failed");
     } finally {
@@ -142,25 +173,24 @@ function TradePage() {
   }
 
   const chartData = useMemo(() => series.map((s) => ({ x: s.t, y: s.price })), [series]);
+  const sides = SIDES_BY_CATEGORY[category];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+    <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
       <div className="glass-card rounded-xl p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <Select value={market} onValueChange={setMarket}>
-              <SelectTrigger className="w-56 glass-card">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SYNTHETIC_MARKETS.map((m) => (
-                  <SelectItem key={m.symbol} value={m.symbol}>
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <Select value={market} onValueChange={setMarket}>
+            <SelectTrigger className="w-64 glass-card">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SYNTHETIC_MARKETS.map((m) => (
+                <SelectItem key={m.symbol} value={m.symbol}>
+                  {m.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div className="text-right">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Last price</div>
             <div className="font-mono text-2xl text-primary">{lastPrice?.toFixed(4) ?? "—"}</div>
@@ -188,17 +218,31 @@ function TradePage() {
 
         <div className="space-y-1.5">
           <Label>Trade type</Label>
-          <Select value={tradeType} onValueChange={(v) => setTradeType(v as TradeType)}>
+          <Select value={category} onValueChange={(v) => setCategory(v as TradeCategory)}>
             <SelectTrigger className="glass-card"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="CALL">Rise</SelectItem>
-              <SelectItem value="PUT">Fall</SelectItem>
-              <SelectItem value="DIGITEVEN">Digit Even</SelectItem>
-              <SelectItem value="DIGITODD">Digit Odd</SelectItem>
-              <SelectItem value="DIGITOVER">Digit Over</SelectItem>
-              <SelectItem value="DIGITUNDER">Digit Under</SelectItem>
+              {TRADE_CATEGORIES.map((c) => (
+                <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          <p className="text-[11px] text-muted-foreground">
+            {TRADE_CATEGORIES.find((c) => c.value === category)?.description}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {sides.map((s) => (
+            <Button
+              key={s.value}
+              type="button"
+              variant={side === s.value ? "default" : "outline"}
+              className={side === s.value ? "" : "glass-card"}
+              onClick={() => setSide(s.value)}
+            >
+              {s.label}
+            </Button>
+          ))}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -206,16 +250,72 @@ function TradePage() {
             <Label>Stake (USD)</Label>
             <Input type="number" min={0.35} step={0.5} value={stake} onChange={(e) => setStake(Number(e.target.value))} />
           </div>
-          <div className="space-y-1.5">
-            <Label>Duration (ticks)</Label>
-            <Input type="number" min={1} max={10} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
-          </div>
+          {showDuration && (
+            <div className="space-y-1.5">
+              <Label>Duration</Label>
+              <div className="flex gap-1.5">
+                <Input type="number" min={1} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
+                <Select
+                  value={isDigit ? "t" : durationUnit}
+                  onValueChange={(v) => setDurationUnit(v as any)}
+                  disabled={isDigit}
+                >
+                  <SelectTrigger className="w-20 glass-card"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="t">ticks</SelectItem>
+                    <SelectItem value="s">sec</SelectItem>
+                    <SelectItem value="m">min</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
         </div>
 
-        {needsBarrier && (
+        {needsDigit && (
           <div className="space-y-1.5">
-            <Label>Barrier digit (0-9)</Label>
-            <Input type="number" min={0} max={9} value={barrier} onChange={(e) => setBarrier(Number(e.target.value))} />
+            <Label>Digit (0–9)</Label>
+            <Input type="number" min={0} max={9} value={barrierDigit} onChange={(e) => setBarrierDigit(Number(e.target.value))} />
+          </div>
+        )}
+
+        {needsBarrierOffset && (
+          <div className="space-y-1.5">
+            <Label>Barrier (offset from spot, e.g. +0.10)</Label>
+            <Input value={barrierOffset} onChange={(e) => setBarrierOffset(e.target.value)} />
+          </div>
+        )}
+
+        {isAccumulator && (
+          <div className="space-y-1.5">
+            <Label>Growth rate</Label>
+            <Select value={String(growthRate)} onValueChange={(v) => setGrowthRate(Number(v))}>
+              <SelectTrigger className="glass-card"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0.01">1%</SelectItem>
+                <SelectItem value="0.02">2%</SelectItem>
+                <SelectItem value="0.03">3%</SelectItem>
+                <SelectItem value="0.04">4%</SelectItem>
+                <SelectItem value="0.05">5%</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Profit compounds each tick the price stays inside the range.
+            </p>
+          </div>
+        )}
+
+        {isMultiplier && (
+          <div className="space-y-1.5">
+            <Label>Multiplier</Label>
+            <Select value={String(multiplier)} onValueChange={(v) => setMultiplier(Number(v))}>
+              <SelectTrigger className="glass-card"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {[10, 20, 30, 50, 100, 200, 300, 500].map((m) => (
+                  <SelectItem key={m} value={String(m)}>×{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -224,7 +324,7 @@ function TradePage() {
         </Button>
 
         <p className="text-[11px] text-muted-foreground">
-          Trades execute against the Deriv account selected in your dashboard. You can lose money.
+          Trades execute against the Deriv account selected in your dashboard. You can lose money rapidly.
         </p>
       </div>
     </div>
