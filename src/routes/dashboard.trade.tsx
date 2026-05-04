@@ -1,17 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip } from "recharts";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
   send,
-  subscribeTicks,
-  SYNTHETIC_MARKETS,
   TRADE_CATEGORIES,
   SIDES_BY_CATEGORY,
   contractTypeFor,
   type TradeCategory,
 } from "@/lib/deriv";
+import { DerivChart } from "@/components/deriv-chart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,11 +38,11 @@ function TradePage() {
   const [barrierOffset, setBarrierOffset] = useState("+0.10");
   const [growthRate, setGrowthRate] = useState(0.03); // accumulators
   const [multiplier, setMultiplier] = useState(100); // multipliers
-  const [series, setSeries] = useState<{ t: number; price: number }[]>([]);
+  const [lastPrice, setLastPrice] = useState<number | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(true);
   const [busy, setBusy] = useState(false);
-  const lastPrice = series.at(-1)?.price;
+  const handlePrice = useCallback((p: number) => setLastPrice(p), []);
 
   // Reset side when category changes
   useEffect(() => {
