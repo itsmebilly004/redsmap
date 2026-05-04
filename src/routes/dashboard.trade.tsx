@@ -67,17 +67,8 @@ function TradePage() {
       });
   }, [user]);
 
-  useEffect(() => {
-    setSeries([]);
-    let off: (() => void) | undefined;
-    subscribeTicks(market, (price, t) => {
-      setSeries((s) => {
-        const next = [...s, { t, price }];
-        return next.length > 120 ? next.slice(-120) : next;
-      });
-    }).then((unsub) => (off = unsub));
-    return () => off?.();
-  }, [market]);
+  // chart subscription handled inside <DerivChart />
+
 
   const isDigit = ["even_odd", "over_under", "matches_differs"].includes(category);
   const needsDigit = category === "over_under" || category === "matches_differs";
@@ -170,45 +161,18 @@ function TradePage() {
     }
   }
 
-  const chartData = useMemo(() => series.map((s) => ({ x: s.t, y: s.price })), [series]);
   const sides = SIDES_BY_CATEGORY[category];
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
       <div className="glass-card rounded-xl p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <Select value={market} onValueChange={setMarket}>
-            <SelectTrigger className="w-64 glass-card">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SYNTHETIC_MARKETS.map((m) => (
-                <SelectItem key={m.symbol} value={m.symbol}>
-                  {m.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="mb-3 flex items-center justify-end">
           <div className="text-right">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Last price</div>
             <div className="font-mono text-2xl text-primary">{lastPrice?.toFixed(4) ?? "—"}</div>
           </div>
         </div>
-
-        <div className="h-80 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
-              <XAxis dataKey="x" hide />
-              <YAxis domain={["auto", "auto"]} tick={{ fill: "oklch(0.65 0.02 240)", fontSize: 10 }} width={60} />
-              <Tooltip
-                contentStyle={{ background: "oklch(0.18 0.02 260)", border: "1px solid oklch(1 0 0 / 0.1)", borderRadius: 8 }}
-                labelFormatter={() => ""}
-                formatter={(v: any) => [Number(v).toFixed(4), "Price"]}
-              />
-              <Line type="monotone" dataKey="y" stroke="oklch(0.78 0.16 230)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        <DerivChart symbol={market} onSymbolChange={setMarket} onPrice={handlePrice} height={380} />
       </div>
 
       <div className="glass-card space-y-4 rounded-xl p-5">
