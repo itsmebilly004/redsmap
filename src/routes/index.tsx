@@ -1,161 +1,308 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { SiteHeader } from "@/components/site-header";
-import { SiteFooter } from "@/components/site-footer";
-import { Bot, LineChart, ShieldCheck, ArrowRight, Activity } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  LayoutGrid,
+  Bot,
+  LineChart as LineChartIcon,
+  BarChart3,
+  Cpu,
+  Microscope,
+  Target,
+  Users,
+  CandlestickChart,
+  ChevronDown,
+  TrendingUp,
+  PencilLine,
+  Download,
+  Crosshair,
+  Minus,
+  Info,
+  ArrowUp,
+  Shield,
+  Sun,
+  HelpCircle,
+  Settings,
+  Globe,
+  Maximize2,
+  Sparkles,
+} from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: Index,
 });
 
+const TABS = [
+  { icon: LayoutGrid, label: "Dashboard" },
+  { icon: Bot, label: "Bot Builder" },
+  { icon: LineChartIcon, label: "MANUAL TRADERS", active: true },
+  { icon: BarChart3, label: "Charts" },
+  { icon: Cpu, label: "Trading Bots" },
+  { icon: Microscope, label: "Analysis Tool" },
+  { icon: Target, label: "Strategies" },
+  { icon: Users, label: "Copy Trading" },
+  { icon: CandlestickChart, label: "TradingView" },
+];
+
+// Mock chart points for SVG line
+const POINTS = [
+  20, 28, 22, 34, 30, 42, 38, 48, 44, 56, 50, 62, 58, 52, 60, 54, 66, 60, 72, 64,
+  70, 58, 64, 52, 58, 50, 56, 46, 52, 48, 56, 50, 58, 54, 62, 56, 64, 58, 66, 60,
+];
+
 function Index() {
+  const { user } = useAuth();
+
+  // Build SVG path
+  const w = 1100;
+  const h = 320;
+  const max = Math.max(...POINTS);
+  const min = Math.min(...POINTS);
+  const stepX = w / (POINTS.length - 1);
+  const norm = (v: number) => h - ((v - min) / (max - min)) * (h - 40) - 20;
+  const linePath = POINTS.map((p, i) => `${i === 0 ? "M" : "L"} ${i * stepX} ${norm(p)}`).join(" ");
+  const areaPath = `${linePath} L ${w} ${h} L 0 ${h} Z`;
+  const lastY = norm(POINTS[POINTS.length - 1]);
+
   return (
-    <div className="min-h-dvh">
-      <SiteHeader />
-
-      {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -top-40 -left-20 size-[600px] rounded-full bg-primary/10 blur-[140px]" />
-          <div className="absolute -bottom-40 -right-20 size-[600px] rounded-full bg-indigo-500/10 blur-[140px]" />
+    <div className="page min-h-dvh bg-[oklch(0.985_0.003_240)] text-[oklch(0.2_0.02_260)]">
+      {/* Top bar */}
+      <header className="flex h-14 items-center justify-between border-b border-[oklch(0.92_0.005_240)] bg-white px-4 md:px-6">
+        <Link to="/" className="flex items-center gap-2">
+          <div className="size-6 rotate-45 rounded-sm bg-[oklch(0.72_0.17_55)]" />
+          <span className="text-lg font-bold tracking-tight text-[oklch(0.72_0.17_55)]">
+            ArkTrader Hub
+          </span>
+        </Link>
+        <div className="flex items-center gap-2">
+          {user ? (
+            <Button asChild className="h-9 rounded-md bg-[oklch(0.55_0.22_265)] px-5 text-white hover:bg-[oklch(0.5_0.22_265)]">
+              <Link to="/dashboard">Open dashboard</Link>
+            </Button>
+          ) : (
+            <>
+              <Button
+                asChild
+                className="h-9 rounded-md bg-[oklch(0.55_0.22_265)] px-5 font-medium text-white shadow-sm hover:bg-[oklch(0.5_0.22_265)]"
+              >
+                <Link to="/auth" search={{ mode: "signin" }}>Log in</Link>
+              </Button>
+              <Button
+                asChild
+                className="h-9 rounded-md bg-[oklch(0.55_0.22_265)] px-5 font-medium text-white shadow-sm hover:bg-[oklch(0.5_0.22_265)]"
+              >
+                <Link to="/auth" search={{ mode: "signup" }}>Sign up</Link>
+              </Button>
+            </>
+          )}
         </div>
+      </header>
 
-        <div className="relative mx-auto grid max-w-7xl grid-cols-1 items-center gap-16 px-6 py-20 lg:grid-cols-12 lg:py-32">
-          <div className="lg:col-span-7">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-              <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-              Connected to Deriv L1 Liquidity
-            </div>
-            <h1 className="text-balance text-5xl font-semibold leading-[1.05] tracking-tight md:text-7xl">
-              Trade Smarter with <span className="text-primary">Automation</span>
-            </h1>
-            <p className="mt-8 max-w-xl text-pretty text-lg text-muted-foreground">
-              Orchestrate complex strategies on synthetic indices. A unified terminal for your Deriv
-              account — designed for absolute precision and built-in risk control.
-            </p>
-            <div className="mt-10 flex flex-wrap gap-4">
-              <Button asChild size="lg" className="h-12 px-7 text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]">
-                <Link to="/auth" search={{ mode: "signup" }}>
-                  Sign up <ArrowRight className="ml-1 size-4" />
-                </Link>
-              </Button>
-              <Button asChild size="lg" variant="outline" className="h-12 px-7 text-base glass-card">
-                <Link to="/auth" search={{ mode: "signin" }}>Sign in</Link>
-              </Button>
-            </div>
-            <p className="mt-4 text-xs text-muted-foreground">
-              Sign in or sign up redirects you to Deriv's official OAuth. We never see your password.
-            </p>
-          </div>
+      {/* Tabs nav */}
+      <nav className="border-b border-[oklch(0.92_0.005_240)] bg-white">
+        <div className="flex items-center overflow-x-auto px-2">
+          {TABS.map((t) => (
+            <button
+              key={t.label}
+              className={[
+                "flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
+                t.active
+                  ? "bg-[oklch(0.7_0.17_150)] text-white"
+                  : "text-[oklch(0.3_0.02_260)] hover:bg-[oklch(0.96_0.005_240)]",
+              ].join(" ")}
+            >
+              <t.icon className="size-4" />
+              <span className={t.active ? "uppercase tracking-wide" : ""}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
 
-          <div className="lg:col-span-5">
-            <div className="glass-card glow-primary rounded-2xl p-6">
-              <div className="mb-6 flex items-center justify-between border-b border-glass-border pb-4">
-                <div>
-                  <div className="text-sm font-medium">Volatility 100 Index</div>
-                  <div className="font-mono text-[11px] text-muted-foreground">Real-time stream</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-mono text-lg text-success">1,248.62</div>
-                  <div className="font-mono text-xs text-success/80">+2.41%</div>
+      {/* Chart workspace */}
+      <main className="relative">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px]">
+          <section className="relative border-r border-[oklch(0.92_0.005_240)] bg-white">
+            {/* Symbol pill */}
+            <div className="absolute left-6 top-6 z-10 flex items-center gap-3 rounded-md border border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 shadow-sm">
+              <div className="flex size-9 items-center justify-center rounded bg-gradient-to-br from-[oklch(0.45_0.18_265)] to-[oklch(0.3_0.15_265)] font-mono text-[10px] font-bold text-white">
+                100
+              </div>
+              <div>
+                <div className="text-sm font-semibold leading-tight">Volatility 100 (1s) Index</div>
+                <div className="font-mono text-[11px] text-[oklch(0.55_0.02_260)]">
+                  1353.44 · -0.01 (0.00%) <span className="text-[oklch(0.6_0.18_150)]">▲</span>
                 </div>
               </div>
-              <div className="flex h-32 items-end gap-1.5">
-                {[60, 40, 80, 50, 90, 30, 70, 55, 75, 45, 85, 65].map((h, i) => (
-                  <div
+              <ChevronDown className="size-4 text-[oklch(0.55_0.02_260)]" />
+            </div>
+
+            {/* Left chart toolbar */}
+            <div className="absolute left-3 top-44 z-10 flex flex-col gap-1 rounded-md border border-[oklch(0.92_0.005_240)] bg-white p-1 shadow-sm">
+              {[TrendingUp, LineChartIcon, BarChart3, PencilLine, Download].map((Icon, i) => (
+                <button
+                  key={i}
+                  className="flex size-9 items-center justify-center rounded text-[oklch(0.4_0.02_260)] hover:bg-[oklch(0.96_0.005_240)]"
+                >
+                  <Icon className="size-4" />
+                </button>
+              ))}
+              <div className="my-1 h-px bg-[oklch(0.92_0.005_240)]" />
+              <button className="flex size-9 items-center justify-center rounded text-[oklch(0.4_0.02_260)] hover:bg-[oklch(0.96_0.005_240)]">
+                <Crosshair className="size-4" />
+              </button>
+              <button className="flex size-9 items-center justify-center rounded text-[oklch(0.4_0.02_260)] hover:bg-[oklch(0.96_0.005_240)]">
+                <Minus className="size-4" />
+              </button>
+            </div>
+
+            {/* Chart */}
+            <div className="px-2 pt-4">
+              <svg viewBox={`0 0 ${w} ${h}`} className="h-[420px] w-full" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="area" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="oklch(0.5 0.02 260)" stopOpacity="0.18" />
+                    <stop offset="100%" stopColor="oklch(0.5 0.02 260)" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {/* gridlines */}
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                  <line
                     key={i}
-                    className={`flex-1 rounded-t-sm ${i === 4 ? "bg-primary/30 border-t-2 border-primary" : "bg-foreground/5"}`}
-                    style={{ height: `${h}%` }}
+                    x1="0"
+                    x2={w}
+                    y1={(h / 6) * i}
+                    y2={(h / 6) * i}
+                    stroke="oklch(0.94 0.005 240)"
+                    strokeWidth="1"
                   />
                 ))}
-              </div>
-              <div className="mt-6 grid grid-cols-3 gap-3">
-                {[
-                  { label: "Risk/Reward", value: "1:2.4" },
-                  { label: "Exposure", value: "$4,200", accent: true },
-                  { label: "Latency", value: "14ms" },
-                ].map((s) => (
-                  <div key={s.label} className="rounded-lg border border-glass-border bg-foreground/[0.02] p-3">
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</div>
-                    <div className={`mt-1 font-mono text-sm ${s.accent ? "text-primary" : ""}`}>{s.value}</div>
-                  </div>
-                ))}
-              </div>
+                <path d={areaPath} fill="url(#area)" />
+                <path d={linePath} fill="none" stroke="oklch(0.3 0.02 260)" strokeWidth="1.5" />
+
+                {/* Forecast band */}
+                <rect
+                  x={w * 0.72}
+                  y={lastY - 32}
+                  width={w * 0.18}
+                  height={64}
+                  fill="oklch(0.78 0.16 230 / 0.12)"
+                  stroke="oklch(0.78 0.16 230)"
+                  strokeWidth="1"
+                  strokeDasharray="3 3"
+                />
+                <line
+                  x1={w * 0.72}
+                  x2={w * 0.9}
+                  y1={lastY}
+                  y2={lastY}
+                  stroke="oklch(0.4 0.02 260)"
+                  strokeDasharray="2 4"
+                />
+                {/* current price tag */}
+                <g>
+                  <rect x={w * 0.72 - 4} y={lastY - 10} width="70" height="20" fill="oklch(0.18 0.02 260)" rx="2" />
+                  <text
+                    x={w * 0.72 + 31}
+                    y={lastY + 4}
+                    textAnchor="middle"
+                    fill="white"
+                    fontSize="11"
+                    fontFamily="JetBrains Mono, monospace"
+                  >
+                    1353.44
+                  </text>
+                </g>
+                {/* dot at current */}
+                <circle
+                  cx={w * 0.72}
+                  cy={lastY}
+                  r="4"
+                  fill="oklch(0.2 0.02 260)"
+                />
+              </svg>
             </div>
+
+            {/* Stats strip */}
+            <div className="flex items-center gap-4 border-t border-[oklch(0.92_0.005_240)] px-6 py-3 font-mono text-xs text-[oklch(0.4_0.02_260)]">
+              <Info className="size-4" />
+              <span className="font-semibold text-[oklch(0.2_0.02_260)]">Stats</span>
+              <span>63</span>
+              <span>1</span>
+              <span>4</span>
+              <span>37</span>
+              <span>24</span>
+              <span>32</span>
+              <span>1</span>
+              <span>19</span>
+              <span>6</span>
+              <span>18</span>
+              <ArrowUp className="size-3" />
+            </div>
+
+            {/* Time axis */}
+            <div className="flex justify-between border-t border-[oklch(0.92_0.005_240)] px-6 py-2 font-mono text-[11px] text-[oklch(0.55_0.02_260)]">
+              {["13:59:45","13:59:50","13:59:55","14:00:00","14:00:05","14:00:10","14:00:15","14:00:20","14:00:25","14:00:30"].map(t => (
+                <span key={t}>{t}</span>
+              ))}
+            </div>
+          </section>
+
+          {/* Right rail (placeholder cards) */}
+          <aside className="hidden flex-col gap-3 bg-[oklch(0.97_0.003_240)] p-4 lg:flex">
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="h-32 rounded-md border border-[oklch(0.92_0.005_240)] bg-white shadow-sm"
+              />
+            ))}
+          </aside>
+        </div>
+
+        {/* Bottom bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[oklch(0.92_0.005_240)] bg-white px-4 py-3">
+          <Link
+            to="/auth"
+            search={{ mode: "signup" }}
+            className="rounded-md bg-[oklch(0.92_0.13_95)] px-4 py-1.5 text-sm font-semibold text-[oklch(0.3_0.1_80)] shadow-sm hover:brightness-105"
+          >
+            Risk Disclaimer
+          </Link>
+          <div className="flex items-center gap-3 font-mono text-xs text-[oklch(0.45_0.02_260)]">
+            <span>2026-05-04 14:14:09 GMT</span>
+            <Shield className="size-4" />
+            <Sun className="size-4" />
+            <HelpCircle className="size-4" />
+            <Settings className="size-4" />
+            <Globe className="size-4" />
+            <span className="font-sans font-medium">EN</span>
           </div>
         </div>
-      </section>
 
-      {/* Features */}
-      <section id="features" className="border-y border-glass-border bg-foreground/[0.01]">
-        <div className="mx-auto grid max-w-7xl divide-glass-border md:grid-cols-3 md:divide-x">
-          {[
-            {
-              icon: Bot,
-              tag: "01 — Execution",
-              title: "Auto Trading",
-              text: "Deploy strategies that react to market shifts faster than manual execution. Low-latency engine built for the Deriv API.",
-            },
-            {
-              icon: LineChart,
-              tag: "02 — Intelligence",
-              title: "Real-time Analytics",
-              text: "Live equity curves, win rate, and P&L breakdowns. Visualize every decision your bot makes with raw precision.",
-            },
-            {
-              icon: ShieldCheck,
-              tag: "03 — Safety",
-              title: "Risk Control",
-              text: "Multi-layer safeguards — daily loss limits, max stake, consecutive-loss cutoffs, and an emergency stop.",
-            },
-          ].map((f) => (
-            <div key={f.title} className="p-10">
-              <f.icon className="mb-6 size-6 text-primary" />
-              <div className="font-mono text-[11px] uppercase tracking-widest text-primary">{f.tag}</div>
-              <h3 className="mt-3 text-xl font-medium">{f.title}</h3>
-              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{f.text}</p>
-            </div>
-          ))}
+        {/* Second status bar */}
+        <div className="flex items-center justify-end gap-3 border-t border-[oklch(0.92_0.005_240)] bg-white px-4 py-2 font-mono text-xs text-[oklch(0.45_0.02_260)]">
+          <span className="size-2 rounded-full bg-[oklch(0.7_0.17_150)]" />
+          <span>2026-05-04 12:36:01 GMT</span>
+          <Bot className="size-4" />
+          <Shield className="size-4" />
+          <Crosshair className="size-4" />
+          <Sun className="size-4" />
+          <HelpCircle className="size-4" />
+          <Settings className="size-4" />
+          <Globe className="size-4" />
+          <span className="font-sans font-medium">EN</span>
+          <Maximize2 className="size-4" />
         </div>
-      </section>
+      </main>
 
-      {/* How it works */}
-      <section id="how" className="mx-auto max-w-7xl px-6 py-24">
-        <div className="mb-12 max-w-2xl">
-          <div className="font-mono text-xs uppercase tracking-widest text-primary">How it works</div>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">From sign-up to first trade in three steps.</h2>
-        </div>
-        <div className="grid gap-6 md:grid-cols-3">
-          {[
-            { step: "01", title: "Click Sign up", text: "We hand you off to Deriv to register or log in on their official site." },
-            { step: "02", title: "Authorize ArkTrader", text: "Deriv sends back a trading token. We never see your Deriv password." },
-            { step: "03", title: "Trade or automate", text: "Place Rise/Fall, digits, accumulators, multipliers — or run a bot. Demo by default." },
-          ].map((s) => (
-            <div key={s.step} className="glass-card rounded-xl p-6">
-              <div className="font-mono text-2xl text-primary">{s.step}</div>
-              <h3 className="mt-3 text-lg font-medium">{s.title}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">{s.text}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Disclaimer */}
-      <section id="disclaimer" className="mx-auto max-w-7xl px-6 pb-24">
-        <div className="glass-card flex flex-col items-start gap-4 rounded-xl border-warning/30 p-6 md:flex-row md:items-center">
-          <Activity className="size-6 text-warning" />
-          <div className="flex-1">
-            <div className="font-medium">Risk disclaimer</div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Trading involves substantial risk. You can lose money rapidly with leveraged products and
-              automated strategies. ArkTrader Hub does not guarantee profit. Always start in demo mode
-              and only trade with capital you can afford to lose.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <SiteFooter />
+      {/* Floating AI bubble */}
+      <button
+        aria-label="AI assistant"
+        className="fixed bottom-6 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-[oklch(0.55_0.22_300)] to-[oklch(0.4_0.2_280)] text-white shadow-[0_10px_30px_-5px_oklch(0.4_0.2_280_/_0.6)] transition-transform hover:scale-105"
+      >
+        <Sparkles className="size-5" />
+        <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-[oklch(0.7_0.17_150)]" />
+        <span className="absolute -bottom-1 text-[10px] font-bold">AI</span>
+      </button>
     </div>
   );
 }
