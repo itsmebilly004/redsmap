@@ -2,6 +2,7 @@ import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/r
 import { Toaster } from "@/components/ui/sonner";
 
 import appCss from "../styles.css?url";
+import faviconUrl from "../assets/favicon.png?url";
 
 function NotFoundComponent() {
   return (
