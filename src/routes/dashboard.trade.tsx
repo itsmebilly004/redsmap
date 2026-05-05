@@ -31,19 +31,21 @@ export const Route = createFileRoute("/dashboard/trade")({
 function TradePage() {
   const { user } = useAuth();
   const [market, setMarket] = useState("R_100");
-  const [category, setCategory] = useState<TradeCategory>("rise_fall");
-  const [side, setSide] = useState("up");
-  const [stake, setStake] = useState(1);
-  const [duration, setDuration] = useState(5);
+  const [category, setCategory] = useState<TradeCategory>("over_under");
+  const [side, setSide] = useState("over");
+  const [stake, setStake] = useState(0.6);
+  const [payoutMode, setPayoutMode] = useState<"stake" | "payout">("stake");
+  const [duration, setDuration] = useState(1);
   const [durationUnit, setDurationUnit] = useState<"t" | "s" | "m">("t");
-  const [barrierDigit, setBarrierDigit] = useState(5);
+  const [barrierDigit, setBarrierDigit] = useState(8);
   const [barrierOffset, setBarrierOffset] = useState("+0.10");
-  const [growthRate, setGrowthRate] = useState(0.03); // accumulators
-  const [multiplier, setMultiplier] = useState(100); // multipliers
+  const [growthRate, setGrowthRate] = useState(0.03);
+  const [multiplier, setMultiplier] = useState(100);
   const [lastPrice, setLastPrice] = useState<number | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
   const handlePrice = useCallback((p: number) => setLastPrice(p), []);
 
   // Reset side when category changes
