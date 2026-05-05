@@ -1,6 +1,6 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { TopShell } from "@/components/top-shell";
-import { getStrategyBySlug, STRATEGIES } from "@/lib/strategies";
+import { getStrategyBySlug, STRATEGIES, type Strategy, type StrategyStep } from "@/lib/strategies";
 import { ArrowLeft, CheckCircle2, AlertTriangle, Lightbulb, ArrowRight } from "lucide-react";
 
 export const Route = createFileRoute("/strategy/$slug")({
@@ -24,7 +24,7 @@ export const Route = createFileRoute("/strategy/$slug")({
 });
 
 function StrategyDetail() {
-  const s = Route.useLoaderData();
+  const s = Route.useLoaderData() as Strategy;
   const riskColor =
     s.riskLevel === "Low"
       ? "bg-emerald-100 text-emerald-700"
@@ -62,7 +62,7 @@ function StrategyDetail() {
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Best for</h3>
               <ul className="mt-2 flex flex-wrap gap-2">
-                {s.bestFor.map((b) => (
+                {s.bestFor.map((b: string) => (
                   <li key={b} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
                     {b}
                   </li>
@@ -72,7 +72,7 @@ function StrategyDetail() {
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recommended markets</h3>
               <ul className="mt-2 flex flex-wrap gap-2">
-                {s.recommendedMarkets.map((m) => (
+                {s.recommendedMarkets.map((m: string) => (
                   <li key={m} className="rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-700">
                     {m}
                   </li>
@@ -85,7 +85,7 @@ function StrategyDetail() {
         <section className="mt-6 rounded-xl bg-white p-6 ring-1 ring-slate-200/70">
           <h2 className="text-lg font-semibold text-slate-800">Step-by-step execution</h2>
           <ol className="mt-4 space-y-4">
-            {s.steps.map((step, idx) => (
+            {s.steps.map((step: StrategyStep, idx: number) => (
               <li key={idx} className="flex gap-4">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
                   {idx + 1}
@@ -105,7 +105,7 @@ function StrategyDetail() {
               <Lightbulb className="h-5 w-5 text-amber-500" /> Tips
             </h2>
             <ul className="mt-3 space-y-2">
-              {s.tips.map((t) => (
+              {s.tips.map((t: string) => (
                 <li key={t} className="flex items-start gap-2 text-sm text-slate-600">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
                   <span>{t}</span>
@@ -119,7 +119,7 @@ function StrategyDetail() {
               <AlertTriangle className="h-5 w-5 text-rose-500" /> Pitfalls to avoid
             </h2>
             <ul className="mt-3 space-y-2">
-              {s.pitfalls.map((p) => (
+              {s.pitfalls.map((p: string) => (
                 <li key={p} className="flex items-start gap-2 text-sm text-slate-600">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
                   <span>{p}</span>
