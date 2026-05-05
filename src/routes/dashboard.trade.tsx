@@ -167,115 +167,185 @@ function TradePage() {
 
   const sides = SIDES_BY_CATEGORY[category];
 
+  // Index for prev/next arrows on category pill
+  const catIdx = TRADE_CATEGORIES.findIndex((c) => c.value === category);
+  const cycleCategory = (dir: -1 | 1) => {
+    const next = (catIdx + dir + TRADE_CATEGORIES.length) % TRADE_CATEGORIES.length;
+    setCategory(TRADE_CATEGORIES[next].value);
+  };
+
+  const currentCategory = TRADE_CATEGORIES[catIdx];
+
+  // Live proposal pricing for the visible sides — fetched whenever inputs change
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        await send({ authorize: token });
+        const next: Record<string, { payout: number; pct: number }> = {};
+        for (const s of sides) {
+          const ct = contractTypeFor(category, s.value);
+          const proposal: any = {
+            proposal: 1,
+            amount: stake,
+            basis: payoutMode,
+            contract_type: ct,
+            currency: "USD",
+            symbol: market,
+          };
+          if (showDuration) {
+            proposal.duration = duration;
+            proposal.duration_unit = isDigit ? "t" : durationUnit;
+          }
+          if (needsDigit) proposal.barrier = String(barrierDigit);
+          if (needsBarrierOffset) proposal.barrier = barrierOffset;
+          if (isAccumulator) proposal.growth_rate = growthRate;
+          if (isMultiplier) proposal.multiplier = multiplier;
+          try {
+            const r = await send(proposal);
+            const p = Number(r.proposal?.payout ?? 0);
+            const pct = stake > 0 ? ((p - stake) / stake) * 100 : 0;
+            next[s.value] = { payout: p, pct };
+          } catch {
+            /* ignore individual side errors */
+          }
+        }
+        if (!cancelled) setPayouts(next);
+      } catch {
+        /* ignore */
+      }
+    };
+    const t = setTimeout(run, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, growthRate, multiplier, market, payoutMode]);
+
+  const sideAccent: Record<string, string> = {
+    up: "bg-emerald-500", down: "bg-rose-500",
+    higher: "bg-emerald-500", lower: "bg-rose-500",
+    over: "bg-emerald-500", under: "bg-rose-500",
+    even: "bg-emerald-500", odd: "bg-rose-500",
+    touch: "bg-emerald-500", no_touch: "bg-rose-500",
+    matches: "bg-emerald-500", differs: "bg-rose-500",
+    buy: "bg-emerald-500",
+  };
+
+  const tickMax = isDigit ? 10 : 10;
+
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-      <div className="glass-card rounded-xl p-5">
-        <div className="mb-3 flex items-center justify-end">
-          <div className="text-right">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Last price</div>
-            <div className="font-mono text-2xl text-primary">{lastPrice?.toFixed(4) ?? "—"}</div>
-          </div>
-        </div>
-        <DerivChart symbol={market} onSymbolChange={setMarket} onPrice={handlePrice} height={380} />
+    <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="glass-card rounded-xl p-3">
+        <DerivChart symbol={market} onSymbolChange={setMarket} onPrice={handlePrice} height={460} />
       </div>
 
-      <div className="glass-card space-y-4 rounded-xl p-5">
-        <h3 className="text-sm font-medium">Place trade</h3>
-
-        <div className="space-y-1.5">
-          <Label>Trade type</Label>
-          <Select value={category} onValueChange={(v) => setCategory(v as TradeCategory)}>
-            <SelectTrigger className="glass-card"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {TRADE_CATEGORIES.map((c) => (
-                <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-[11px] text-muted-foreground">
-            {TRADE_CATEGORIES.find((c) => c.value === category)?.description}
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          {sides.map((s) => (
-            <Button
-              key={s.value}
-              type="button"
-              variant={side === s.value ? "default" : "outline"}
-              className={side === s.value ? "" : "glass-card"}
-              onClick={() => setSide(s.value)}
-            >
-              {s.label}
-            </Button>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label>Stake (USD)</Label>
-            <Input type="number" min={0.35} step={0.5} value={stake} onChange={(e) => setStake(Number(e.target.value))} />
-          </div>
-          {showDuration && (
-            <div className="space-y-1.5">
-              <Label>Duration</Label>
-              <div className="flex gap-1.5">
-                <Input type="number" min={1} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
-                <Select
-                  value={isDigit ? "t" : durationUnit}
-                  onValueChange={(v) => setDurationUnit(v as any)}
-                  disabled={isDigit}
-                >
-                  <SelectTrigger className="w-20 glass-card"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="t">ticks</SelectItem>
-                    <SelectItem value="s">sec</SelectItem>
-                    <SelectItem value="m">min</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+      <div className="space-y-3">
+        {/* Trade type pill */}
+        <div className="glass-card rounded-xl p-3">
+          <div className="text-[11px] text-muted-foreground underline underline-offset-2">Learn about this trade type</div>
+          <div className="mt-2 flex items-center gap-2">
+            <button onClick={() => cycleCategory(-1)} className="rounded-md p-1 hover:bg-muted/40" aria-label="Previous trade type">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="flex flex-1 items-center justify-center gap-2 rounded-md bg-muted/40 px-3 py-2">
+              <TrendingUp className="h-4 w-4 text-rose-400" />
+              <TrendingDown className="h-4 w-4 text-rose-400" />
+              <span className="font-medium">{currentCategory?.label}</span>
             </div>
-          )}
+            <button onClick={() => cycleCategory(1)} className="rounded-md p-1 hover:bg-muted/40" aria-label="Next trade type">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
+        {/* Duration / Ticks */}
+        {showDuration && (
+          <div className="glass-card rounded-xl p-4">
+            <div className="text-center text-sm text-muted-foreground">
+              {durationUnit === "t" ? "Ticks" : durationUnit === "s" ? "Seconds" : "Minutes"}
+            </div>
+            <Slider
+              className="mt-3"
+              min={1}
+              max={tickMax}
+              step={1}
+              value={[duration]}
+              onValueChange={(v) => setDuration(v[0])}
+            />
+            <div className="mt-2 text-center font-semibold">
+              {duration} {durationUnit === "t" ? `Tick${duration > 1 ? "s" : ""}` : durationUnit}
+            </div>
+            {!isDigit && (
+              <div className="mt-2 flex justify-center gap-1">
+                {(["t", "s", "m"] as const).map((u) => (
+                  <button
+                    key={u}
+                    onClick={() => setDurationUnit(u)}
+                    className={cn(
+                      "rounded px-2 py-0.5 text-[11px]",
+                      durationUnit === u ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground",
+                    )}
+                  >
+                    {u === "t" ? "ticks" : u === "s" ? "sec" : "min"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Last digit prediction */}
         {needsDigit && (
-          <div className="space-y-1.5">
-            <Label>Digit (0–9)</Label>
-            <Input type="number" min={0} max={9} value={barrierDigit} onChange={(e) => setBarrierDigit(Number(e.target.value))} />
+          <div className="glass-card rounded-xl p-4">
+            <div className="text-center text-sm">Last Digit Prediction</div>
+            <div className="mt-3 grid grid-cols-5 gap-2">
+              {Array.from({ length: 10 }).map((_, d) => (
+                <button
+                  key={d}
+                  onClick={() => setBarrierDigit(d)}
+                  className={cn(
+                    "rounded-md border py-2 text-sm font-medium transition",
+                    barrierDigit === d
+                      ? "border-primary bg-primary/15 text-foreground"
+                      : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50",
+                  )}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
         {needsBarrierOffset && (
-          <div className="space-y-1.5">
-            <Label>Barrier (offset from spot, e.g. +0.10)</Label>
+          <div className="glass-card rounded-xl p-4">
+            <div className="mb-1 text-sm">Barrier (offset from spot)</div>
             <Input value={barrierOffset} onChange={(e) => setBarrierOffset(e.target.value)} />
           </div>
         )}
 
         {isAccumulator && (
-          <div className="space-y-1.5">
-            <Label>Growth rate</Label>
+          <div className="glass-card rounded-xl p-4">
+            <div className="mb-2 text-sm">Growth rate</div>
             <Select value={String(growthRate)} onValueChange={(v) => setGrowthRate(Number(v))}>
-              <SelectTrigger className="glass-card"><SelectValue /></SelectTrigger>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="0.01">1%</SelectItem>
-                <SelectItem value="0.02">2%</SelectItem>
-                <SelectItem value="0.03">3%</SelectItem>
-                <SelectItem value="0.04">4%</SelectItem>
-                <SelectItem value="0.05">5%</SelectItem>
+                {[0.01, 0.02, 0.03, 0.04, 0.05].map((g) => (
+                  <SelectItem key={g} value={String(g)}>{Math.round(g * 100)}%</SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground">
-              Profit compounds each tick the price stays inside the range.
-            </p>
           </div>
         )}
 
         {isMultiplier && (
-          <div className="space-y-1.5">
-            <Label>Multiplier</Label>
+          <div className="glass-card rounded-xl p-4">
+            <div className="mb-2 text-sm">Multiplier</div>
             <Select value={String(multiplier)} onValueChange={(v) => setMultiplier(Number(v))}>
-              <SelectTrigger className="glass-card"><SelectValue /></SelectTrigger>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {[10, 20, 30, 50, 100, 200, 300, 500].map((m) => (
                   <SelectItem key={m} value={String(m)}>×{m}</SelectItem>
@@ -285,12 +355,87 @@ function TradePage() {
           </div>
         )}
 
+        {/* Stake / Payout */}
+        <div className="glass-card overflow-hidden rounded-xl p-3">
+          <div className="grid grid-cols-2 overflow-hidden rounded-lg bg-muted/30 p-1">
+            <button
+              onClick={() => setPayoutMode("stake")}
+              className={cn(
+                "rounded-md py-1.5 text-sm font-medium transition",
+                payoutMode === "stake" ? "bg-background shadow" : "text-muted-foreground",
+              )}
+            >
+              Stake
+            </button>
+            <button
+              onClick={() => setPayoutMode("payout")}
+              className={cn(
+                "rounded-md py-1.5 text-sm font-medium transition",
+                payoutMode === "payout" ? "bg-background shadow" : "text-muted-foreground",
+              )}
+            >
+              Payout
+            </button>
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={() => setStake((s) => Math.max(0.35, +(s - 0.5).toFixed(2)))}
+              className="rounded-md bg-muted/50 p-2 hover:bg-muted"
+              aria-label="Decrease stake"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <Input
+              type="number"
+              min={0.35}
+              step={0.5}
+              value={stake}
+              onChange={(e) => setStake(Number(e.target.value))}
+              className="text-right font-mono text-base"
+            />
+            <span className="text-xs text-muted-foreground">USD</span>
+            <button
+              onClick={() => setStake((s) => +(s + 0.5).toFixed(2))}
+              className="rounded-md bg-muted/50 p-2 hover:bg-muted"
+              aria-label="Increase stake"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Side / payout cards */}
+        <div className="space-y-2">
+          {sides.map((s) => {
+            const live = payouts[s.value];
+            const isSelected = side === s.value;
+            return (
+              <button
+                key={s.value}
+                onClick={() => setSide(s.value)}
+                className={cn(
+                  "w-full overflow-hidden rounded-xl text-left transition",
+                  isSelected ? "ring-2 ring-primary/60" : "opacity-90 hover:opacity-100",
+                )}
+              >
+                <div className="flex items-center justify-between bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+                  <span>Payout {live ? live.payout.toFixed(2) : "—"} USD</span>
+                </div>
+                <div className={cn("flex items-center justify-between px-4 py-3 text-white", sideAccent[s.value] ?? "bg-muted")}>
+                  <span className="font-semibold">{s.label}</span>
+                  <span className="font-mono text-sm">{live ? `${live.pct.toFixed(2)}%` : ""}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
         <Button onClick={handleBuy} disabled={busy || !token} className="w-full">
-          {busy ? "Submitting…" : token ? `Buy (${isDemo ? "Demo" : "Live"})` : "Connect Deriv to trade"}
+          {busy ? "Submitting…" : token ? `Buy ${sides.find((s) => s.value === side)?.label} (${isDemo ? "Demo" : "Live"})` : "Connect Deriv to trade"}
         </Button>
 
         <p className="text-[11px] text-muted-foreground">
-          Trades execute against the Deriv account selected in your dashboard. You can lose money rapidly.
+          Last price: <span className="font-mono text-foreground">{lastPrice?.toFixed(4) ?? "—"}</span>. Trades execute on the Deriv account selected in your dashboard. You can lose money rapidly.
         </p>
       </div>
     </div>
