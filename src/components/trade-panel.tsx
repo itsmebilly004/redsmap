@@ -166,16 +166,43 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
       const contract = buyResp.buy;
       toast.success(`Bought contract ${contract.contract_id}`);
 
-      await supabase.from("trades").insert({
-        user_id: user.id,
-        contract_id: String(contract.contract_id),
-        market,
-        trade_type: contract_type,
-        stake,
-        payout: contract.payout,
-        result: "open",
-        is_demo: isDemo,
-      });
+      const { data: trade } = await supabase
+        .from("trades")
+        .insert({
+          user_id: user.id,
+          contract_id: String(contract.contract_id),
+          market,
+          trade_type: contract_type,
+          stake,
+          payout: contract.payout,
+          result: "open",
+          is_demo: isDemo,
+        })
+        .select()
+        .single();
+
+      const poll = setInterval(async () => {
+        try {
+          const res = await send({ proposal_open_contract: 1, contract_id: contract.contract_id });
+          const c = res.proposal_open_contract;
+          if (c?.is_sold) {
+            clearInterval(poll);
+            const profit = Number(c.profit ?? 0);
+            if (trade?.id) {
+              await supabase
+                .from("trades")
+                .update({ profit, result: profit >= 0 ? "win" : "loss" })
+                .eq("id", trade.id);
+            }
+            toast[profit >= 0 ? "success" : "error"](
+              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`,
+            );
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 1500);
+      setTimeout(() => clearInterval(poll), 120000);
     } catch (e: any) {
       toast.error(e.message ?? "Trade failed");
     } finally {

@@ -21,6 +21,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AnalysisRouteImport } from './routes/analysis'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
+import { Route as StrategySlugRouteImport } from './routes/strategy.$slug'
 import { Route as DashboardTradeRouteImport } from './routes/dashboard.trade'
 import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
 import { Route as DashboardBotRouteImport } from './routes/dashboard.bot'
@@ -86,6 +87,11 @@ const DashboardIndexRoute = DashboardIndexRouteImport.update({
   path: '/',
   getParentRoute: () => DashboardRoute,
 } as any)
+const StrategySlugRoute = StrategySlugRouteImport.update({
+  id: '/strategy/$slug',
+  path: '/strategy/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardTradeRoute = DashboardTradeRouteImport.update({
   id: '/trade',
   path: '/trade',
@@ -123,6 +129,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/bot': typeof DashboardBotRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/trade': typeof DashboardTradeRoute
+  '/strategy/$slug': typeof StrategySlugRoute
   '/dashboard/': typeof DashboardIndexRoute
 }
 export interface FileRoutesByTo {
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/dashboard/bot': typeof DashboardBotRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/trade': typeof DashboardTradeRoute
+  '/strategy/$slug': typeof StrategySlugRoute
   '/dashboard': typeof DashboardIndexRoute
 }
 export interface FileRoutesById {
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/dashboard/bot': typeof DashboardBotRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/trade': typeof DashboardTradeRoute
+  '/strategy/$slug': typeof StrategySlugRoute
   '/dashboard/': typeof DashboardIndexRoute
 }
 export interface FileRouteTypes {
@@ -179,6 +188,7 @@ export interface FileRouteTypes {
     | '/dashboard/bot'
     | '/dashboard/settings'
     | '/dashboard/trade'
+    | '/strategy/$slug'
     | '/dashboard/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -196,6 +206,7 @@ export interface FileRouteTypes {
     | '/dashboard/bot'
     | '/dashboard/settings'
     | '/dashboard/trade'
+    | '/strategy/$slug'
     | '/dashboard'
   id:
     | '__root__'
@@ -214,6 +225,7 @@ export interface FileRouteTypes {
     | '/dashboard/bot'
     | '/dashboard/settings'
     | '/dashboard/trade'
+    | '/strategy/$slug'
     | '/dashboard/'
   fileRoutesById: FileRoutesById
 }
@@ -229,6 +241,7 @@ export interface RootRouteChildren {
   StrategiesRoute: typeof StrategiesRoute
   TradingBotsRoute: typeof TradingBotsRoute
   TradingviewRoute: typeof TradingviewRoute
+  StrategySlugRoute: typeof StrategySlugRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -317,6 +330,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardIndexRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/strategy/$slug': {
+      id: '/strategy/$slug'
+      path: '/strategy/$slug'
+      fullPath: '/strategy/$slug'
+      preLoaderRoute: typeof StrategySlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard/trade': {
       id: '/dashboard/trade'
       path: '/trade'
@@ -380,7 +400,17 @@ const rootRouteChildren: RootRouteChildren = {
   StrategiesRoute: StrategiesRoute,
   TradingBotsRoute: TradingBotsRoute,
   TradingviewRoute: TradingviewRoute,
+  StrategySlugRoute: StrategySlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

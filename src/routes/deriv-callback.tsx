@@ -93,14 +93,14 @@ function DerivCallback() {
           await supabase.from("deriv_accounts").upsert(
             {
               user_id: sessionUser.id,
-              deriv_account_id: acc.account,
+              account_id: acc.account,
               api_token: acc.token,
               currency,
               balance,
               is_demo: acc.account.startsWith("VR"),
               is_active: true,
-            },
-            { onConflict: "user_id,deriv_account_id" },
+            } as any,
+            { onConflict: "user_id,account_id" },
           );
         }
         toast.success(`Welcome — ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`);

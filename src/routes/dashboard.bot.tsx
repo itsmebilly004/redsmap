@@ -62,7 +62,12 @@ function BotPage() {
       toast.error("Please confirm you understand the risks before creating a bot.");
       return;
     }
-    const { error } = await supabase.from("bots").insert({ ...form, user_id: user.id });
+    const { name, ...strategy } = form;
+    const { error } = await supabase.from("bots").insert({
+      name,
+      strategy: strategy as any,
+      user_id: user.id,
+    });
     if (error) toast.error(error.message);
     else {
       toast.success("Bot created");

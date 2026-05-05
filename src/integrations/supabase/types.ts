@@ -14,145 +14,43 @@ export type Database = {
   }
   public: {
     Tables: {
-      bot_logs: {
-        Row: {
-          bot_id: string
-          created_at: string
-          id: string
-          message: string | null
-          outcome: string | null
-          profit: number | null
-          trade_id: string | null
-          user_id: string
-        }
-        Insert: {
-          bot_id: string
-          created_at?: string
-          id?: string
-          message?: string | null
-          outcome?: string | null
-          profit?: number | null
-          trade_id?: string | null
-          user_id: string
-        }
-        Update: {
-          bot_id?: string
-          created_at?: string
-          id?: string
-          message?: string | null
-          outcome?: string | null
-          profit?: number | null
-          trade_id?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "bot_logs_bot_id_fkey"
-            columns: ["bot_id"]
-            isOneToOne: false
-            referencedRelation: "bots"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "bot_logs_trade_id_fkey"
-            columns: ["trade_id"]
-            isOneToOne: false
-            referencedRelation: "trades"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       bots: {
         Row: {
           created_at: string
           id: string
-          is_demo: boolean
-          market: string
-          martingale: boolean
-          martingale_factor: number
-          max_trades: number
           name: string
-          stake: number
           status: string
-          stop_loss: number | null
-          strategy: string
-          take_profit: number | null
+          strategy: Json
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
           id?: string
-          is_demo?: boolean
-          market?: string
-          martingale?: boolean
-          martingale_factor?: number
-          max_trades?: number
-          name?: string
-          stake?: number
+          name: string
           status?: string
-          stop_loss?: number | null
-          strategy: string
-          take_profit?: number | null
+          strategy?: Json
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
           id?: string
-          is_demo?: boolean
-          market?: string
-          martingale?: boolean
-          martingale_factor?: number
-          max_trades?: number
           name?: string
-          stake?: number
           status?: string
-          stop_loss?: number | null
-          strategy?: string
-          take_profit?: number | null
+          strategy?: Json
           updated_at?: string
           user_id?: string
-        }
-        Relationships: []
-      }
-      copy_subscriptions: {
-        Row: {
-          allocation: number
-          created_at: string
-          follower_id: string
-          id: string
-          is_active: boolean
-          leader_id: string
-          updated_at: string
-        }
-        Insert: {
-          allocation?: number
-          created_at?: string
-          follower_id: string
-          id?: string
-          is_active?: boolean
-          leader_id: string
-          updated_at?: string
-        }
-        Update: {
-          allocation?: number
-          created_at?: string
-          follower_id?: string
-          id?: string
-          is_active?: boolean
-          leader_id?: string
-          updated_at?: string
         }
         Relationships: []
       }
       deriv_accounts: {
         Row: {
+          account_id: string | null
           api_token: string
           balance: number | null
           created_at: string
           currency: string | null
-          deriv_account_id: string
           id: string
           is_active: boolean
           is_demo: boolean
@@ -160,11 +58,11 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          account_id?: string | null
           api_token: string
           balance?: number | null
           created_at?: string
           currency?: string | null
-          deriv_account_id: string
           id?: string
           is_active?: boolean
           is_demo?: boolean
@@ -172,11 +70,11 @@ export type Database = {
           user_id: string
         }
         Update: {
+          account_id?: string | null
           api_token?: string
           balance?: number | null
           created_at?: string
           currency?: string | null
-          deriv_account_id?: string
           id?: string
           is_active?: boolean
           is_demo?: boolean
@@ -192,54 +90,21 @@ export type Database = {
           display_name: string | null
           id: string
           updated_at: string
+          user_id: string
         }
         Insert: {
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
-          id: string
+          id?: string
           updated_at?: string
+          user_id: string
         }
         Update: {
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
           id?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      strategies: {
-        Row: {
-          code: string | null
-          created_at: string
-          description: string | null
-          id: string
-          is_public: boolean
-          market: string
-          name: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          code?: string | null
-          created_at?: string
-          description?: string | null
-          id?: string
-          is_public?: boolean
-          market?: string
-          name: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          code?: string | null
-          created_at?: string
-          description?: string | null
-          id?: string
-          is_public?: boolean
-          market?: string
-          name?: string
           updated_at?: string
           user_id?: string
         }
@@ -247,7 +112,6 @@ export type Database = {
       }
       trades: {
         Row: {
-          bot_id: string | null
           contract_id: string | null
           created_at: string
           id: string
@@ -255,13 +119,13 @@ export type Database = {
           market: string
           payout: number | null
           profit: number | null
-          result: string | null
+          result: string
           stake: number
           trade_type: string
+          updated_at: string
           user_id: string
         }
         Insert: {
-          bot_id?: string | null
           contract_id?: string | null
           created_at?: string
           id?: string
@@ -269,13 +133,13 @@ export type Database = {
           market: string
           payout?: number | null
           profit?: number | null
-          result?: string | null
+          result?: string
           stake: number
           trade_type: string
+          updated_at?: string
           user_id: string
         }
         Update: {
-          bot_id?: string | null
           contract_id?: string | null
           created_at?: string
           id?: string
@@ -283,9 +147,10 @@ export type Database = {
           market?: string
           payout?: number | null
           profit?: number | null
-          result?: string | null
+          result?: string
           stake?: number
           trade_type?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -293,28 +158,28 @@ export type Database = {
       user_settings: {
         Row: {
           created_at: string
-          daily_loss_limit: number
-          default_demo: boolean
-          max_consecutive_losses: number
-          max_stake: number
+          default_market: string | null
+          id: string
+          preferences: Json
+          theme: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
-          daily_loss_limit?: number
-          default_demo?: boolean
-          max_consecutive_losses?: number
-          max_stake?: number
+          default_market?: string | null
+          id?: string
+          preferences?: Json
+          theme?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
-          daily_loss_limit?: number
-          default_demo?: boolean
-          max_consecutive_losses?: number
-          max_stake?: number
+          default_market?: string | null
+          id?: string
+          preferences?: Json
+          theme?: string | null
           updated_at?: string
           user_id?: string
         }
