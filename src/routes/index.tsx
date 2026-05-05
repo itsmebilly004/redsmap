@@ -21,7 +21,7 @@ function Index() {
 
   return (
     <TopShell>
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px]">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px]">
         <section className="relative border-r border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
