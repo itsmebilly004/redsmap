@@ -116,6 +116,36 @@ export type Database = {
         }
         Relationships: []
       }
+      copy_subscriptions: {
+        Row: {
+          allocation: number
+          created_at: string
+          follower_id: string
+          id: string
+          is_active: boolean
+          leader_id: string
+          updated_at: string
+        }
+        Insert: {
+          allocation?: number
+          created_at?: string
+          follower_id: string
+          id?: string
+          is_active?: boolean
+          leader_id: string
+          updated_at?: string
+        }
+        Update: {
+          allocation?: number
+          created_at?: string
+          follower_id?: string
+          id?: string
+          is_active?: boolean
+          leader_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       deriv_accounts: {
         Row: {
           api_token: string
@@ -176,6 +206,42 @@ export type Database = {
           display_name?: string | null
           id?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      strategies: {
+        Row: {
+          code: string | null
+          created_at: string
+          description: string | null
+          id: string
+          is_public: boolean
+          market: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          code?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_public?: boolean
+          market?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          code?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_public?: boolean
+          market?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
