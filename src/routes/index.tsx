@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { DerivChart } from "@/components/deriv-chart";
+import { TradePanel } from "@/components/trade-panel";
 import { Shield, Sun, HelpCircle, Settings, Globe, Bot, Crosshair, Maximize2 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -20,7 +21,7 @@ function Index() {
 
   return (
     <TopShell>
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px]">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px]">
         <section className="relative border-r border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -44,18 +45,8 @@ function Index() {
           </p>
         </section>
 
-        <aside className="hidden flex-col gap-3 bg-[oklch(0.97_0.003_240)] p-4 lg:flex">
-          {[
-            { title: "Quick Trade", body: "Sign in to place Rise/Fall, Even/Odd, Over/Under and Accumulator trades." },
-            { title: "Bot Builder", body: "Build no-code strategies with martingale and risk controls." },
-            { title: "Analysis", body: "Digit stats and trend insights powered by live ticks." },
-            { title: "Copy Trading", body: "Mirror top traders directly via your Deriv account." },
-          ].map((c) => (
-            <div key={c.title} className="rounded-md border border-[oklch(0.92_0.005_240)] bg-white p-4 shadow-sm">
-              <div className="text-sm font-semibold">{c.title}</div>
-              <div className="mt-1 text-xs text-[oklch(0.5_0.02_260)]">{c.body}</div>
-            </div>
-          ))}
+        <aside className="hidden flex-col gap-3 bg-[oklch(0.97_0.003_240)] p-3 lg:flex">
+          <TradePanel market={symbol} lastPrice={price} />
         </aside>
       </div>
 
