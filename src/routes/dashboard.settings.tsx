@@ -22,16 +22,16 @@ function SettingsPage() {
   async function load() {
     if (!user) return;
     const [{ data: accs }, { data: sett }] = await Promise.all([
-      supabase.from("deriv_accounts").select("*").eq("user_id", user.id).order("is_demo"),
+      supabase.from("sessions").select("*").eq("user_id", user.id).order("is_demo"),
       supabase.from("user_settings").select("*").eq("user_id", user.id).maybeSingle(),
     ]);
     setAccounts(accs ?? []);
-    setSettings(sett);
+    setSettings(sett ?? { default_stake: 1, default_duration: "5t", preferred_symbol: "R_100", theme: "dark" });
   }
   useEffect(() => { load(); }, [user]);
 
   async function disconnect(id: string) {
-    await supabase.from("deriv_accounts").delete().eq("id", id);
+    await supabase.from("sessions").delete().eq("id", id);
     toast.success("Account disconnected");
     load();
   }
@@ -46,7 +46,7 @@ function SettingsPage() {
   async function deleteAccount() {
     if (!user) return;
     if (!confirm("Permanently delete your account and all data?")) return;
-    await supabase.from("deriv_accounts").delete().eq("user_id", user.id);
+    await supabase.from("sessions").delete().eq("user_id", user.id);
     await supabase.from("trades").delete().eq("user_id", user.id);
     await supabase.from("bots").delete().eq("user_id", user.id);
     await supabase.auth.signOut();
@@ -76,7 +76,7 @@ function SettingsPage() {
               <li key={a.id} className="flex items-center justify-between py-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm">{a.deriv_account_id}</span>
+                    <span className="font-mono text-sm">{a.account_id}</span>
                     <span className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${
                       a.is_demo ? "bg-foreground/5 text-muted-foreground" : "bg-success/20 text-success"
                     }`}>{a.is_demo ? "Demo" : "Live"}</span>

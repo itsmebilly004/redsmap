@@ -18,20 +18,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Minus, Plus, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Minus, Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface TradePanelProps {
   market: string;
   lastPrice?: number | null;
+  onAccumulatorBarriers?: (b: { high: number | null; low: number | null }) => void;
 }
 
-export function TradePanel({ market, lastPrice }: TradePanelProps) {
+export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePanelProps) {
   const { user } = useAuth();
-  const [category, setCategory] = useState<TradeCategory>("over_under");
-  const [side, setSide] = useState("over");
-  const [stake, setStake] = useState(0.6);
+  const [category, setCategory] = useState<TradeCategory>("accumulator");
+  const [side, setSide] = useState("buy");
+  const [stake, setStake] = useState(10);
+  const [currency, setCurrency] = useState<"USD" | "AUD" | "EUR" | "GBP">("AUD");
   const [payoutMode, setPayoutMode] = useState<"stake" | "payout">("stake");
   const [duration, setDuration] = useState(1);
   const [durationUnit, setDurationUnit] = useState<"t" | "s" | "m">("t");
@@ -39,10 +41,22 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
   const [barrierOffset, setBarrierOffset] = useState("+0.10");
   const [growthRate, setGrowthRate] = useState(0.03);
   const [multiplier, setMultiplier] = useState(100);
+  const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
+  const [takeProfit, setTakeProfit] = useState<number>(0);
   const [token, setToken] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(true);
   const [busy, setBusy] = useState(false);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
+  const [accuMeta, setAccuMeta] = useState<{
+    maxPayout: number | null;
+    maxTicks: number | null;
+    high: number | null;
+    low: number | null;
+    tickSize: number | null;
+    tickFreq: number | null;
+    minStake: number | null;
+    maxStake: number | null;
+  }>({ maxPayout: null, maxTicks: null, high: null, low: null, tickSize: null, tickFreq: null, minStake: null, maxStake: null });
 
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
@@ -51,8 +65,8 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
   useEffect(() => {
     if (!user) return;
     supabase
-      .from("deriv_accounts")
-      .select("api_token, is_demo")
+      .from("sessions")
+      .select("deriv_token, is_demo")
       .eq("user_id", user.id)
       .eq("is_active", true)
       .order("is_demo", { ascending: true })
@@ -60,7 +74,7 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
       .maybeSingle()
       .then(({ data }) => {
         if (data) {
-          setToken(data.api_token);
+          setToken(data.deriv_token);
           setIsDemo(data.is_demo);
         }
       });
@@ -89,6 +103,7 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
       try {
         if (token) await send({ authorize: token });
         const next: Record<string, { payout: number; pct: number }> = {};
+        let accuInfo: typeof accuMeta | null = null;
         for (const s of sides) {
           const ct = contractTypeFor(category, s.value);
           const proposal: any = {
@@ -96,7 +111,7 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
             amount: stake,
             basis: payoutMode,
             contract_type: ct,
-            currency: "USD",
+            currency,
             symbol: market,
           };
           if (showDuration) {
@@ -112,11 +127,34 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
             const p = Number(r.proposal?.payout ?? 0);
             const pct = stake > 0 ? ((p - stake) / stake) * 100 : 0;
             next[s.value] = { payout: p, pct };
+            if (isAccumulator) {
+              const pr = r.proposal ?? {};
+              const high = pr.high_barrier ?? pr.barrier_spot_distance ?? null;
+              const low = pr.low_barrier ?? null;
+              accuInfo = {
+                maxPayout: Number(pr.maximum_payout ?? 0) || null,
+                maxTicks: Number(pr.maximum_ticks ?? 0) || null,
+                high: high != null ? Number(high) : null,
+                low: low != null ? Number(low) : null,
+                tickSize: pr.tick_size_barrier != null ? Number(pr.tick_size_barrier) : null,
+                tickFreq: pr.tick_count != null ? Number(pr.tick_count) : null,
+                minStake: pr.min_stake != null ? Number(pr.min_stake) : null,
+                maxStake: pr.max_stake != null ? Number(pr.max_stake) : null,
+              };
+            }
           } catch {
             /* ignore */
           }
         }
-        if (!cancelled) setPayouts(next);
+        if (!cancelled) {
+          setPayouts(next);
+          if (isAccumulator && accuInfo) {
+            setAccuMeta(accuInfo);
+            onAccumulatorBarriers?.({ high: accuInfo.high, low: accuInfo.low });
+          } else if (!isAccumulator) {
+            onAccumulatorBarriers?.({ high: null, low: null });
+          }
+        }
       } catch {
         /* ignore */
       }
@@ -127,7 +165,16 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
       clearTimeout(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, growthRate, multiplier, market, payoutMode]);
+  }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, growthRate, multiplier, market, payoutMode, currency]);
+
+  // Fallback synthetic barriers around lastPrice when live data not available.
+  useEffect(() => {
+    if (!isAccumulator || !lastPrice) return;
+    if (accuMeta.high == null && accuMeta.low == null) {
+      const offset = lastPrice * (growthRate * 0.18);
+      onAccumulatorBarriers?.({ high: lastPrice + offset, low: lastPrice - offset });
+    }
+  }, [isAccumulator, lastPrice, growthRate, accuMeta.high, accuMeta.low, onAccumulatorBarriers]);
 
   async function handleBuy() {
     if (!user) {
@@ -147,7 +194,7 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
         amount: stake,
         basis: "stake",
         contract_type,
-        currency: "USD",
+        currency,
         symbol: market,
       };
       if (showDuration) {
@@ -156,7 +203,12 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
       }
       if (needsDigit) proposal.barrier = String(barrierDigit);
       if (needsBarrierOffset) proposal.barrier = barrierOffset;
-      if (isAccumulator) proposal.growth_rate = growthRate;
+      if (isAccumulator) {
+        proposal.growth_rate = growthRate;
+        if (takeProfitEnabled && takeProfit > 0) {
+          proposal.limit_order = { take_profit: takeProfit };
+        }
+      }
       if (isMultiplier) proposal.multiplier = multiplier;
 
       const propResp = await send(proposal);
@@ -170,13 +222,12 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
         .from("trades")
         .insert({
           user_id: user.id,
-          contract_id: String(contract.contract_id),
-          market,
+          deriv_contract_id: String(contract.contract_id),
+          symbol: market,
           trade_type: contract_type,
           stake,
           payout: contract.payout,
-          result: "open",
-          is_demo: isDemo,
+          status: "open",
         })
         .select()
         .single();
@@ -191,7 +242,7 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
             if (trade?.id) {
               await supabase
                 .from("trades")
-                .update({ profit, result: profit >= 0 ? "win" : "loss" })
+                .update({ profit_loss: profit, status: profit >= 0 ? "won" : "lost", closed_at: new Date().toISOString() })
                 .eq("id", trade.id);
             }
             toast[profit >= 0 ? "success" : "error"](
@@ -210,6 +261,7 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
     }
   }
 
+  const accentBuy = "bg-[oklch(0.7_0.17_150)] hover:bg-[oklch(0.65_0.17_150)]";
   const sideAccent: Record<string, string> = {
     up: "bg-emerald-500", down: "bg-rose-500",
     higher: "bg-emerald-500", lower: "bg-rose-500",
@@ -222,28 +274,35 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
 
   return (
     <div className="space-y-3">
-      <div className="glass-card rounded-xl p-3">
-        <div className="text-[11px] text-muted-foreground underline underline-offset-2">
+      {/* Trade type pill (green border highlight matches Deriv accumulator selector) */}
+      <div className="rounded-xl border-2 border-[oklch(0.7_0.17_150)] bg-white p-3 shadow-sm">
+        <div className="text-[11px] text-[oklch(0.45_0.02_260)] underline underline-offset-2">
           Learn about this trade type
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <button onClick={() => cycleCategory(-1)} className="rounded-md p-1 hover:bg-muted/40" aria-label="Previous trade type">
+          <button onClick={() => cycleCategory(-1)} className="rounded-md p-1 hover:bg-[oklch(0.96_0.005_240)]" aria-label="Previous trade type">
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <div className="flex flex-1 items-center justify-center gap-2 rounded-md bg-muted/40 px-3 py-2">
-            <TrendingUp className="h-4 w-4 text-emerald-500" />
-            <TrendingDown className="h-4 w-4 text-rose-500" />
-            <span className="font-medium">{currentCategory?.label}</span>
+          <div className="flex flex-1 items-center justify-center gap-2 px-3 py-1">
+            {isAccumulator ? (
+              <span className="text-[oklch(0.7_0.17_150)]">📈</span>
+            ) : (
+              <>
+                <TrendingUp className="h-4 w-4 text-emerald-500" />
+                <TrendingDown className="h-4 w-4 text-rose-500" />
+              </>
+            )}
+            <span className="font-semibold">{currentCategory?.label}</span>
           </div>
-          <button onClick={() => cycleCategory(1)} className="rounded-md p-1 hover:bg-muted/40" aria-label="Next trade type">
+          <button onClick={() => cycleCategory(1)} className="rounded-md p-1 hover:bg-[oklch(0.96_0.005_240)]" aria-label="Next trade type">
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
       </div>
 
       {showDuration && (
-        <div className="glass-card rounded-xl p-4">
-          <div className="text-center text-sm text-muted-foreground">
+        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
+          <div className="text-center text-sm text-[oklch(0.45_0.02_260)]">
             {durationUnit === "t" ? "Ticks" : durationUnit === "s" ? "Seconds" : "Minutes"}
           </div>
           <Slider className="mt-3" min={1} max={10} step={1} value={[duration]} onValueChange={(v) => setDuration(v[0])} />
@@ -258,7 +317,7 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
                   onClick={() => setDurationUnit(u)}
                   className={cn(
                     "rounded px-2 py-0.5 text-[11px]",
-                    durationUnit === u ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground",
+                    durationUnit === u ? "bg-[oklch(0.7_0.17_150)] text-white" : "bg-[oklch(0.96_0.005_240)] text-[oklch(0.45_0.02_260)]",
                   )}
                 >
                   {u === "t" ? "ticks" : u === "s" ? "sec" : "min"}
@@ -270,7 +329,7 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
       )}
 
       {needsDigit && (
-        <div className="glass-card rounded-xl p-4">
+        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="text-center text-sm">Last Digit Prediction</div>
           <div className="mt-3 grid grid-cols-5 gap-2">
             {Array.from({ length: 10 }).map((_, d) => (
@@ -280,8 +339,8 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
                 className={cn(
                   "rounded-md border py-2 text-sm font-medium transition",
                   barrierDigit === d
-                    ? "border-primary bg-primary/15 text-foreground"
-                    : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50",
+                    ? "border-[oklch(0.7_0.17_150)] bg-[oklch(0.7_0.17_150)]/10"
+                    : "border-[oklch(0.92_0.005_240)] bg-white text-[oklch(0.45_0.02_260)] hover:bg-[oklch(0.96_0.005_240)]",
                 )}
               >
                 {d}
@@ -292,28 +351,39 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
       )}
 
       {needsBarrierOffset && (
-        <div className="glass-card rounded-xl p-4">
+        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="mb-1 text-sm">Barrier (offset from spot)</div>
           <Input value={barrierOffset} onChange={(e) => setBarrierOffset(e.target.value)} />
         </div>
       )}
 
+      {/* Accumulator: Growth rate pills */}
       {isAccumulator && (
-        <div className="glass-card rounded-xl p-4">
-          <div className="mb-2 text-sm">Growth rate</div>
-          <Select value={String(growthRate)} onValueChange={(v) => setGrowthRate(Number(v))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {[0.01, 0.02, 0.03, 0.04, 0.05].map((g) => (
-                <SelectItem key={g} value={String(g)}>{Math.round(g * 100)}%</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="rounded-xl bg-white p-3">
+          <div className="mb-2 flex items-center justify-center gap-1 text-sm text-[oklch(0.45_0.02_260)]">
+            Growth rate <Info className="h-3.5 w-3.5" />
+          </div>
+          <div className="grid grid-cols-5 gap-2">
+            {[0.01, 0.02, 0.03, 0.04, 0.05].map((g) => (
+              <button
+                key={g}
+                onClick={() => setGrowthRate(g)}
+                className={cn(
+                  "rounded-md py-2 text-sm font-medium transition",
+                  growthRate === g
+                    ? "bg-[oklch(0.7_0.17_150)]/15 text-[oklch(0.4_0.15_150)] ring-1 ring-[oklch(0.7_0.17_150)]"
+                    : "text-[oklch(0.3_0.02_260)] hover:bg-[oklch(0.96_0.005_240)]",
+                )}
+              >
+                {Math.round(g * 100)}%
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {isMultiplier && (
-        <div className="glass-card rounded-xl p-4">
+        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="mb-2 text-sm">Multiplier</div>
           <Select value={String(multiplier)} onValueChange={(v) => setMultiplier(Number(v))}>
             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -326,85 +396,200 @@ export function TradePanel({ market, lastPrice }: TradePanelProps) {
         </div>
       )}
 
-      <div className="glass-card overflow-hidden rounded-xl p-3">
-        <div className="grid grid-cols-2 overflow-hidden rounded-lg bg-muted/30 p-1">
+      {/* Stake (with currency selector for accumulator) */}
+      <div className="rounded-xl bg-white p-3">
+        {!isAccumulator && (
+          <div className="mb-3 grid grid-cols-2 overflow-hidden rounded-lg bg-[oklch(0.96_0.005_240)] p-1">
+            <button
+              onClick={() => setPayoutMode("stake")}
+              className={cn(
+                "rounded-md py-1.5 text-sm font-medium transition",
+                payoutMode === "stake" ? "bg-white shadow" : "text-[oklch(0.45_0.02_260)]",
+              )}
+            >
+              Stake
+            </button>
+            <button
+              onClick={() => setPayoutMode("payout")}
+              className={cn(
+                "rounded-md py-1.5 text-sm font-medium transition",
+                payoutMode === "payout" ? "bg-white shadow" : "text-[oklch(0.45_0.02_260)]",
+              )}
+            >
+              Payout
+            </button>
+          </div>
+        )}
+        <div className="text-center text-sm text-[oklch(0.45_0.02_260)]">Stake</div>
+        <div className="mt-2 flex items-center gap-2">
           <button
-            onClick={() => setPayoutMode("stake")}
-            className={cn(
-              "rounded-md py-1.5 text-sm font-medium transition",
-              payoutMode === "stake" ? "bg-background shadow" : "text-muted-foreground",
-            )}
-          >
-            Stake
-          </button>
-          <button
-            onClick={() => setPayoutMode("payout")}
-            className={cn(
-              "rounded-md py-1.5 text-sm font-medium transition",
-              payoutMode === "payout" ? "bg-background shadow" : "text-muted-foreground",
-            )}
-          >
-            Payout
-          </button>
-        </div>
-        <div className="mt-3 flex items-center gap-2">
-          <button
-            onClick={() => setStake((s) => Math.max(0.35, +(s - 0.5).toFixed(2)))}
-            className="rounded-md bg-muted/50 p-2 hover:bg-muted"
+            onClick={() => setStake((s) => Math.max(isAccumulator ? 1 : 0.35, +(s - 1).toFixed(2)))}
+            className="rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
             aria-label="Decrease stake"
           >
             <Minus className="h-4 w-4" />
           </button>
           <Input
             type="number"
-            min={0.35}
-            step={0.5}
+            min={isAccumulator ? 1 : 0.35}
+            step={1}
             value={stake}
             onChange={(e) => setStake(Number(e.target.value))}
-            className="text-right font-mono text-base"
+            className="text-center font-mono text-base"
           />
-          <span className="text-xs text-muted-foreground">USD</span>
           <button
-            onClick={() => setStake((s) => +(s + 0.5).toFixed(2))}
-            className="rounded-md bg-muted/50 p-2 hover:bg-muted"
+            onClick={() => setStake((s) => +(s + 1).toFixed(2))}
+            className="rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
             aria-label="Increase stake"
           >
             <Plus className="h-4 w-4" />
           </button>
+          <Select value={currency} onValueChange={(v) => setCurrency(v as any)}>
+            <SelectTrigger className="w-20">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(["USD", "AUD", "EUR", "GBP"] as const).map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      <div className="space-y-2">
-        {sides.map((s) => {
-          const live = payouts[s.value];
-          const isSelected = side === s.value;
-          return (
-            <button
-              key={s.value}
-              onClick={() => setSide(s.value)}
-              className={cn(
-                "w-full overflow-hidden rounded-xl text-left transition",
-                isSelected ? "ring-2 ring-primary/60" : "opacity-90 hover:opacity-100",
-              )}
-            >
-              <div className="flex items-center justify-between bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
-                <span>Payout {live ? live.payout.toFixed(2) : "—"} USD</span>
-              </div>
-              <div className={cn("flex items-center justify-between px-4 py-3 text-white", sideAccent[s.value] ?? "bg-muted")}>
-                <span className="font-semibold">{s.label}</span>
-                <span className="font-mono text-sm">{live ? `${live.pct.toFixed(2)}%` : ""}</span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      {/* Take profit (Accumulator only) — Deriv-style stepper */}
+      {isAccumulator && (
+        <div className="rounded-xl bg-white p-3">
+          <label className="flex items-center justify-between text-sm">
+            <span className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={takeProfitEnabled}
+                onChange={(e) => setTakeProfitEnabled(e.target.checked)}
+                className="size-4 rounded border-[oklch(0.85_0.01_240)]"
+              />
+              Take profit <Info className="h-3.5 w-3.5 text-[oklch(0.6_0.02_260)]" />
+            </span>
+          </label>
+          {takeProfitEnabled && (
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                onClick={() => setTakeProfit((v) => Math.max(0, +(v - 1).toFixed(2)))}
+                className="rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
+                aria-label="Decrease take profit"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={takeProfit}
+                onChange={(e) => setTakeProfit(Number(e.target.value))}
+                className="text-center font-mono"
+                placeholder={`Amount (${currency})`}
+              />
+              <button
+                onClick={() => setTakeProfit((v) => +(v + 1).toFixed(2))}
+                className="rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
+                aria-label="Increase take profit"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+              <span className="w-12 text-center text-xs text-[oklch(0.45_0.02_260)]">{currency}</span>
+            </div>
+          )}
+        </div>
+      )}
 
-      <Button onClick={handleBuy} disabled={busy} className="w-full">
-        {busy ? "Submitting…" : token ? `Buy ${sides.find((s) => s.value === side)?.label} (${isDemo ? "Demo" : "Live"})` : "Sign in & connect Deriv to trade"}
+      {/* Accumulator stat rows (mirrors Deriv's proposal summary) */}
+      {isAccumulator && (
+        <div className="rounded-xl bg-white p-3 text-sm">
+          <div className="flex items-center justify-between py-1">
+            <span className="text-[oklch(0.4_0.02_260)]">Max. payout</span>
+            <span className="font-medium underline decoration-dotted">
+              {accuMeta.maxPayout != null ? `${accuMeta.maxPayout.toFixed(2)} ${currency}` : `6,000.00 ${currency}`}
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-1">
+            <span className="text-[oklch(0.4_0.02_260)]">Max. ticks</span>
+            <span className="font-medium underline decoration-dotted">
+              {accuMeta.maxTicks ?? 85} ticks
+            </span>
+          </div>
+          {accuMeta.tickSize != null && (
+            <div className="flex items-center justify-between py-1">
+              <span className="text-[oklch(0.4_0.02_260)]">Tick size barrier</span>
+              <span className="font-medium">±{accuMeta.tickSize.toFixed(5)}</span>
+            </div>
+          )}
+          {(accuMeta.minStake != null || accuMeta.maxStake != null) && (
+            <div className="flex items-center justify-between py-1">
+              <span className="text-[oklch(0.4_0.02_260)]">Stake range</span>
+              <span className="font-medium">
+                {(accuMeta.minStake ?? 1).toFixed(2)} – {(accuMeta.maxStake ?? 2000).toFixed(2)} {currency}
+              </span>
+            </div>
+          )}
+          {accuMeta.high != null && accuMeta.low != null && (
+            <div className="flex items-center justify-between py-1">
+              <span className="text-[oklch(0.4_0.02_260)]">Barriers</span>
+              <span className="font-mono text-xs">
+                {accuMeta.low.toFixed(4)} / {accuMeta.high.toFixed(4)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Side cards (non-accumulator) */}
+      {!isAccumulator && (
+        <div className="space-y-2">
+          {sides.map((s) => {
+            const live = payouts[s.value];
+            const isSelected = side === s.value;
+            return (
+              <button
+                key={s.value}
+                onClick={() => setSide(s.value)}
+                className={cn(
+                  "w-full overflow-hidden rounded-xl text-left transition",
+                  isSelected ? "ring-2 ring-[oklch(0.55_0.22_265)]/60" : "opacity-90 hover:opacity-100",
+                )}
+              >
+                <div className="flex items-center justify-between bg-[oklch(0.96_0.005_240)] px-3 py-1.5 text-xs text-[oklch(0.45_0.02_260)]">
+                  <span>Payout {live ? live.payout.toFixed(2) : "—"} {currency}</span>
+                </div>
+                <div className={cn("flex items-center justify-between px-4 py-3 text-white", sideAccent[s.value] ?? "bg-muted")}>
+                  <span className="font-semibold">{s.label}</span>
+                  <span className="font-mono text-sm">{live ? `${live.pct.toFixed(2)}%` : ""}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Buy button */}
+      <Button
+        onClick={handleBuy}
+        disabled={busy}
+        className={cn(
+          "h-12 w-full rounded-xl text-base font-semibold text-white",
+          isAccumulator ? accentBuy : "",
+        )}
+      >
+        {busy
+          ? "Submitting…"
+          : token
+            ? isAccumulator
+              ? `Buy (${isDemo ? "Demo" : "Live"})`
+              : `Buy ${sides.find((s) => s.value === side)?.label} (${isDemo ? "Demo" : "Live"})`
+            : "Sign in & connect Deriv to trade"}
       </Button>
 
-      <p className="text-[11px] text-muted-foreground">
-        Last price: <span className="font-mono text-foreground">{lastPrice?.toFixed(4) ?? "—"}</span>. You can lose money rapidly.
+      <p className="text-[11px] text-[oklch(0.5_0.02_260)]">
+        Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "—"}</span>. You can lose money rapidly.
       </p>
     </div>
   );

@@ -201,15 +201,15 @@ function BotBuilder() {
   useEffect(() => {
     if (!user) return;
     supabase
-      .from("deriv_accounts")
-      .select("api_token, is_demo")
+      .from("sessions")
+      .select("deriv_token, is_demo")
       .eq("user_id", user.id)
       .eq("is_active", true)
       .order("is_demo", { ascending: true })
       .limit(1)
       .maybeSingle()
       .then(({ data }: any) => {
-        if (data) { setToken(data.api_token); setIsDemo(data.is_demo); }
+        if (data) { setToken(data.deriv_token); setIsDemo(data.is_demo); }
       });
   }, [user]);
 
@@ -318,9 +318,9 @@ function BotBuilder() {
       logJournal(`Bought ${ct} contract ${contract.contract_id}`);
 
       const { data: trade } = await supabase.from("trades").insert({
-        user_id: user!.id, contract_id: String(contract.contract_id),
-        market: symbol, trade_type: ct, stake, payout: contract.payout,
-        result: "open", is_demo: isDemo,
+        user_id: user!.id, deriv_contract_id: String(contract.contract_id),
+        symbol, trade_type: ct, stake, payout: contract.payout,
+        status: "open",
       }).select().single();
 
       const poll = setInterval(async () => {
@@ -343,7 +343,7 @@ function BotBuilder() {
               [{ id: String(contract.contract_id), time: new Date().toLocaleTimeString(), type: ct, stake, profit }, ...t].slice(0, 200));
             logJournal(`${won ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`);
             if ((trade as any)?.id) {
-              await supabase.from("trades").update({ profit, result: won ? "win" : "loss" }).eq("id", (trade as any).id);
+              await supabase.from("trades").update({ profit_loss: profit, status: won ? "won" : "lost", closed_at: new Date().toISOString() }).eq("id", (trade as any).id);
             }
           }
         } catch { /* ignore */ }

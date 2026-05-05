@@ -163,6 +163,39 @@ export async function subscribeTicks(
   };
 }
 
+/**
+ * Subscribe to live balance updates for the authorized account, mirroring
+ * Deriv's own balance stream (authorize → balance:1, subscribe:1).
+ * Returns an unsubscribe function.
+ */
+export async function subscribeBalance(
+  token: string,
+  onBalance: (b: { balance: number; currency: string; loginid: string }) => void,
+) {
+  const ws = await connect();
+  await send({ authorize: token });
+  const key = `balance:${token.slice(-6)}`;
+  const sub = { send: { balance: 1, subscribe: 1 }, key };
+  activeSubs.set(key, sub);
+  const off = onMessage((msg) => {
+    if (msg.msg_type === "balance" && msg.balance) {
+      onBalance({
+        balance: Number(msg.balance.balance),
+        currency: String(msg.balance.currency ?? "USD"),
+        loginid: String(msg.balance.loginid ?? ""),
+      });
+    }
+  });
+  ws.send(JSON.stringify(sub.send));
+  return () => {
+    off();
+    activeSubs.delete(key);
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ forget_all: "balance" }));
+    }
+  };
+}
+
 export type Candle = {
   time: number; // unix seconds
   open: number;
@@ -206,8 +239,21 @@ export async function getActiveSymbols() {
   return symbolsCache!;
 }
 
+// IMPORTANT: Deriv ignores the `redirect_uri` query parameter — the redirect
+// URL is taken from the "Redirect URL" field configured on your app at
+// https://app.deriv.com/account/api-token (Manage apps). Make sure
+// https://www.arktradershub.com is registered there, otherwise Deriv will
+// not redirect back no matter what we pass here.
+export const DERIV_REDIRECT_URL = "https://www.arktradershub.com";
+
 export function buildOAuthUrl() {
-  return `https://oauth.deriv.com/oauth2/authorize?app_id=${DERIV_APP_ID}&l=EN&brand=deriv`;
+  const params = new URLSearchParams({
+    app_id: DERIV_APP_ID,
+    l: "EN",
+    brand: "deriv",
+    redirect_uri: DERIV_REDIRECT_URL,
+  });
+  return `https://oauth.deriv.com/oauth2/authorize?${params.toString()}`;
 }
 
 export const SYNTHETIC_MARKETS = [

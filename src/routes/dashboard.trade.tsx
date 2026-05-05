@@ -56,8 +56,8 @@ function TradePage() {
   useEffect(() => {
     if (!user) return;
     supabase
-      .from("deriv_accounts")
-      .select("api_token, is_demo")
+      .from("sessions")
+      .select("deriv_token, is_demo")
       .eq("user_id", user.id)
       .eq("is_active", true)
       .order("is_demo", { ascending: true })
@@ -65,7 +65,7 @@ function TradePage() {
       .maybeSingle()
       .then(({ data }) => {
         if (data) {
-          setToken(data.api_token);
+          setToken(data.deriv_token);
           setIsDemo(data.is_demo);
         }
       });
@@ -127,13 +127,12 @@ function TradePage() {
         .from("trades")
         .insert({
           user_id: user.id,
-          contract_id: String(contract.contract_id),
-          market,
+          deriv_contract_id: String(contract.contract_id),
+          symbol: market,
           trade_type: contract_type,
           stake,
           payout: contract.payout,
-          result: "open",
-          is_demo: isDemo,
+          status: "open",
         })
         .select()
         .single();
@@ -147,7 +146,7 @@ function TradePage() {
             const profit = Number(c.profit ?? 0);
             await supabase
               .from("trades")
-              .update({ profit, result: profit >= 0 ? "win" : "loss" })
+              .update({ profit_loss: profit, status: profit >= 0 ? "won" : "lost", closed_at: new Date().toISOString() })
               .eq("id", trade!.id);
             toast[profit >= 0 ? "success" : "error"](
               `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`,

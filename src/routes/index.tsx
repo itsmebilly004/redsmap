@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { DerivChart } from "@/components/deriv-chart";
 import { TradePanel } from "@/components/trade-panel";
@@ -16,8 +16,21 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const [symbol, setSymbol] = useState("R_100");
+  const [symbol, setSymbol] = useState("1HZ100V");
   const [price, setPrice] = useState<number | null>(null);
+  const [barriers, setBarriers] = useState<{ high: number | null; low: number | null }>({ high: null, low: null });
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("acct1") && params.get("token1")) {
+      window.location.replace(`/deriv-callback${window.location.search}`);
+    }
+    if (params.get("error")) {
+      navigate({ to: "/auth", search: { mode: "signin" } });
+    }
+  }, [navigate]);
 
   return (
     <TopShell>
@@ -37,6 +50,8 @@ function Index() {
             onSymbolChange={setSymbol}
             onPrice={setPrice}
             height={460}
+            highBarrier={barriers.high}
+            lowBarrier={barriers.low}
           />
 
           <p className="mt-3 text-xs text-[oklch(0.5_0.02_260)]">
@@ -46,7 +61,7 @@ function Index() {
         </section>
 
         <aside className="hidden flex-col gap-3 bg-[oklch(0.97_0.003_240)] p-3 lg:flex">
-          <TradePanel market={symbol} lastPrice={price} />
+          <TradePanel market={symbol} lastPrice={price} onAccumulatorBarriers={setBarriers} />
         </aside>
       </div>
 

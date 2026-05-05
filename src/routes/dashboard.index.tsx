@@ -32,7 +32,7 @@ function DashboardHome() {
   useEffect(() => {
     if (!user) return;
     supabase
-      .from("deriv_accounts")
+      .from("sessions")
       .select("id")
       .eq("user_id", user.id)
       .limit(1)
@@ -52,9 +52,9 @@ function DashboardHome() {
     return () => off?.();
   }, []);
 
-  const totalPL = trades.reduce((a, t) => a + Number(t.profit ?? 0), 0);
-  const wins = trades.filter((t) => t.result === "win").length;
-  const losses = trades.filter((t) => t.result === "loss").length;
+  const totalPL = trades.reduce((a, t) => a + Number(t.profit_loss ?? 0), 0);
+  const wins = trades.filter((t) => t.status === "won").length;
+  const losses = trades.filter((t) => t.status === "lost").length;
   const winRate = wins + losses ? Math.round((wins / (wins + losses)) * 100) : 0;
 
   return (
@@ -101,8 +101,8 @@ function DashboardHome() {
           ) : (
             <ul className="divide-y divide-glass-border">
               {trades.map((t) => {
-                const win = t.result === "win";
-                const loss = t.result === "loss";
+                const win = t.status === "won";
+                const loss = t.status === "lost";
                 return (
                   <li key={t.id} className="flex items-center justify-between py-3 text-sm">
                     <div className="flex items-center gap-3">
@@ -114,16 +114,16 @@ function DashboardHome() {
                         <Activity className="size-4 text-muted-foreground" />
                       )}
                       <div>
-                        <div className="font-mono text-xs">{t.market}</div>
+                        <div className="font-mono text-xs">{t.symbol}</div>
                         <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                          {t.trade_type} • {t.is_demo ? "Demo" : "Live"}
+                          {t.trade_type}
                         </div>
                       </div>
                     </div>
                     <div className="text-right font-mono">
                       <div className={win ? "text-success" : loss ? "text-destructive" : ""}>
-                        {Number(t.profit ?? 0) >= 0 ? "+" : ""}
-                        {Number(t.profit ?? 0).toFixed(2)}
+                        {Number(t.profit_loss ?? 0) >= 0 ? "+" : ""}
+                        {Number(t.profit_loss ?? 0).toFixed(2)}
                       </div>
                       <div className="text-[10px] text-muted-foreground">stake {Number(t.stake).toFixed(2)}</div>
                     </div>

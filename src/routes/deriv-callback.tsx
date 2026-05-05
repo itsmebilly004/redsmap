@@ -90,16 +90,16 @@ function DerivCallback() {
           } catch (e) {
             console.error("Authorize failed", e);
           }
-          await supabase.from("deriv_accounts").upsert(
+          await supabase.from("sessions").upsert(
             {
               user_id: sessionUser.id,
               account_id: acc.account,
-              api_token: acc.token,
+              deriv_token: acc.token,
               currency,
               balance,
               is_demo: acc.account.startsWith("VR"),
               is_active: true,
-            } as any,
+            },
             { onConflict: "user_id,account_id" },
           );
         }

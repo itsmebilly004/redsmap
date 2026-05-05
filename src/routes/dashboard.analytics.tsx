@@ -23,15 +23,15 @@ function AnalyticsPage() {
   }, [user]);
 
   const stats = useMemo(() => {
-    const wins = trades.filter((t) => t.result === "win").length;
-    const losses = trades.filter((t) => t.result === "loss").length;
+    const wins = trades.filter((t) => t.status === "won").length;
+    const losses = trades.filter((t) => t.status === "lost").length;
     const total = trades.length;
     const totalStake = trades.reduce((a, t) => a + Number(t.stake ?? 0), 0);
-    const profit = trades.reduce((a, t) => a + Number(t.profit ?? 0), 0);
+    const profit = trades.reduce((a, t) => a + Number(t.profit_loss ?? 0), 0);
     const roi = totalStake ? (profit / totalStake) * 100 : 0;
     let cum = 0;
     const equity = trades.map((t) => {
-      cum += Number(t.profit ?? 0);
+      cum += Number(t.profit_loss ?? 0);
       return { x: new Date(t.created_at).toLocaleString(), y: Number(cum.toFixed(2)) };
     });
     return { wins, losses, total, profit, roi, winRate: wins + losses ? (wins / (wins + losses)) * 100 : 0, equity };
@@ -109,18 +109,18 @@ function AnalyticsPage() {
                 [...trades].reverse().map((t) => (
                   <tr key={t.id} className="border-b border-glass-border/50">
                     <td className="py-2 font-mono text-xs text-muted-foreground">{new Date(t.created_at).toLocaleString()}</td>
-                    <td className="py-2 font-mono text-xs">{t.market}</td>
+                    <td className="py-2 font-mono text-xs">{t.symbol}</td>
                     <td className="py-2 font-mono text-xs">{t.trade_type}</td>
                     <td className="py-2 text-right font-mono">{Number(t.stake).toFixed(2)}</td>
-                    <td className={`py-2 text-right font-mono ${Number(t.profit) >= 0 ? "text-success" : "text-destructive"}`}>
-                      {Number(t.profit ?? 0) >= 0 ? "+" : ""}{Number(t.profit ?? 0).toFixed(2)}
+                    <td className={`py-2 text-right font-mono ${Number(t.profit_loss) >= 0 ? "text-success" : "text-destructive"}`}>
+                      {Number(t.profit_loss ?? 0) >= 0 ? "+" : ""}{Number(t.profit_loss ?? 0).toFixed(2)}
                     </td>
                     <td className="py-2 text-right">
                       <span className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${
-                        t.result === "win" ? "bg-success/20 text-success" :
-                        t.result === "loss" ? "bg-destructive/20 text-destructive" :
+                        t.status === "won" ? "bg-success/20 text-success" :
+                        t.status === "lost" ? "bg-destructive/20 text-destructive" :
                         "bg-foreground/5 text-muted-foreground"
-                      }`}>{t.result}</span>
+                      }`}>{t.status}</span>
                     </td>
                   </tr>
                 ))

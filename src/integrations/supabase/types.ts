@@ -44,113 +44,92 @@ export type Database = {
         }
         Relationships: []
       }
-      deriv_accounts: {
+      sessions: {
         Row: {
-          account_id: string | null
-          api_token: string
+          account_id: string
           balance: number | null
           created_at: string
           currency: string | null
+          deriv_token: string
+          expires_at: string | null
           id: string
           is_active: boolean
           is_demo: boolean
-          updated_at: string
           user_id: string
         }
         Insert: {
-          account_id?: string | null
-          api_token: string
+          account_id: string
           balance?: number | null
           created_at?: string
           currency?: string | null
+          deriv_token: string
+          expires_at?: string | null
           id?: string
           is_active?: boolean
           is_demo?: boolean
-          updated_at?: string
           user_id: string
         }
         Update: {
-          account_id?: string | null
-          api_token?: string
+          account_id?: string
           balance?: number | null
           created_at?: string
           currency?: string | null
+          deriv_token?: string
+          expires_at?: string | null
           id?: string
           is_active?: boolean
           is_demo?: boolean
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      profiles: {
-        Row: {
-          avatar_url: string | null
-          created_at: string
-          display_name: string | null
-          id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          avatar_url?: string | null
-          created_at?: string
-          display_name?: string | null
-          id?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          avatar_url?: string | null
-          created_at?: string
-          display_name?: string | null
-          id?: string
-          updated_at?: string
           user_id?: string
         }
         Relationships: []
       }
       trades: {
         Row: {
-          contract_id: string | null
+          closed_at: string | null
           created_at: string
+          deriv_contract_id: string | null
+          duration: string | null
+          entry_spot: number | null
+          exit_spot: number | null
           id: string
-          is_demo: boolean
-          market: string
           payout: number | null
-          profit: number | null
-          result: string
+          profit_loss: number | null
           stake: number
+          status: string
+          symbol: string
           trade_type: string
-          updated_at: string
           user_id: string
         }
         Insert: {
-          contract_id?: string | null
+          closed_at?: string | null
           created_at?: string
+          deriv_contract_id?: string | null
+          duration?: string | null
+          entry_spot?: number | null
+          exit_spot?: number | null
           id?: string
-          is_demo?: boolean
-          market: string
           payout?: number | null
-          profit?: number | null
-          result?: string
+          profit_loss?: number | null
           stake: number
+          status?: string
+          symbol: string
           trade_type: string
-          updated_at?: string
           user_id: string
         }
         Update: {
-          contract_id?: string | null
+          closed_at?: string | null
           created_at?: string
+          deriv_contract_id?: string | null
+          duration?: string | null
+          entry_spot?: number | null
+          exit_spot?: number | null
           id?: string
-          is_demo?: boolean
-          market?: string
           payout?: number | null
-          profit?: number | null
-          result?: string
+          profit_loss?: number | null
           stake?: number
+          status?: string
+          symbol?: string
           trade_type?: string
-          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -158,29 +137,80 @@ export type Database = {
       user_settings: {
         Row: {
           created_at: string
-          default_market: string | null
-          id: string
-          preferences: Json
+          default_duration: string | null
+          default_stake: number | null
+          preferred_symbol: string | null
           theme: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
-          default_market?: string | null
-          id?: string
-          preferences?: Json
+          default_duration?: string | null
+          default_stake?: number | null
+          preferred_symbol?: string | null
           theme?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
-          default_market?: string | null
-          id?: string
-          preferences?: Json
+          default_duration?: string | null
+          default_stake?: number | null
+          preferred_symbol?: string | null
           theme?: string | null
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      users: {
+        Row: {
+          created_at: string
+          deriv_account: string | null
+          deriv_currency: string | null
+          deriv_user_id: string | null
+          email: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deriv_account?: string | null
+          deriv_currency?: string | null
+          deriv_user_id?: string | null
+          email?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deriv_account?: string | null
+          deriv_currency?: string | null
+          deriv_user_id?: string | null
+          email?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      watchlist: {
+        Row: {
+          added_at: string
+          id: string
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          added_at?: string
+          id?: string
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          added_at?: string
+          id?: string
+          symbol?: string
           user_id?: string
         }
         Relationships: []

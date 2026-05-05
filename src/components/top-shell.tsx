@@ -1,6 +1,8 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useDerivBalance } from "@/hooks/use-deriv-balance";
+import { buildOAuthUrl } from "@/lib/deriv";
 import {
   LayoutGrid,
   Bot,
@@ -12,7 +14,15 @@ import {
   Users,
   CandlestickChart,
   Sparkles,
+  Plug,
+  ChevronDown,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { ReactNode } from "react";
 
 type TabDef = {
@@ -36,6 +46,7 @@ export const TOP_TABS: TabDef[] = [
 export function TopShell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { account, accounts, balance, currency, switchAccount } = useDerivBalance();
 
   return (
     <div className="min-h-dvh bg-[oklch(0.985_0.003_240)] text-[oklch(0.2_0.02_260)]">
@@ -47,6 +58,56 @@ export function TopShell({ children }: { children: ReactNode }) {
           </span>
         </Link>
         <div className="flex items-center gap-2">
+          {user && account && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-2 rounded-md border border-[oklch(0.92_0.005_240)] bg-white px-3 py-1.5 text-left transition hover:bg-[oklch(0.97_0.003_240)]">
+                  <span className={`size-2 rounded-full ${account.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`} />
+                  <div className="leading-tight">
+                    <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
+                      {account.is_demo ? "Demo" : "Real"} {currency}
+                    </div>
+                    <div className="font-mono text-sm font-semibold tabular-nums">
+                      {(balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}
+                    </div>
+                  </div>
+                  {accounts.length > 1 && <ChevronDown className="size-4 text-[oklch(0.5_0.02_260)]" />}
+                </button>
+              </DropdownMenuTrigger>
+              {accounts.length > 1 && (
+                <DropdownMenuContent align="end" className="w-64">
+                  {accounts.map((a) => (
+                    <DropdownMenuItem
+                      key={a.account_id}
+                      onClick={() => switchAccount(a.account_id)}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`size-2 rounded-full ${a.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`} />
+                        <div className="leading-tight">
+                          <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
+                            {a.is_demo ? "Demo" : "Real"} {a.currency ?? "USD"}
+                          </div>
+                          <div className="font-mono text-xs">{a.account_id}</div>
+                        </div>
+                      </div>
+                      <span className="font-mono text-xs tabular-nums">
+                        {Number(a.balance ?? 0).toFixed(2)}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              )}
+            </DropdownMenu>
+          )}
+          {user && !account && (
+            <Button
+              onClick={() => (window.location.href = buildOAuthUrl())}
+              className="h-9 rounded-md bg-[oklch(0.72_0.17_55)] px-4 text-white hover:bg-[oklch(0.65_0.17_55)]"
+            >
+              <Plug className="mr-1 size-4" /> Connect Deriv
+            </Button>
+          )}
           {user ? (
             <Button
               asChild

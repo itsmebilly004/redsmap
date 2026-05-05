@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
-  CandlestickSeries,
+  AreaSeries,
   type IChartApi,
   type ISeriesApi,
-  type CandlestickData,
+  type LineData,
+  type IPriceLine,
   type UTCTimestamp,
 } from "lightweight-charts";
 import {
@@ -29,6 +30,9 @@ type Props = {
   onPrice?: (price: number) => void;
   height?: number;
   className?: string;
+  /** Optional accumulator-style guide barriers above and below current price. */
+  highBarrier?: number | null;
+  lowBarrier?: number | null;
 };
 
 const TIMEFRAMES = [
@@ -50,11 +54,14 @@ export function DerivChart({
   onPrice,
   height = 420,
   className,
+  highBarrier,
+  lowBarrier,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const currentCandleRef = useRef<CandlestickData | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
+  const highLineRef = useRef<IPriceLine | null>(null);
+  const lowLineRef = useRef<IPriceLine | null>(null);
   const granularityRef = useRef<number>(60);
   const [granularity, setGranularity] = useState(60);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
@@ -108,15 +115,20 @@ export function DerivChart({
       },
       crosshair: { mode: 1 },
     });
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#26a69a",
-      downColor: "#ef5350",
-      borderVisible: false,
-      wickUpColor: "#26a69a",
-      wickDownColor: "#ef5350",
+    const series = chart.addSeries(AreaSeries, {
+      lineColor: "#1f2937",
+      lineWidth: 2,
+      topColor: "rgba(31,41,55,0.18)",
+      bottomColor: "rgba(31,41,55,0.0)",
+      priceLineVisible: true,
+      priceLineColor: "#111827",
+      priceLineWidth: 1,
+      lastValueVisible: true,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
     });
     chartRef.current = chart;
-    seriesRef.current = series;
+    seriesRef.current = series as ISeriesApi<"Area">;
     return () => {
       chart.remove();
       chartRef.current = null;
@@ -125,27 +137,22 @@ export function DerivChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load candles + subscribe ticks whenever symbol/timeframe changes.
+  // Load history + subscribe ticks whenever symbol/timeframe changes.
   useEffect(() => {
     granularityRef.current = granularity;
     let cancelled = false;
     let unsubTicks: (() => void) | undefined;
-    currentCandleRef.current = null;
 
     async function init() {
       if (!seriesRef.current) return;
       try {
-        const candles = await fetchCandles(symbol, granularity, 200);
+        const candles = await fetchCandles(symbol, granularity, 300);
         if (cancelled || !seriesRef.current) return;
-        const data: CandlestickData[] = candles.map((c) => ({
+        const data: LineData[] = candles.map((c) => ({
           time: c.time as UTCTimestamp,
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
+          value: c.close,
         }));
         seriesRef.current.setData(data);
-        currentCandleRef.current = data[data.length - 1] ?? null;
         chartRef.current?.timeScale().fitContent();
       } catch {
         /* network/timeout: status badge will show */
@@ -155,30 +162,7 @@ export function DerivChart({
         onPrice?.(price);
         const series = seriesRef.current;
         if (!series) return;
-        const g = granularityRef.current;
-        const bucket = (Math.floor(t / g) * g) as UTCTimestamp;
-        const cur = currentCandleRef.current;
-        if (!cur || (cur.time as number) !== bucket) {
-          const next: CandlestickData = {
-            time: bucket,
-            open: price,
-            high: price,
-            low: price,
-            close: price,
-          };
-          currentCandleRef.current = next;
-          series.update(next);
-        } else {
-          const next: CandlestickData = {
-            time: cur.time,
-            open: cur.open,
-            high: Math.max(cur.high, price),
-            low: Math.min(cur.low, price),
-            close: price,
-          };
-          currentCandleRef.current = next;
-          series.update(next);
-        }
+        series.update({ time: t as UTCTimestamp, value: price });
       });
     }
     init();
@@ -188,6 +172,40 @@ export function DerivChart({
       unsubTicks?.();
     };
   }, [symbol, granularity, onPrice]);
+
+  // Manage accumulator-style high/low barrier lines.
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    if (highLineRef.current) {
+      series.removePriceLine(highLineRef.current);
+      highLineRef.current = null;
+    }
+    if (lowLineRef.current) {
+      series.removePriceLine(lowLineRef.current);
+      lowLineRef.current = null;
+    }
+    if (highBarrier != null && Number.isFinite(highBarrier)) {
+      highLineRef.current = series.createPriceLine({
+        price: highBarrier,
+        color: "#2196f3",
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "+",
+      });
+    }
+    if (lowBarrier != null && Number.isFinite(lowBarrier)) {
+      lowLineRef.current = series.createPriceLine({
+        price: lowBarrier,
+        color: "#2196f3",
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "−",
+      });
+    }
+  }, [highBarrier, lowBarrier]);
 
   const symbolOptions = useMemo(() => {
     if (allSymbols.length === 0) return SYNTHETIC_MARKETS.map((m) => ({ symbol: m.symbol, display_name: m.name }));
