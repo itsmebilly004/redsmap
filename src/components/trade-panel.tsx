@@ -6,6 +6,7 @@ import {
   TRADE_CATEGORIES,
   SIDES_BY_CATEGORY,
   contractTypeFor,
+  buildOAuthUrl,
   type TradeCategory,
 } from "@/lib/deriv";
 import { Button } from "@/components/ui/button";
@@ -150,8 +151,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           setPayouts(next);
           if (isAccumulator && accuInfo) {
             setAccuMeta(accuInfo);
-            onAccumulatorBarriers?.({ high: accuInfo.high, low: accuInfo.low });
           } else if (!isAccumulator) {
+            setAccuMeta((m) => ({ ...m, high: null, low: null, tickSize: null }));
             onAccumulatorBarriers?.({ high: null, low: null });
           }
         }
@@ -167,16 +168,27 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, growthRate, multiplier, market, payoutMode, currency]);
 
-  // Fallback synthetic barriers around lastPrice when live data not available.
+  // Deriv accumulator barriers are recomputed on every tick from the current
+  // spot using `tick_size_barrier` (fractional distance from spot). Mirror that
+  // exact logic so the blue guide lines track the price the same way Deriv's
+  // own chart does.
   useEffect(() => {
-    if (!isAccumulator || !lastPrice) return;
-    if (accuMeta.high == null && accuMeta.low == null) {
-      const offset = lastPrice * (growthRate * 0.18);
-      onAccumulatorBarriers?.({ high: lastPrice + offset, low: lastPrice - offset });
+    if (!isAccumulator) return;
+    if (lastPrice == null || !Number.isFinite(lastPrice)) return;
+    const tsb = accuMeta.tickSize;
+    if (tsb != null && Number.isFinite(tsb) && tsb > 0) {
+      const high = lastPrice * (1 + tsb);
+      const low = lastPrice * (1 - tsb);
+      onAccumulatorBarriers?.({ high, low });
+    } else if (accuMeta.high != null && accuMeta.low != null) {
+      // Until we receive proposal metadata, fall back to the absolute barriers
+      // returned by the most recent proposal.
+      onAccumulatorBarriers?.({ high: accuMeta.high, low: accuMeta.low });
     }
-  }, [isAccumulator, lastPrice, growthRate, accuMeta.high, accuMeta.low, onAccumulatorBarriers]);
+  }, [isAccumulator, lastPrice, accuMeta.tickSize, accuMeta.high, accuMeta.low, onAccumulatorBarriers]);
 
-  async function handleBuy() {
+  async function handleBuy(sideOverride?: string) {
+    const activeSide = sideOverride ?? side;
     if (!user) {
       toast.error("Sign in to place trades.");
       return;
@@ -188,7 +200,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     setBusy(true);
     try {
       await send({ authorize: token });
-      const contract_type = contractTypeFor(category, side);
+      const contract_type = contractTypeFor(category, activeSide);
       const proposal: any = {
         proposal: 1,
         amount: stake,
@@ -542,7 +554,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         </div>
       )}
 
-      {/* Side cards (non-accumulator) */}
+      {/* Side cards (non-accumulator) — click to execute the trade for that side */}
       {!isAccumulator && (
         <div className="space-y-2">
           {sides.map((s) => {
@@ -551,9 +563,22 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             return (
               <button
                 key={s.value}
-                onClick={() => setSide(s.value)}
+                onClick={() => {
+                  setSide(s.value);
+                  if (!user) {
+                    toast.error("Sign in to place trades.");
+                    return;
+                  }
+                  if (!token) {
+                    toast.message("Connect your Deriv account to trade.");
+                    window.location.href = buildOAuthUrl();
+                    return;
+                  }
+                  if (!busy) void handleBuy(s.value);
+                }}
+                disabled={busy}
                 className={cn(
-                  "w-full overflow-hidden rounded-xl text-left transition",
+                  "w-full overflow-hidden rounded-xl text-left transition disabled:opacity-60",
                   isSelected ? "ring-2 ring-[oklch(0.55_0.22_265)]/60" : "opacity-90 hover:opacity-100",
                 )}
               >
@@ -561,7 +586,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                   <span>Payout {live ? live.payout.toFixed(2) : "—"} {currency}</span>
                 </div>
                 <div className={cn("flex items-center justify-between px-4 py-3 text-white", sideAccent[s.value] ?? "bg-muted")}>
-                  <span className="font-semibold">{s.label}</span>
+                  <span className="font-semibold">
+                    {busy && side === s.value ? "Submitting…" : s.label}
+                  </span>
                   <span className="font-mono text-sm">{live ? `${live.pct.toFixed(2)}%` : ""}</span>
                 </div>
               </button>
@@ -570,23 +597,33 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         </div>
       )}
 
-      {/* Buy button */}
-      <Button
-        onClick={handleBuy}
-        disabled={busy}
-        className={cn(
-          "h-12 w-full rounded-xl text-base font-semibold text-white",
-          isAccumulator ? accentBuy : "",
-        )}
-      >
-        {busy
-          ? "Submitting…"
-          : token
-            ? isAccumulator
-              ? `Buy (${isDemo ? "Demo" : "Live"})`
-              : `Buy ${sides.find((s) => s.value === side)?.label} (${isDemo ? "Demo" : "Live"})`
-            : "Sign in & connect Deriv to trade"}
-      </Button>
+      {/* Buy button (Accumulator / Multiplier) */}
+      {(isAccumulator || isMultiplier) && (
+        <Button
+          onClick={() => {
+            if (!user) {
+              toast.error("Sign in to place trades.");
+              return;
+            }
+            if (!token) {
+              window.location.href = buildOAuthUrl();
+              return;
+            }
+            void handleBuy();
+          }}
+          disabled={busy}
+          className={cn(
+            "h-12 w-full rounded-xl text-base font-semibold text-white",
+            isAccumulator ? accentBuy : "",
+          )}
+        >
+          {busy
+            ? "Submitting…"
+            : token
+              ? `Buy ${sides.find((s) => s.value === side)?.label ?? ""} (${isDemo ? "Demo" : "Live"})`
+              : "Sign in & connect Deriv to trade"}
+        </Button>
+      )}
 
       <p className="text-[11px] text-[oklch(0.5_0.02_260)]">
         Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "—"}</span>. You can lose money rapidly.
