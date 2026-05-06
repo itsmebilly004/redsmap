@@ -1,3 +1,4 @@
+--- START OF FILE src/routes/index.tsx ---
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";
@@ -23,10 +24,14 @@ function Index() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    
     const params = new URLSearchParams(window.location.search);
+    // If Deriv redirects back to the root with tokens, push them to the callback route
     if (params.get("acct1") && params.get("token1")) {
-      window.location.replace(`/deriv-callback${window.location.search}`);
+      navigate({ to: "/deriv-callback", search: Object.fromEntries(params.entries()) });
+      return;
     }
+    
     if (params.get("error")) {
       navigate({ to: "/auth", search: { mode: "signin" } });
     }

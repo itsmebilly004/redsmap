@@ -272,19 +272,20 @@ export async function getActiveSymbols() {
   return symbolsCache!;
 }
 
-// IMPORTANT: Deriv ignores the `redirect_uri` query parameter — the redirect
-// URL is taken from the "Redirect URL" field configured on your app at
-// https://app.deriv.com/account/api-token (Manage apps). Make sure
-// https://www.arktradershub.com is registered there, otherwise Deriv will
-// not redirect back no matter what we pass here.
-export const DERIV_REDIRECT_URL = "https://www.arktradershub.com";
+// IMPORTANT: Deriv ignores the `redirect_uri` query parameter if it doesn't 
+// match the one configured in the Deriv App dashboard. 
+// We use window.location.origin to support local and production seamlessly.
+export function getDerivRedirectUrl() {
+  if (typeof window === "undefined") return "https://www.arktradershub.com";
+  return window.location.origin;
+}
 
 export function buildOAuthUrl() {
   const params = new URLSearchParams({
     app_id: DERIV_APP_ID,
     l: "EN",
     brand: "deriv",
-    redirect_uri: DERIV_REDIRECT_URL,
+    redirect_uri: getDerivRedirectUrl(),
   });
   return `https://oauth.deriv.com/oauth2/authorize?${params.toString()}`;
 }
