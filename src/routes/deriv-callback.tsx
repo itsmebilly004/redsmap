@@ -1,4 +1,3 @@
---- START OF FILE src/routes/deriv-callback.tsx ---
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,11 +6,9 @@ import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
-function DerivCallback() {
-  const navigate = useNavigate();
-  const searchParams = Route.useSearch();
-  const [status, setStatus] = useState("Connecting your Deriv account…");
-  const ran = useRef(false);
+export const Route = createFileRoute("/deriv-callback")({
+  component: DerivCallback,
+});
 
 // Deriv OAuth returns ?acct1=...&token1=...&cur1=...&acct2=...&token2=...
 function parseAccounts(params: URLSearchParams) {
@@ -107,7 +104,8 @@ function DerivCallback() {
             console.error(`Validation failed for ${acc.account}`, e);
           }
 
-          // Use upsert to handle both new and existing account links
+          // Upsert — refresh the 30-day expiry window on every login
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
           const { error: upsertError } = await supabase.from("sessions").upsert(
             {
               user_id: sessionUser.id,
@@ -117,6 +115,7 @@ function DerivCallback() {
               balance,
               is_demo: acc.account.startsWith("VR"),
               is_active: true,
+              expires_at: expiresAt,
             },
             { onConflict: "user_id,account_id" }
           );

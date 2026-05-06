@@ -40,11 +40,13 @@ export function useDerivBalance(): LiveBalance {
     }
     let cancelled = false;
     (async () => {
+      const now = new Date().toISOString();
       const { data, error } = await supabase
         .from("sessions")
         .select("account_id, deriv_token, is_demo, currency, balance")
         .eq("user_id", user.id)
         .eq("is_active", true)
+        .gt("expires_at", now)
         .order("is_demo", { ascending: true });
       if (cancelled) return;
       if (error) {

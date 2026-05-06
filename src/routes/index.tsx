@@ -1,4 +1,3 @@
---- START OF FILE src/routes/index.tsx ---
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";

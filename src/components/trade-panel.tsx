@@ -71,6 +71,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       .select("deriv_token, is_demo")
       .eq("user_id", user.id)
       .eq("is_active", true)
+      .gt("expires_at", new Date().toISOString())
       .order("is_demo", { ascending: true })
       .limit(1)
       .maybeSingle()

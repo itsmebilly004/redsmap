@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npx vite *)",
+      "PowerShell(npm run *)",
+      "Bash(powershell -Command \"until \\(Test-Path 'C:\\\\Users\\\\Pauloh\\\\AppData\\\\Local\\\\Temp\\\\vite-dev.log'\\) { Start-Sleep -Milliseconds 200 }; Get-Content -Wait 'C:\\\\Users\\\\Pauloh\\\\AppData\\\\Local\\\\Temp\\\\vite-dev.log' | Select-String -Pattern 'ready|error|Error|failed|EADDRINUSE|localhost|warn|Warning' --line-buffered\")",
+      "PowerShell($files = @\\(\"C:\\\\Users\\\\Pauloh\\\\Documents\\\\GitHub\\\\arktrader-hub\\\\src\\\\routes\\\\index.tsx\", \"C:\\\\Users\\\\Pauloh\\\\Documents\\\\GitHub\\\\arktrader-hub\\\\src\\\\routes\\\\deriv-callback.tsx\"\\); foreach \\($f in $files\\) { $bytes = [System.IO.File]::ReadAllBytes\\($f\\); Write-Host \"$f - First 6 bytes: $\\($bytes[0..5] -join ', '\\)\"; Write-Host \"First chars as hex: $\\(\\($bytes[0..10] | ForEach-Object { $_.ToString\\('X2'\\) }\\) -join ' '\\)\" })",
+      "PowerShell(Get-Process *)",
+      "Bash(powershell -Command \"Start-Sleep -Seconds 3; until \\(Test-Path 'C:\\\\Users\\\\Pauloh\\\\AppData\\\\Local\\\\Temp\\\\vite-dev2.log'\\) { Start-Sleep -Milliseconds 200 }; Get-Content -Wait 'C:\\\\Users\\\\Pauloh\\\\AppData\\\\Local\\\\Temp\\\\vite-dev2.log' | Select-String -Pattern 'ready|error|Error|EADDRINUSE|localhost|failed|warn|Warning'\")",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__get_advisors",
+      "mcp__supabase__apply_migration"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}
