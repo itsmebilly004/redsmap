@@ -140,6 +140,39 @@ export async function send(payload: Record<string, any>): Promise<any> {
   });
 }
 
+/**
+ * Subscribe to the Deriv `proposal` stream. Deriv recomputes the proposal
+ * (including accumulator high/low barriers) on every tick, so subscribing —
+ * not polling — is the only way to mirror what deriv.com renders.
+ */
+export async function subscribeProposal(
+  payload: Record<string, any>,
+  onProposal: (p: any) => void,
+): Promise<() => void> {
+  const ws = await connect();
+  const id = reqId++;
+  let subId: string | null = null;
+  const key = `proposal:${id}`;
+  const sub = { send: { ...payload, proposal: 1, subscribe: 1, req_id: id }, key };
+  activeSubs.set(key, sub);
+  const off = onMessage((msg) => {
+    if (msg.req_id !== id) return;
+    if (msg.error) return;
+    if (msg.proposal) {
+      subId = msg.subscription?.id ?? subId;
+      onProposal(msg.proposal);
+    }
+  });
+  ws.send(JSON.stringify(sub.send));
+  return () => {
+    off();
+    activeSubs.delete(key);
+    if (socket?.readyState === WebSocket.OPEN && subId) {
+      socket.send(JSON.stringify({ forget: subId }));
+    }
+  };
+}
+
 export async function subscribeTicks(
   symbol: string,
   onTick: (price: number, time: number) => void,
