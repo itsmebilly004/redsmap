@@ -1,5 +1,6 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { z } from "zod";
 import { TopShell } from "@/components/top-shell";
 import { DerivChart } from "@/components/deriv-chart";
 import { TradePanel } from "@/components/trade-panel";
@@ -17,6 +18,21 @@ export const Route = createFileRoute("/")({
       },
     ],
   }),
+  // Accept all search params so Deriv OAuth callback params are not stripped.
+  validateSearch: z.record(z.string()).catch({}),
+  // Server-side redirect: when Deriv sends acct1/token1 to the root URL,
+  // forward them directly to /deriv-callback before any rendering happens.
+  // This fires on both server (HTTP 302) and client (instant navigation).
+  beforeLoad: ({ search }) => {
+    if (search.acct1 && search.token1) {
+      throw redirect({
+        href: `/deriv-callback?${new URLSearchParams(search).toString()}`,
+      });
+    }
+    if (search.error) {
+      throw redirect({ to: "/auth", search: { mode: "signin" as const } });
+    }
+  },
   component: Index,
 });
 
@@ -28,19 +44,11 @@ function Index() {
     low: null,
   });
   const [tradeCategory, setTradeCategory] = useState<TradeCategory>("accumulator");
-  const navigate = useNavigate();
-
+  // SSR-safe responsive chart height: default to desktop, update after mount.
+  const [chartHeight, setChartHeight] = useState(460);
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("acct1") && params.get("token1")) {
-      navigate({ to: "/deriv-callback", search: Object.fromEntries(params.entries()) });
-      return;
-    }
-    if (params.get("error")) {
-      navigate({ to: "/auth", search: { mode: "signin" } });
-    }
-  }, [navigate]);
+    setChartHeight(window.innerWidth < 1024 ? 280 : 460);
+  }, []);
 
   const isAccumulator = tradeCategory === "accumulator";
 
@@ -63,7 +71,7 @@ function Index() {
             symbol={symbol}
             onSymbolChange={setSymbol}
             onPrice={setPrice}
-            height={window.innerWidth < 1024 ? 280 : 460}
+            height={chartHeight}
             highBarrier={barriers.high}
             lowBarrier={barriers.low}
             isAccumulator={isAccumulator}

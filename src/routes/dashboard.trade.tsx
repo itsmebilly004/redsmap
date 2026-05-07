@@ -50,10 +50,16 @@ function TradePage() {
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
   const [highBarrier, setHighBarrier] = useState<number | null>(null);
   const [lowBarrier, setLowBarrier] = useState<number | null>(null);
+  const [chartHeight, setChartHeight] = useState(460);
   const lastPriceRef = useRef<number | null>(null);
   const handlePrice = useCallback((p: number) => {
     setLastPrice(p);
     lastPriceRef.current = p;
+  }, []);
+
+  // SSR-safe responsive chart height
+  useEffect(() => {
+    setChartHeight(window.innerWidth < 768 ? 260 : 460);
   }, []);
 
   // Reset side when category changes
@@ -302,7 +308,7 @@ function TradePage() {
           symbol={market}
           onSymbolChange={setMarket}
           onPrice={handlePrice}
-          height={typeof window !== "undefined" && window.innerWidth < 768 ? 260 : 460}
+          height={chartHeight}
           highBarrier={highBarrier}
           lowBarrier={lowBarrier}
           isAccumulator={isAccumulator}
