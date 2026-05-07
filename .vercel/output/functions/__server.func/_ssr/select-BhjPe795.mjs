@@ -1,7 +1,7 @@
 import { r as reactExports, j as jsxRuntimeExports } from "../_libs/react.mjs";
 import { R as Root2, V as Value, G as Group, T as Trigger, I as Icon, P as Portal, C as Content2, a as Viewport, b as Item, c as ItemIndicator, d as ItemText, L as Label, S as ScrollUpButton, e as ScrollDownButton, f as Separator } from "../_libs/radix-ui__react-select.mjs";
 import { c as cn } from "./button-Cz8PAkJh.mjs";
-import { h as ChevronDown, y as Check, a7 as ChevronUp } from "../_libs/lucide-react.mjs";
+import { C as ChevronDown, t as Check, O as ChevronUp } from "../_libs/lucide-react.mjs";
 const Select = Root2;
 const SelectGroup = Group;
 const SelectValue = Value;

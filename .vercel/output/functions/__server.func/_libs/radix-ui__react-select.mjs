@@ -13,7 +13,7 @@ import { u as useId } from "./radix-ui__react-id.mjs";
 import { R as Root2$1, c as createPopperScope, A as Anchor, C as Content, a as Arrow } from "./radix-ui__react-popper.mjs";
 import { P as Portal$1 } from "./radix-ui__react-portal.mjs";
 import { P as Primitive } from "./radix-ui__react-primitive.mjs";
-import { e as createSlot } from "./radix-ui__react-slot.mjs";
+import { d as createSlot } from "./radix-ui__react-slot.mjs";
 import { u as useCallbackRef } from "./@radix-ui/react-use-callback-ref+[...].mjs";
 import { u as useControllableState } from "./@radix-ui/react-use-controllable-state+[...].mjs";
 import { u as useLayoutEffect2 } from "./@radix-ui/react-use-layout-effect+[...].mjs";

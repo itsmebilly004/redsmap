@@ -30,11 +30,31 @@ function parseAccounts(params: URLSearchParams) {
 
 // Uses the deriv-auth Edge Function (admin API) to find-or-create the Supabase
 // user without triggering email confirmation or hitting signup rate limits.
+// If the user is already authenticated in this browser, we reuse their session.
 async function ensureSupabaseSession(primaryAccountId: string) {
+  // Fast path: user already has a valid Supabase session in this browser.
+  // This handles the case where a user re-authorises Deriv from within the app.
+  const { data: { user: existingUser } } = await supabase.auth.getUser();
+  if (existingUser) return existingUser;
+
+  // Slow path: call the Edge Function to create/sign-in the Supabase account.
   const { data, error } = await supabase.functions.invoke("deriv-auth", {
     body: { derivAccountId: primaryAccountId },
   });
-  if (error) throw error;
+
+  if (error) {
+    // FunctionsHttpError wraps the HTTP response — extract the body message.
+    let msg = (error as any).message ?? "Auth service error";
+    try {
+      const ctx = (error as any).context;
+      if (ctx) {
+        const body = await ctx.json().catch(() => null);
+        if (body?.error) msg = body.error;
+      }
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+
   if (data?.error) throw new Error(data.error);
   if (!data?.session) throw new Error("No session returned from auth service");
 
@@ -127,7 +147,13 @@ function DerivCallback() {
       } catch (e: any) {
         console.error("OAuth Processing Error:", e);
         toast.error(e.message || "Authentication failed. Please check your Deriv connection.");
-        navigate({ to: "/auth", search: { mode: "signin" } });
+        // If the user already has a session, send them home rather than to /auth.
+        const { data: { user: fallbackUser } } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+        if (fallbackUser) {
+          navigate({ to: "/" });
+        } else {
+          navigate({ to: "/auth", search: { mode: "signin" } });
+        }
       }
     })();
   }, [navigate]);

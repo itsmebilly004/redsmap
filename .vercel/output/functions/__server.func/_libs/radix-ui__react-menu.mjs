@@ -12,7 +12,7 @@ import { P as Portal$1 } from "./radix-ui__react-portal.mjs";
 import { P as Presence } from "./radix-ui__react-presence.mjs";
 import { P as Primitive, d as dispatchDiscreteCustomEvent } from "./radix-ui__react-primitive.mjs";
 import { c as createRovingFocusGroupScope, I as Item, R as Root } from "./radix-ui__react-roving-focus.mjs";
-import { d as createSlot } from "./radix-ui__react-slot.mjs";
+import { b as createSlot } from "./radix-ui__react-slot.mjs";
 import { u as useCallbackRef } from "./@radix-ui/react-use-callback-ref+[...].mjs";
 import { h as hideOthers } from "./aria-hidden.mjs";
 import { R as ReactRemoveScroll } from "./react-remove-scroll.mjs";

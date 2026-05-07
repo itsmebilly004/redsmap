@@ -22,7 +22,10 @@
       "Bash(git commit -m ' *)",
       "Bash(python -c \"import json; d=json.load\\(open\\('C:/Users/ADMIN/Desktop/deriv/arktrader-hub/node_modules/nitro/package.json'\\)\\); print\\(list\\(d.get\\('exports',{}\\).keys\\(\\)\\)\\)\")",
       "Bash(grep -n \"import\" /c/Users/ADMIN/Desktop/deriv/arktrader-hub/src/routes/strategy.\\\\$slug.tsx | head -20)",
-      "Read(//c/Users/ADMIN/Desktop/deriv/arktrader-hub/src/routes/**)"
+      "Read(//c/Users/ADMIN/Desktop/deriv/arktrader-hub/src/routes/**)",
+      "Bash(Get-ChildItem *)",
+      "Bash(grep -E \"\\\\.\\(md|MD|txt|json\\)$\")",
+      "Bash(bun run *)"
     ]
   },
   "enableAllProjectMcpServers": true,

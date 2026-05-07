@@ -366,6 +366,59 @@ export function contractTypeFor(category: TradeCategory, side: string): string {
   return map[`${category}:${side}`] ?? "CALL";
 }
 
+/**
+ * Fetch all open contracts in the authorised account's portfolio.
+ * Requires `authorize` to have been called first.
+ */
+export async function fetchPortfolio(): Promise<any[]> {
+  const res = await send({ portfolio: 1 });
+  return res.portfolio?.contracts ?? [];
+}
+
+/**
+ * Subscribe to real-time updates for a single open contract.
+ * The callback fires on every tick until the contract settles.
+ */
+export async function subscribeOpenContract(
+  contractId: number,
+  onUpdate: (c: any) => void,
+): Promise<() => void> {
+  const ws = await connect();
+  const id = reqId++;
+  const key = `poc:${contractId}`;
+  const sub = {
+    send: { proposal_open_contract: 1, contract_id: contractId, subscribe: 1, req_id: id },
+    key,
+  };
+  activeSubs.set(key, sub);
+  let subId: string | null = null;
+  const off = onMessage((msg) => {
+    if (msg.req_id !== id) return;
+    if (msg.error) return;
+    if (msg.proposal_open_contract) {
+      subId = msg.subscription?.id ?? subId;
+      onUpdate(msg.proposal_open_contract);
+    }
+  });
+  ws.send(JSON.stringify(sub.send));
+  return () => {
+    off();
+    activeSubs.delete(key);
+    // Forget just this subscription (not all POC subscriptions)
+    if (socket?.readyState === WebSocket.OPEN && subId) {
+      socket.send(JSON.stringify({ forget: subId }));
+    }
+  };
+}
+
+/**
+ * Sell (early exit) a contract.  `price` is the minimum sell price — pass 0
+ * to accept any price, or the current bid for an exact sell.
+ */
+export async function sellContract(contractId: number, price = 0): Promise<any> {
+  return send({ sell: contractId, price });
+}
+
 export const SIDES_BY_CATEGORY: Record<TradeCategory, { value: string; label: string }[]> = {
   rise_fall: [
     { value: "up", label: "Rise" },

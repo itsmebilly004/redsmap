@@ -1,4 +1,4 @@
-import { r as reactExports, j as jsxRuntimeExports, R as React } from "./react.mjs";
+import { r as reactExports, j as jsxRuntimeExports, R as React2 } from "./react.mjs";
 import { i as invariant, a as isDangerousProtocol, e as exactPathTest, r as removeTrailingSlash, d as deepEqual, f as functionalUpdate, B as BaseRootRoute, b as BaseRoute, c as isModuleNotFoundError, g as isNotFound, h as getScrollRestorationScriptForRouter, j as rootRouteId, k as isServer, l as isRedirect, m as createNonReactiveReadonlyStore, n as createNonReactiveMutableStore, R as RouterCore, o as escapeHtml, p as getAssetCrossOrigin, q as resolveManifestAssetLink, t as transformReadableStreamWithRouter, s as transformPipeableStreamWithRouter } from "./tanstack__router-core.mjs";
 import { R as ReactDOMServer } from "./react-dom.mjs";
 import { PassThrough } from "node:stream";
@@ -100,10 +100,10 @@ function ErrorComponent({ error }) {
   });
 }
 function ClientOnly({ children, fallback = null }) {
-  return useHydrated() ? /* @__PURE__ */ jsxRuntimeExports.jsx(React.Fragment, { children }) : /* @__PURE__ */ jsxRuntimeExports.jsx(React.Fragment, { children: fallback });
+  return useHydrated() ? /* @__PURE__ */ jsxRuntimeExports.jsx(React2.Fragment, { children }) : /* @__PURE__ */ jsxRuntimeExports.jsx(React2.Fragment, { children: fallback });
 }
 function useHydrated() {
-  return React.useSyncExternalStore(subscribe, () => true, () => false);
+  return React2.useSyncExternalStore(subscribe, () => true, () => false);
 }
 function subscribe() {
   return () => {
@@ -406,7 +406,7 @@ var Route = class extends BaseRoute {
     this.useNavigate = () => {
       return useNavigate({ from: this.fullPath });
     };
-    this.Link = React.forwardRef((props, ref) => {
+    this.Link = React2.forwardRef((props, ref) => {
       return /* @__PURE__ */ jsxRuntimeExports.jsx(Link, {
         ref,
         from: this.fullPath,
@@ -466,7 +466,7 @@ var RootRoute = class extends BaseRootRoute {
     this.useNavigate = () => {
       return useNavigate({ from: this.fullPath });
     };
-    this.Link = React.forwardRef((props, ref) => {
+    this.Link = React2.forwardRef((props, ref) => {
       return /* @__PURE__ */ jsxRuntimeExports.jsx(Link, {
         ref,
         from: this.fullPath,

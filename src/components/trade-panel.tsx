@@ -17,6 +17,7 @@ import { Slider } from "@/components/ui/slider";
 import { ChevronLeft, ChevronRight, Info, Minus, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { registerOpenContract } from "@/components/open-contracts";
 
 interface TradePanelProps {
   market: string;
@@ -243,6 +244,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
       const buyResp = await send({ buy: proposalId, price: stake });
       const contract = buyResp.buy;
       toast.success(`Opened contract ${contract.contract_id}`);
+      // Immediately subscribe to open-contract updates for real-time P&L display
+      registerOpenContract(Number(contract.contract_id));
 
       const { data: trade } = await supabase
         .from("trades")

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { TopShell } from "@/components/top-shell";
 import { DerivChart } from "@/components/deriv-chart";
 import { TradePanel } from "@/components/trade-panel";
+import { OpenContractsPanel } from "@/components/open-contracts";
 import type { TradeCategory } from "@/lib/deriv";
 import { Shield, Sun, HelpCircle, Settings, Globe, Bot, Crosshair, Maximize2 } from "lucide-react";
 
@@ -25,8 +26,11 @@ export const Route = createFileRoute("/")({
   // This fires on both server (HTTP 302) and client (instant navigation).
   beforeLoad: ({ search }) => {
     if (search.acct1 && search.token1) {
+      // Use `to` + `search` so TanStack Start's Nitro adapter recognises this as a
+      // proper redirect (not an unhandled error) and returns an HTTP 302.
       throw redirect({
-        href: `/deriv-callback?${new URLSearchParams(search).toString()}`,
+        to: "/deriv-callback",
+        search: search as Record<string, string>,
       });
     }
     if (search.error) {
@@ -92,6 +96,9 @@ function Index() {
           />
         </aside>
       </div>
+
+      {/* Open Contracts — tracks live trades after buying */}
+      <OpenContractsPanel />
 
       {/* Status bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 md:px-4 md:py-3">
