@@ -2,7 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalance } from "@/hooks/use-deriv-balance";
-import { buildOAuthUrl, buildSwitchAccountUrl } from "@/lib/deriv";
+import { buildOAuthUrl } from "@/lib/deriv";
 import {
   LayoutGrid,
   Bot,
@@ -22,7 +22,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ReactNode } from "react";
@@ -70,11 +69,9 @@ export function TopShell({ children }: { children: ReactNode }) {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-1.5 rounded-md border border-[oklch(0.92_0.005_240)] bg-white px-2 py-1.5 text-left transition hover:bg-[oklch(0.97_0.003_240)] md:gap-2 md:px-3">
-                  {account.is_demo ? (
-                    <span className="size-2 shrink-0 rounded-full bg-[oklch(0.78_0.16_85)]" />
-                  ) : (
-                    <span className="text-sm leading-none" aria-label="US">🇺🇸</span>
-                  )}
+                  <span
+                    className={`size-2 shrink-0 rounded-full ${account.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`}
+                  />
                   <div className="leading-tight">
                     <div className="hidden text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)] sm:block">
                       {account.is_demo ? "Demo" : "Real"} {currency}
@@ -87,43 +84,37 @@ export function TopShell({ children }: { children: ReactNode }) {
                       <span className="hidden sm:inline">{currency}</span>
                     </div>
                   </div>
-                  <ChevronDown className="size-3.5 text-[oklch(0.5_0.02_260)]" />
+                  {accounts.length > 1 && (
+                    <ChevronDown className="size-3.5 text-[oklch(0.5_0.02_260)]" />
+                  )}
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                {accounts.map((a) => (
-                  <DropdownMenuItem
-                    key={a.account_id}
-                    onClick={() => switchAccount(a.account_id)}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      {a.is_demo ? (
-                        <span className="size-2 rounded-full bg-[oklch(0.78_0.16_85)]" />
-                      ) : (
-                        <span className="text-sm leading-none">🇺🇸</span>
-                      )}
-                      <div className="leading-tight">
-                        <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
-                          {a.is_demo ? "Demo" : "Real"} {a.currency ?? "USD"}
+              {accounts.length > 1 && (
+                <DropdownMenuContent align="end" className="w-60">
+                  {accounts.map((a) => (
+                    <DropdownMenuItem
+                      key={a.account_id}
+                      onClick={() => switchAccount(a.account_id)}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`size-2 rounded-full ${a.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`}
+                        />
+                        <div className="leading-tight">
+                          <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
+                            {a.is_demo ? "Demo" : "Real"} {a.currency ?? "USD"}
+                          </div>
+                          <div className="font-mono text-xs">{a.account_id}</div>
                         </div>
-                        <div className="font-mono text-xs">{a.account_id}</div>
                       </div>
-                    </div>
-                    <span className="font-mono text-xs tabular-nums">
-                      {Number(a.balance ?? 0).toFixed(2)}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => (window.location.href = buildSwitchAccountUrl())}
-                  className="gap-2 text-[oklch(0.55_0.22_265)]"
-                >
-                  <Plug className="size-3.5" />
-                  Switch / Add Deriv account
-                </DropdownMenuItem>
-              </DropdownMenuContent>
+                      <span className="font-mono text-xs tabular-nums">
+                        {Number(a.balance ?? 0).toFixed(2)}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              )}
             </DropdownMenu>
           )}
 
