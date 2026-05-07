@@ -8,6 +8,11 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { nitro } from "nitro/vite";
 
 export default defineConfig({
+  // Disable the auto-added Cloudflare Workers plugin — this app deploys to
+  // Vercel (Node.js), not Cloudflare. Having both plugins produces conflicting
+  // server bundles: the Cloudflare fetch polyfills throw HTTPError when run
+  // inside Vercel's Node.js runtime.
+  cloudflare: false,
   vite: {
     plugins: [nitro({ preset: "vercel" })],
   },
