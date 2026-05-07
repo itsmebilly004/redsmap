@@ -19,7 +19,8 @@
       "mcp__supabase__get_edge_function",
       "Bash(npx tsc *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(python -c \"import json; d=json.load\\(open\\('C:/Users/ADMIN/Desktop/deriv/arktrader-hub/node_modules/nitro/package.json'\\)\\); print\\(list\\(d.get\\('exports',{}\\).keys\\(\\)\\)\\)\")"
     ]
   },
   "enableAllProjectMcpServers": true,

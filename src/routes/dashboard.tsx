@@ -69,7 +69,7 @@ function DashboardLayout() {
   const flag = account ? (CURRENCY_FLAG[currency] ?? (account.is_demo ? "🎮" : "🇺🇸")) : null;
 
   return (
-    <div className="flex min-h-dvh">
+    <div className="dark flex min-h-dvh">
       {/* Sidebar */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-glass-border bg-sidebar/70 backdrop-blur-xl md:flex">
         <Link to="/" className="flex h-16 items-center gap-2.5 border-b border-glass-border px-5">
