@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\" -Recurse | Where-Object { !$_.PSIsContainer } | Select-Object -ExpandProperty FullName | Where-Object { $_ -notmatch \"node_modules|\\\\.git|dist\" })"
+    ]
+  }
+}
