@@ -8,6 +8,7 @@ export const Route = createFileRoute("/strategy/$slug")({
     const s = getStrategyBySlug(params.slug);
     if (!s) throw notFound();
     return s;
+    
   },
   head: ({ loaderData }) => ({
     meta: [
