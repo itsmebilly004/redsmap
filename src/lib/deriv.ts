@@ -260,6 +260,22 @@ export async function fetchCandles(
   }));
 }
 
+export async function fetchTicks(
+  symbol: string,
+  count = 500,
+): Promise<{ time: number; price: number }[]> {
+  const res = await send({
+    ticks_history: symbol,
+    style: "ticks",
+    count,
+    end: "latest",
+    adjust_start_time: 1,
+  });
+  const times: number[] = res.history?.times ?? [];
+  const prices: number[] = res.history?.prices ?? [];
+  return times.map((t, i) => ({ time: Number(t), price: Number(prices[i]) }));
+}
+
 let symbolsCache: { symbol: string; display_name: string; market: string }[] | null = null;
 export async function getActiveSymbols() {
   if (symbolsCache) return symbolsCache;
@@ -272,12 +288,10 @@ export async function getActiveSymbols() {
   return symbolsCache!;
 }
 
-// IMPORTANT: Deriv ignores the `redirect_uri` query parameter if it doesn't 
-// match the one configured in the Deriv App dashboard. 
-// We use window.location.origin to support local and production seamlessly.
+// Always redirect to the production domain — Deriv only accepts URIs
+// registered in the App dashboard (app ID 133647).
 export function getDerivRedirectUrl() {
-  if (typeof window === "undefined") return "https://www.arktradershub.com";
-  return window.location.origin;
+  return "https://www.arktradershub.com";
 }
 
 export function buildOAuthUrl() {

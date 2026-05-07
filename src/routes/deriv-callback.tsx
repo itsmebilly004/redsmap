@@ -2,7 +2,6 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { send } from "@/lib/deriv";
-import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
@@ -25,43 +24,25 @@ function parseAccounts(params: URLSearchParams) {
   return out;
 }
 
+// Uses the deriv-auth Edge Function (admin API) to find-or-create the Supabase
+// user without triggering email confirmation or hitting signup rate limits.
 async function ensureSupabaseSession(primaryAccountId: string) {
-  // We treat the Deriv account as the source of identity. 
-  // Derive a stable email + password based on the account ID.
-  const { email, password } = await derivCredentials(primaryAccountId);
-
-  // Try to sign in first
-  const { data: signIn, error: signInError } = await supabase.auth.signInWithPassword({
-    email,
-    password,
+  const { data, error } = await supabase.functions.invoke("deriv-auth", {
+    body: { derivAccountId: primaryAccountId },
   });
-  
-  if (!signInError && signIn.user) return signIn.user;
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  if (!data?.session) throw new Error("No session returned from auth service");
 
-  // If sign in fails, create the user
-  const { data: signUp, error: signUpError } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { 
-        display_name: primaryAccountId, 
-        deriv_account_id: primaryAccountId 
-      },
-    },
+  const { error: setErr } = await supabase.auth.setSession({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
   });
-  
-  if (signUpError) throw signUpError;
+  if (setErr) throw setErr;
 
-  if (!signUp.session) {
-    const { data: retry, error: retryErr } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (retryErr) throw retryErr;
-    return retry.user!;
-  }
-  
-  return signUp.user!;
+  const { data: { user }, error: userErr } = await supabase.auth.getUser();
+  if (userErr || !user) throw userErr ?? new Error("Failed to retrieve user");
+  return user;
 }
 
 function DerivCallback() {
