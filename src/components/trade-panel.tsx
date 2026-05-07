@@ -28,9 +28,10 @@ interface TradePanelProps {
   market: string;
   lastPrice?: number | null;
   onAccumulatorBarriers?: (b: { high: number | null; low: number | null }) => void;
+  onCategoryChange?: (category: TradeCategory) => void;
 }
 
-export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePanelProps) {
+export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategoryChange }: TradePanelProps) {
   const { user } = useAuth();
   const [category, setCategory] = useState<TradeCategory>("accumulator");
   const [side, setSide] = useState("buy");
@@ -62,6 +63,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
 
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
+    onCategoryChange?.(category);
   }, [category]);
 
   useEffect(() => {

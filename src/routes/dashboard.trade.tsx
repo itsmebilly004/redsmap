@@ -302,9 +302,10 @@ function TradePage() {
           symbol={market}
           onSymbolChange={setMarket}
           onPrice={handlePrice}
-          height={460}
+          height={typeof window !== "undefined" && window.innerWidth < 768 ? 260 : 460}
           highBarrier={highBarrier}
           lowBarrier={lowBarrier}
+          isAccumulator={isAccumulator}
         />
       </div>
 
