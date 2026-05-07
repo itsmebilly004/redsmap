@@ -288,10 +288,14 @@ export async function getActiveSymbols() {
   return symbolsCache!;
 }
 
-// Always redirect to the production domain — Deriv only accepts URIs
-// registered in the App dashboard (app ID 133647).
+// Redirect back to the current origin's /deriv-callback. The origin must be
+// whitelisted in the Deriv App dashboard (app ID 133647) — preview, published
+// and custom domains all need to be added as allowed redirect URLs.
 export function getDerivRedirectUrl() {
-  return "https://www.arktradershub.com";
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/deriv-callback`;
+  }
+  return "https://www.arktradershub.com/deriv-callback";
 }
 
 export function buildOAuthUrl() {
@@ -302,6 +306,17 @@ export function buildOAuthUrl() {
     redirect_uri: getDerivRedirectUrl(),
   });
   return `https://oauth.deriv.com/oauth2/authorize?${params.toString()}`;
+}
+
+/**
+ * Logs the user out of Deriv first, then re-enters the OAuth flow. Use this
+ * for "Switch / Add account" so the user always sees Deriv's login screen
+ * (and can pick a different account or create a new one) instead of being
+ * silently SSO'd back with their existing session.
+ */
+export function buildSwitchAccountUrl() {
+  const next = encodeURIComponent(buildOAuthUrl());
+  return `https://oauth.deriv.com/oauth2/sessions/logout?post_logout_redirect_uri=${next}`;
 }
 
 export const SYNTHETIC_MARKETS = [

@@ -146,7 +146,7 @@ function isJSONSerializable(value, _type) {
 const kNotFound = /* @__PURE__ */ Symbol.for("h3.notFound");
 const kHandled = /* @__PURE__ */ Symbol.for("h3.handled");
 function toResponse(val, event, config = {}) {
-  if (typeof val?.then === "function") return val.then((resolvedVal) => toResponse(resolvedVal, event, config), (r) => toResponse(typeof r === "number" ? new HTTPError({ status: r }) : r, event, config));
+  if (typeof val?.then === "function") return (val.catch?.((error) => error) || Promise.resolve(val)).then((resolvedVal) => toResponse(resolvedVal, event, config));
   const response = prepareResponse(val, event, config);
   if (typeof response?.then === "function") return toResponse(response, event, config);
   const { onResponse } = config;
@@ -344,14 +344,13 @@ function defineLazyEventHandler(loader) {
 }
 function toEventHandler(handler) {
   if (typeof handler === "function") return handler;
-  if (typeof handler?.handler === "function" && handler.constructor?.["~h3"]) return handler.handler;
+  if (typeof handler?.handler === "function") return handler.handler;
   if (typeof handler?.fetch === "function") return function _fetchHandler(event) {
     return handler.fetch(event.req);
   };
 }
 const NoHandler = () => kNotFound;
 var H3Core = class {
-  static "~h3" = true;
   config;
   "~middleware";
   "~routes" = [];

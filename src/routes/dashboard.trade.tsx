@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useDerivBalance } from "@/hooks/use-deriv-balance";
 import {
   send,
   subscribeProposal,
@@ -31,6 +32,15 @@ export const Route = createFileRoute("/dashboard/trade")({
 
 function TradePage() {
   const { user } = useAuth();
+  // Source of truth: the account selected in the top-shell switcher. This
+  // ensures trades always execute on the currency/account the user actually
+  // sees in the header, fixing "tUSDT is not the default currency" and
+  // "balance 0.00" errors caused by trading on a stale row.
+  const { account } = useDerivBalance();
+  const token = account?.deriv_token ?? null;
+  const isDemo = account?.is_demo ?? true;
+  const currency = account?.currency ?? "USD";
+
   const [market, setMarket] = useState("R_100");
   const [category, setCategory] = useState<TradeCategory>("over_under");
   const [side, setSide] = useState("over");
@@ -43,9 +53,6 @@ function TradePage() {
   const [growthRate, setGrowthRate] = useState(0.03);
   const [multiplier, setMultiplier] = useState(100);
   const [lastPrice, setLastPrice] = useState<number | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isDemo, setIsDemo] = useState(true);
-  const [currency, setCurrency] = useState("USD");
   const [busy, setBusy] = useState(false);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
   const [highBarrier, setHighBarrier] = useState<number | null>(null);
@@ -67,25 +74,7 @@ function TradePage() {
     setSide(SIDES_BY_CATEGORY[category][0].value);
   }, [category]);
 
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("sessions")
-      .select("deriv_token, is_demo, currency")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .gt("expires_at", new Date().toISOString())
-      .order("is_demo", { ascending: true })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setToken(data.deriv_token);
-          setIsDemo(data.is_demo);
-          setCurrency(data.currency ?? "USD");
-        }
-      });
-  }, [user]);
+  // Active account is provided by useDerivBalance() — no separate fetch needed.
 
   // chart subscription handled inside <DerivChart />
 
