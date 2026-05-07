@@ -1,8 +1,9 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalance } from "@/hooks/use-deriv-balance";
-import { buildOAuthUrl } from "@/lib/deriv";
+import { buildOAuthUrl, disconnectAll } from "@/lib/deriv";
+import { supabase } from "@/integrations/supabase/client";
 import {
   LayoutGrid,
   Bot,

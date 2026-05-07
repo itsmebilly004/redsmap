@@ -15,7 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalance } from "@/hooks/use-deriv-balance";
 import { Button } from "@/components/ui/button";
-import { buildOAuthUrl } from "@/lib/deriv";
+import { buildOAuthUrl, disconnectAll } from "@/lib/deriv";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +27,15 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/dashboard")({
   component: DashboardLayout,
 });
+
+const CURRENCY_FLAGS: Record<string, string> = {
+  USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", AUD: "🇦🇺",
+  CAD: "🇨🇦", CHF: "🇨🇭", JPY: "🇯🇵", NZD: "🇳🇿",
+  BTC: "₿", ETH: "Ξ", USDT: "₮", LTC: "Ł",
+};
+function currencyFlag(cur?: string | null) {
+  return cur ? (CURRENCY_FLAGS[cur] ?? "💱") : "";
+}
 
 const items = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -48,8 +57,12 @@ function DashboardLayout() {
   }, [user, loading, navigate]);
 
   async function logout() {
+    if (user) {
+      await supabase.from("sessions").update({ is_active: false }).eq("user_id", user.id);
+    }
+    disconnectAll();
     await supabase.auth.signOut();
-    navigate({ to: "/" });
+    navigate({ to: "/auth", search: { mode: "signin" } });
   }
 
   function connectDeriv() {
@@ -127,7 +140,7 @@ function DashboardLayout() {
                     <span className={`size-2 rounded-full ${account.is_demo ? "bg-yellow-500" : "bg-emerald-500"}`} />
                     <div className="leading-tight">
                       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        {account.is_demo ? "Demo" : "Real"} {currency}
+                        {account.is_demo ? "Demo" : "Real"} {currencyFlag(currency)} {currency}
                       </div>
                       <div className="font-mono text-sm font-semibold text-foreground tabular-nums">
                         {(balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}
@@ -148,13 +161,13 @@ function DashboardLayout() {
                           <span className={`size-2 rounded-full ${a.is_demo ? "bg-yellow-500" : "bg-emerald-500"}`} />
                           <div className="leading-tight">
                             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                              {a.is_demo ? "Demo" : "Real"} {a.currency ?? "USD"}
+                              {a.is_demo ? "Demo" : "Real"} {currencyFlag(a.currency)} {a.currency ?? "USD"}
                             </div>
                             <div className="font-mono text-xs">{a.account_id}</div>
                           </div>
                         </div>
                         <span className="font-mono text-xs tabular-nums">
-                          {Number(a.balance ?? 0).toFixed(2)}
+                          {Number(a.balance ?? 0).toFixed(2)} {a.currency ?? "USD"}
                         </span>
                       </DropdownMenuItem>
                     ))}
@@ -169,7 +182,7 @@ function DashboardLayout() {
           </div>
         </header>
 
-        <main className="flex-1 px-4 py-8 md:px-8">
+        <main className="flex-1 px-4 py-6 pb-20 md:px-8 md:pb-8">
           <Outlet />
         </main>
 

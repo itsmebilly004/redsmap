@@ -22,7 +22,7 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!loading && user) navigate({ to: "/dashboard" });
+    if (!loading && user) navigate({ to: "/" });
   }, [user, loading, navigate]);
 
   const isSignup = mode === "signup";

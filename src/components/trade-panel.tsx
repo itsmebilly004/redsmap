@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useDerivBalance } from "@/hooks/use-deriv-balance";
 import {
   send,
   TRADE_CATEGORIES,
@@ -31,10 +32,13 @@ interface TradePanelProps {
 
 export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePanelProps) {
   const { user } = useAuth();
+  const { account, currency } = useDerivBalance();
+  const token = account?.deriv_token ?? null;
+  const isDemo = account?.is_demo ?? true;
+
   const [category, setCategory] = useState<TradeCategory>("accumulator");
   const [side, setSide] = useState("buy");
   const [stake, setStake] = useState(10);
-  const [currency, setCurrency] = useState<"USD" | "AUD" | "EUR" | "GBP">("AUD");
   const [payoutMode, setPayoutMode] = useState<"stake" | "payout">("stake");
   const [duration, setDuration] = useState(1);
   const [durationUnit, setDurationUnit] = useState<"t" | "s" | "m">("t");
@@ -44,8 +48,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const [multiplier, setMultiplier] = useState(100);
   const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
   const [takeProfit, setTakeProfit] = useState<number>(0);
-  const [token, setToken] = useState<string | null>(null);
-  const [isDemo, setIsDemo] = useState(true);
   const [busy, setBusy] = useState(false);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
   const [accuMeta, setAccuMeta] = useState<{
@@ -62,24 +64,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
   }, [category]);
-
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("sessions")
-      .select("deriv_token, is_demo")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .order("is_demo", { ascending: true })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setToken(data.deriv_token);
-          setIsDemo(data.is_demo);
-        }
-      });
-  }, [user]);
 
   const isDigit = ["even_odd", "over_under", "matches_differs"].includes(category);
   const needsDigit = category === "over_under" || category === "matches_differs";
@@ -456,16 +440,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           >
             <Plus className="h-4 w-4" />
           </button>
-          <Select value={currency} onValueChange={(v) => setCurrency(v as any)}>
-            <SelectTrigger className="w-20">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(["USD", "AUD", "EUR", "GBP"] as const).map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <span className="w-14 text-center text-sm font-medium text-[oklch(0.45_0.02_260)]">{currency}</span>
         </div>
       </div>
 

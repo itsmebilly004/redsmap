@@ -228,6 +228,18 @@ export async function fetchCandles(
 }
 
 let symbolsCache: { symbol: string; display_name: string; market: string }[] | null = null;
+export function disconnectAll(): void {
+  activeSubs.clear();
+  stopKeepalive();
+  if (socket) {
+    try { socket.close(); } catch { /* ignore */ }
+    socket = null;
+  }
+  connecting = null;
+  reconnectAttempts = 0;
+  setStatus("disconnected");
+}
+
 export async function getActiveSymbols() {
   if (symbolsCache) return symbolsCache;
   const res = await send({ active_symbols: "brief", product_type: "basic" });

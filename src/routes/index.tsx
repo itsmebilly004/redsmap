@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { DerivChart } from "@/components/deriv-chart";
 import { TradePanel } from "@/components/trade-panel";
-import { Shield, Sun, HelpCircle, Settings, Globe, Bot, Crosshair, Maximize2 } from "lucide-react";
+import { Shield, Sun, HelpCircle, Settings, Globe, Bot, Crosshair, Maximize2, BarChart2, TrendingUp } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -19,6 +20,7 @@ function Index() {
   const [symbol, setSymbol] = useState("1HZ100V");
   const [price, setPrice] = useState<number | null>(null);
   const [barriers, setBarriers] = useState<{ high: number | null; low: number | null }>({ high: null, low: null });
+  const [mobileTab, setMobileTab] = useState<"chart" | "trade">("chart");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -34,9 +36,41 @@ function Index() {
 
   return (
     <TopShell>
+      {/* Mobile tab switcher */}
+      <div className="flex border-b border-[oklch(0.92_0.005_240)] bg-white lg:hidden">
+        <button
+          onClick={() => setMobileTab("chart")}
+          className={cn(
+            "flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-medium transition",
+            mobileTab === "chart"
+              ? "border-b-2 border-[oklch(0.7_0.17_150)] text-[oklch(0.35_0.15_150)]"
+              : "text-[oklch(0.5_0.02_260)]",
+          )}
+        >
+          <BarChart2 className="size-4" /> Chart
+        </button>
+        <button
+          onClick={() => setMobileTab("trade")}
+          className={cn(
+            "flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-medium transition",
+            mobileTab === "trade"
+              ? "border-b-2 border-[oklch(0.7_0.17_150)] text-[oklch(0.35_0.15_150)]"
+              : "text-[oklch(0.5_0.02_260)]",
+          )}
+        >
+          <TrendingUp className="size-4" /> Trade
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px]">
-        <section className="relative border-r border-[oklch(0.92_0.005_240)] bg-white p-4">
-          <div className="mb-3 flex items-center justify-between">
+        {/* Chart section */}
+        <section
+          className={cn(
+            "relative border-r border-[oklch(0.92_0.005_240)] bg-white p-3",
+            mobileTab !== "chart" && "hidden lg:block",
+          )}
+        >
+          <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-semibold">Manual Trader</div>
               <div className="font-mono text-[11px] text-[oklch(0.55_0.02_260)]">
@@ -54,13 +88,18 @@ function Index() {
             lowBarrier={barriers.low}
           />
 
-          <p className="mt-3 text-xs text-[oklch(0.5_0.02_260)]">
-            Live data streamed from the Deriv WebSocket API. Sign in to place
-            real trades.
+          <p className="mt-2 text-xs text-[oklch(0.5_0.02_260)]">
+            Live data streamed from the Deriv WebSocket API. Sign in to place real trades.
           </p>
         </section>
 
-        <aside className="hidden flex-col gap-3 bg-[oklch(0.97_0.003_240)] p-3 lg:flex">
+        {/* Trade panel */}
+        <aside
+          className={cn(
+            "flex-col gap-3 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-3",
+            mobileTab === "trade" ? "flex" : "hidden lg:flex",
+          )}
+        >
           <TradePanel market={symbol} lastPrice={price} onAccumulatorBarriers={setBarriers} />
         </aside>
       </div>

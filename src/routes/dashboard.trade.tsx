@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useDerivBalance } from "@/hooks/use-deriv-balance";
 import {
   send,
   TRADE_CATEGORIES,
@@ -30,6 +31,10 @@ export const Route = createFileRoute("/dashboard/trade")({
 
 function TradePage() {
   const { user } = useAuth();
+  const { account, currency } = useDerivBalance();
+  const token = account?.deriv_token ?? null;
+  const isDemo = account?.is_demo ?? true;
+
   const [market, setMarket] = useState("R_100");
   const [category, setCategory] = useState<TradeCategory>("over_under");
   const [side, setSide] = useState("over");
@@ -42,8 +47,6 @@ function TradePage() {
   const [growthRate, setGrowthRate] = useState(0.03);
   const [multiplier, setMultiplier] = useState(100);
   const [lastPrice, setLastPrice] = useState<number | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isDemo, setIsDemo] = useState(true);
   const [busy, setBusy] = useState(false);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
   const handlePrice = useCallback((p: number) => setLastPrice(p), []);
@@ -52,24 +55,6 @@ function TradePage() {
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
   }, [category]);
-
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("sessions")
-      .select("deriv_token, is_demo")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .order("is_demo", { ascending: true })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setToken(data.deriv_token);
-          setIsDemo(data.is_demo);
-        }
-      });
-  }, [user]);
 
   // chart subscription handled inside <DerivChart />
 
@@ -97,7 +82,7 @@ function TradePage() {
         amount: stake,
         basis: "stake",
         contract_type,
-        currency: "USD",
+        currency,
         symbol: market,
       };
 
@@ -149,7 +134,7 @@ function TradePage() {
               .update({ profit_loss: profit, status: profit >= 0 ? "won" : "lost", closed_at: new Date().toISOString() })
               .eq("id", trade!.id);
             toast[profit >= 0 ? "success" : "error"](
-              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`,
+              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} ${currency}`,
             );
           }
         } catch {
@@ -190,7 +175,7 @@ function TradePage() {
             amount: stake,
             basis: payoutMode,
             contract_type: ct,
-            currency: "USD",
+            currency,
             symbol: market,
           };
           if (showDuration) {
@@ -392,7 +377,7 @@ function TradePage() {
               onChange={(e) => setStake(Number(e.target.value))}
               className="text-right font-mono text-base"
             />
-            <span className="text-xs text-muted-foreground">USD</span>
+            <span className="text-xs text-muted-foreground">{currency}</span>
             <button
               onClick={() => setStake((s) => +(s + 0.5).toFixed(2))}
               className="rounded-md bg-muted/50 p-2 hover:bg-muted"
@@ -418,7 +403,7 @@ function TradePage() {
                 )}
               >
                 <div className="flex items-center justify-between bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
-                  <span>Payout {live ? live.payout.toFixed(2) : "—"} USD</span>
+                  <span>Payout {live ? live.payout.toFixed(2) : "—"} {currency}</span>
                 </div>
                 <div className={cn("flex items-center justify-between px-4 py-3 text-white", sideAccent[s.value] ?? "bg-muted")}>
                   <span className="font-semibold">{s.label}</span>

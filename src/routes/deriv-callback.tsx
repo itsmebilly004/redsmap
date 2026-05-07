@@ -104,7 +104,7 @@ function DerivCallback() {
           );
         }
         toast.success(`Welcome — ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`);
-        navigate({ to: "/dashboard" });
+        navigate({ to: "/" });
       } catch (e: any) {
         console.error(e);
         toast.error(e.message ?? "Connection failed");

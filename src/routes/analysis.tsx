@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { subscribeTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,25 +17,28 @@ export const Route = createFileRoute("/analysis")({
   component: Analysis,
 });
 
-function Analysis() {
-  const TABS = [
-    "Dcircles",
-    "Signals",
-    "Analysis Tool",
-    "DP Tools",
-    "Smart Analysis",
-    "All Analysis",
-    "Tick Analyser",
-    "Xenon AI",
-  ] as const;
-  type Tab = (typeof TABS)[number];
+const TABS = ["Dcircles", "Signals", "DP Tools", "Tick Analyser"] as const;
+type Tab = (typeof TABS)[number];
 
+const DIGIT_COLORS = [
+  "border-slate-300 text-slate-700",
+  "border-orange-400 bg-orange-400 text-white",
+  "border-rose-500 bg-rose-500 text-white",
+  "border-slate-300 text-slate-700",
+  "border-emerald-500 bg-emerald-500 text-white",
+  "border-sky-500 bg-sky-500 text-white",
+  "border-orange-400 bg-orange-400 text-white",
+  "border-slate-300 text-slate-700",
+  "border-slate-300 text-slate-700",
+  "border-slate-300 text-slate-700",
+];
+
+function Analysis() {
   const [tab, setTab] = useState<Tab>("Dcircles");
-  const [mode, setMode] = useState<"wide_eye" | "launch_ai">("launch_ai");
   const [symbol, setSymbol] = useState("1HZ10V");
   const [window, setWindow] = useState<number>(1000);
   const [windowInput, setWindowInput] = useState<string>("1000");
-  const [ticks, setTicks] = useState<number[]>([]); // raw prices (most recent last)
+  const [ticks, setTicks] = useState<number[]>([]);
   const [last, setLast] = useState<number | null>(null);
 
   useEffect(() => {
@@ -53,38 +55,44 @@ function Analysis() {
     return () => off?.();
   }, [symbol]);
 
-  // Derive last-digit distribution within configured ticks window
   const slice = useMemo(() => ticks.slice(-window), [ticks, window]);
-  const digits = useMemo(
-    () => slice.map((p) => Number(p.toFixed(2).slice(-1))),
-    [slice],
-  );
+  const digits = useMemo(() => slice.map((p) => Number(p.toFixed(2).slice(-1))), [slice]);
   const counts = useMemo(
     () => Array.from({ length: 10 }, (_, i) => digits.filter((d) => d === i).length),
     [digits],
   );
-  const total = Math.max(digits.length, 1);
-  const pcts = counts.map((c) => (c / total) * 100);
-  const maxPct = Math.max(...pcts);
-  const minPct = Math.min(...pcts);
+  const total     = Math.max(digits.length, 1);
+  const pcts      = counts.map((c) => (c / total) * 100);
+  const maxPct    = Math.max(...pcts);
+  const minPct    = Math.min(...pcts);
   const currentDigit = digits.length ? digits[digits.length - 1] : null;
+  const marketName   = SYNTHETIC_MARKETS.find((m) => m.symbol === symbol)?.name ?? symbol;
 
-  const marketName =
-    SYNTHETIC_MARKETS.find((m) => m.symbol === symbol)?.name ?? symbol;
+  // Signals: last-N streak analysis
+  const streakLen = 10;
+  const recentDigits = digits.slice(-streakLen);
+  const evenCount = recentDigits.filter((d) => d % 2 === 0).length;
+  const oddCount  = streakLen - evenCount;
+  const overCount = recentDigits.filter((d) => d > 4).length;
+  const underCount = streakLen - overCount;
+  const lastStreakDigit = recentDigits.length ? recentDigits[recentDigits.length - 1] : null;
+  const consecutiveSame = (() => {
+    let n = 0;
+    for (let i = recentDigits.length - 1; i >= 0; i--) {
+      if (recentDigits[i] === lastStreakDigit) n++;
+      else break;
+    }
+    return n;
+  })();
 
-  // Color rotation for the digit circles to match the screenshot vibe.
-  const digitColors = [
-    "border-slate-300 text-slate-700",
-    "border-orange-400 bg-orange-400 text-white",
-    "border-rose-500 bg-rose-500 text-white",
-    "border-slate-300 text-slate-700",
-    "border-emerald-500 bg-emerald-500 text-white",
-    "border-sky-500 bg-sky-500 text-white",
-    "border-orange-400 bg-orange-400 text-white",
-    "border-slate-300 text-slate-700",
-    "border-slate-300 text-slate-700",
-    "border-slate-300 text-slate-700",
-  ];
+  // DP Tools: probability distribution for consecutive event
+  const overUnderProbs = Array.from({ length: 10 }, (_, d) => ({
+    digit: d,
+    overProb: ((9 - d) / 10) * 100,
+    underProb: (d / 10) * 100,
+    matchProb: 10,
+    diffProb: 90,
+  }));
 
   return (
     <TopShell>
@@ -107,150 +115,267 @@ function Analysis() {
           ))}
         </div>
 
+        {/* Shared market + window controls */}
+        <div className="mt-4 flex flex-wrap items-end gap-4">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-sm font-semibold text-slate-800">Market</label>
+            <Select value={symbol} onValueChange={setSymbol}>
+              <SelectTrigger className="mt-1 h-10 w-full rounded-md border-slate-300 bg-white text-slate-800">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SYNTHETIC_MARKETS.map((m) => (
+                  <SelectItem key={m.symbol} value={m.symbol}>{m.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-800">Ticks window</label>
+            <Input
+              type="number"
+              min={50}
+              max={5000}
+              value={windowInput}
+              onChange={(e) => {
+                setWindowInput(e.target.value);
+                const n = Number(e.target.value);
+                if (Number.isFinite(n) && n >= 50 && n <= 5000) setWindow(Math.floor(n));
+              }}
+              className="mt-1 h-10 w-28 text-center"
+            />
+          </div>
+          <div className="rounded-md bg-slate-100 px-4 py-2 text-center">
+            <div className="font-mono text-2xl font-bold text-slate-800">
+              {last !== null ? last.toFixed(2) : "—"}
+            </div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider">{marketName}</div>
+          </div>
+          <div className="text-xs text-slate-500">Samples: {digits.length}</div>
+        </div>
+
+        {/* DCIRCLES TAB */}
         {tab === "Dcircles" && (
           <div className="mt-6">
-            {/* Mode pills */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setMode("wide_eye")}
-                className={cn(
-                  "rounded-full px-5 py-2 text-sm font-semibold text-white shadow",
-                  mode === "wide_eye"
-                    ? "bg-gradient-to-r from-rose-400 to-amber-400"
-                    : "bg-gradient-to-r from-rose-300/70 to-amber-300/70",
-                )}
-              >
-                Wide Eye
-              </button>
-              <button
-                onClick={() => setMode("launch_ai")}
-                className={cn(
-                  "rounded-full px-5 py-2 text-sm font-semibold text-white shadow",
-                  mode === "launch_ai"
-                    ? "bg-gradient-to-r from-sky-500 to-blue-600"
-                    : "bg-gradient-to-r from-sky-400/70 to-blue-500/70",
-                )}
-              >
-                Launch AI
-              </button>
-              <button
-                title="Choose a mode and market, then watch the live last-digit distribution."
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 text-slate-500 hover:bg-slate-50"
-              >
-                <Info className="h-4 w-4" />
-              </button>
+            <div className="text-sm font-semibold text-slate-800">
+              Last {window} ticks — digit distribution
             </div>
-
-            {/* Market */}
-            <div className="mt-6">
-              <label className="block text-sm font-semibold text-slate-800">Select Market:</label>
-              <Select value={symbol} onValueChange={setSymbol}>
-                <SelectTrigger className="mt-2 h-11 w-full max-w-3xl rounded-md border-slate-300 bg-white text-slate-800">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SYNTHETIC_MARKETS.map((m) => (
-                    <SelectItem key={m.symbol} value={m.symbol}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Live price strip */}
-            <div className="mt-3 max-w-3xl rounded-md bg-slate-100/70 px-5 py-5">
-              <div className="font-mono text-3xl font-semibold text-slate-800">
-                {last !== null ? last.toFixed(2) : "—"}
-              </div>
-            </div>
-
-            {/* Ticks window */}
-            <div className="mt-6 flex flex-wrap items-center gap-4">
-              <label className="text-sm font-semibold text-slate-800">Ticks window:</label>
-              <Input
-                type="number"
-                min={50}
-                max={5000}
-                value={windowInput}
-                onChange={(e) => {
-                  setWindowInput(e.target.value);
-                  const n = Number(e.target.value);
-                  if (!Number.isFinite(n)) return;
-                  if (n >= 50 && n <= 5000) setWindow(Math.floor(n));
-                }}
-                className="h-9 w-32 text-center"
-              />
-              <span className="text-xs text-slate-500">(50–5000)</span>
-              <span className="ml-auto text-xs text-slate-500">
-                Samples: {digits.length}
-              </span>
-            </div>
-
-            {/* Distribution */}
-            <div className="mt-4">
-              <div className="text-sm font-semibold text-slate-800">
-                Last {window} ticks digit distribution
-              </div>
-
-              <div className="mt-6 grid grid-cols-5 gap-y-8 sm:grid-cols-10">
-                {counts.map((_c, i) => {
-                  const pct = pcts[i];
-                  const isMax = pct === maxPct && total > 1;
-                  const isMin = pct === minPct && total > 1;
-                  const isCurrent = currentDigit === i;
-                  return (
-                    <div key={i} className="relative flex flex-col items-center">
-                      {isCurrent && (
-                        <div className="absolute -top-6 rounded-md bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white shadow">
-                          ▾
-                        </div>
+            <div className="mt-6 grid grid-cols-5 gap-y-8 sm:grid-cols-10">
+              {counts.map((_c, i) => {
+                const pct      = pcts[i];
+                const isMax    = pct === maxPct && total > 1;
+                const isMin    = pct === minPct && total > 1 && !isMax;
+                const isCurrent = currentDigit === i;
+                return (
+                  <div key={i} className="relative flex flex-col items-center">
+                    {isCurrent && (
+                      <div className="absolute -top-6 rounded-md bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white shadow">▾</div>
+                    )}
+                    <div
+                      className={cn(
+                        "flex h-12 w-12 items-center justify-center rounded-full border-2 text-lg font-bold transition",
+                        DIGIT_COLORS[i],
+                        isCurrent && "ring-4 ring-blue-200",
                       )}
-                      <div
-                        className={cn(
-                          "flex h-12 w-12 items-center justify-center rounded-full border-2 text-lg font-bold transition",
-                          digitColors[i],
-                          isCurrent && "ring-4 ring-blue-200",
-                        )}
-                      >
-                        {i}
-                      </div>
-                      <div className="mt-2 text-xs font-medium text-slate-600">
-                        {pct.toFixed(1)}%
-                      </div>
-                      {isMax && (
-                        <div className="mt-1 text-[10px] font-semibold text-blue-600">
-                          most frequency
-                        </div>
-                      )}
-                      {isMin && !isMax && (
-                        <div className="mt-1 text-[10px] font-semibold text-slate-500">
-                          least frequency
-                        </div>
-                      )}
+                    >
+                      {i}
                     </div>
-                  );
-                })}
+                    <div className="mt-1 text-xs font-semibold">{counts[i]}</div>
+                    <div className="text-xs text-slate-500">{pct.toFixed(1)}%</div>
+                    {isMax && <div className="mt-0.5 text-[9px] font-semibold text-blue-600">↑ most</div>}
+                    {isMin && <div className="mt-0.5 text-[9px] font-semibold text-slate-400">↓ least</div>}
+                  </div>
+                );
+              })}
+            </div>
+            {currentDigit !== null && (
+              <div className="mt-4 text-xs text-slate-500">
+                current digit: <span className="font-semibold text-slate-700">{currentDigit}</span>
               </div>
+            )}
+          </div>
+        )}
 
-              {currentDigit !== null && (
-                <div className="mt-4 text-xs text-slate-500">
-                  current digit: <span className="font-semibold text-slate-700">{currentDigit}</span> · market: {marketName}
-                </div>
-              )}
+        {/* SIGNALS TAB */}
+        {tab === "Signals" && (
+          <div className="mt-6 space-y-4">
+            <p className="text-sm text-slate-500">
+              Real-time signals derived from the last <strong>{streakLen}</strong> ticks.
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {/* Even/Odd signal */}
+              <SignalCard
+                title="Even / Odd"
+                label={evenCount >= oddCount ? "Even suggested" : "Odd suggested"}
+                confidence={Math.round((Math.max(evenCount, oddCount) / streakLen) * 100)}
+                color={evenCount >= oddCount ? "green" : "slate"}
+                detail={`Even: ${evenCount} | Odd: ${oddCount} in last ${streakLen}`}
+              />
+              {/* Over/Under 4 signal */}
+              <SignalCard
+                title="Over / Under 4"
+                label={overCount >= underCount ? "Over 4 suggested" : "Under 4 suggested"}
+                confidence={Math.round((Math.max(overCount, underCount) / streakLen) * 100)}
+                color={overCount >= underCount ? "blue" : "orange"}
+                detail={`Over: ${overCount} | Under: ${underCount} in last ${streakLen}`}
+              />
+              {/* Streak signal */}
+              <SignalCard
+                title="Streak"
+                label={consecutiveSame >= 3 ? `Streak of ${consecutiveSame}` : "No streak"}
+                confidence={consecutiveSame >= 3 ? Math.min(95, consecutiveSame * 20) : 0}
+                color={consecutiveSame >= 3 ? "rose" : "slate"}
+                detail={`Last digit ${lastStreakDigit ?? "—"} repeated ${consecutiveSame}× in a row`}
+              />
+              {/* Most frequent digit signal */}
+              <SignalCard
+                title="Hot Digit"
+                label={`Digit ${pcts.indexOf(maxPct)} is hot`}
+                confidence={Math.round(maxPct)}
+                color="amber"
+                detail={`${maxPct.toFixed(1)}% frequency in last ${window} ticks`}
+              />
+            </div>
+
+            <div className="mt-4 rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+              <Info className="inline h-3.5 w-3.5 mr-1" />
+              Signals are statistical observations only — not financial advice. Deriv markets are random-walk
+              processes; past frequency does not predict future outcomes.
             </div>
           </div>
         )}
 
-        {tab !== "Dcircles" && (
-          <div className="mt-10 rounded-md border border-dashed border-slate-300 bg-white p-12 text-center">
-            <h2 className="text-lg font-semibold text-slate-800">{tab}</h2>
-            <p className="mt-2 text-sm text-slate-500">
-              {tab} module is coming soon. Switch back to <span className="font-semibold">Dcircles</span> to see the live last-digit distribution.
+        {/* DP TOOLS TAB */}
+        {tab === "DP Tools" && (
+          <div className="mt-6">
+            <p className="text-sm text-slate-500 mb-4">
+              Theoretical probability table for each last-digit prediction.
             </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50">
+                    <th className="px-3 py-2 text-left font-semibold text-slate-700">Digit</th>
+                    <th className="px-3 py-2 text-right font-semibold text-blue-700">Over %</th>
+                    <th className="px-3 py-2 text-right font-semibold text-rose-700">Under %</th>
+                    <th className="px-3 py-2 text-right font-semibold text-emerald-700">Matches %</th>
+                    <th className="px-3 py-2 text-right font-semibold text-slate-600">Differs %</th>
+                    <th className="px-3 py-2 text-right font-semibold text-violet-700">Observed %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overUnderProbs.map(({ digit, overProb, underProb, matchProb, diffProb }) => (
+                    <tr key={digit} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                      <td className="px-3 py-2">
+                        <span className={cn(
+                          "inline-flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-bold",
+                          DIGIT_COLORS[digit],
+                          currentDigit === digit && "ring-2 ring-blue-400",
+                        )}>{digit}</span>
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-blue-700">{overProb.toFixed(0)}%</td>
+                      <td className="px-3 py-2 text-right font-mono text-rose-700">{underProb.toFixed(0)}%</td>
+                      <td className="px-3 py-2 text-right font-mono text-emerald-700">{matchProb.toFixed(0)}%</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">{diffProb.toFixed(0)}%</td>
+                      <td className="px-3 py-2 text-right font-mono text-violet-700">{pcts[digit].toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-3 text-[11px] text-slate-400">
+              Theoretical probabilities assume a uniform random distribution. Observed % is from your current ticks window.
+            </p>
+          </div>
+        )}
+
+        {/* TICK ANALYSER TAB */}
+        {tab === "Tick Analyser" && (
+          <div className="mt-6">
+            <p className="text-sm text-slate-500 mb-3">Last 50 raw ticks</p>
+            <div className="grid grid-cols-5 gap-1 sm:grid-cols-10">
+              {ticks.slice(-50).map((t, i) => {
+                const d = Number(t.toFixed(2).slice(-1));
+                return (
+                  <div
+                    key={i}
+                    className={cn(
+                      "flex flex-col items-center rounded-md border py-1.5 text-center",
+                      DIGIT_COLORS[d],
+                    )}
+                  >
+                    <span className="font-mono text-xs font-bold">{d}</span>
+                    <span className="font-mono text-[9px] text-current/70">{t.toFixed(2)}</span>
+                  </div>
+                );
+              })}
+              {ticks.length === 0 && (
+                <div className="col-span-10 rounded-md border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">
+                  Waiting for ticks…
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {Array.from({ length: 10 }, (_, i) => (
+                <div key={i} className="rounded-md border border-slate-200 bg-white p-2 text-center text-xs">
+                  <div className={cn("mb-1 inline-flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-bold", DIGIT_COLORS[i])}>
+                    {i}
+                  </div>
+                  <div className="font-mono font-semibold">{counts[i]}</div>
+                  <div className="text-slate-500">{pcts[i].toFixed(1)}%</div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
     </TopShell>
+  );
+}
+
+function SignalCard({
+  title,
+  label,
+  confidence,
+  color,
+  detail,
+}: {
+  title: string;
+  label: string;
+  confidence: number;
+  color: "green" | "blue" | "orange" | "rose" | "slate" | "amber";
+  detail: string;
+}) {
+  const colorMap = {
+    green:  "bg-emerald-50 border-emerald-200 text-emerald-800",
+    blue:   "bg-sky-50 border-sky-200 text-sky-800",
+    orange: "bg-orange-50 border-orange-200 text-orange-800",
+    rose:   "bg-rose-50 border-rose-200 text-rose-800",
+    slate:  "bg-slate-50 border-slate-200 text-slate-700",
+    amber:  "bg-amber-50 border-amber-200 text-amber-800",
+  };
+  const barMap = {
+    green:  "bg-emerald-400",
+    blue:   "bg-sky-400",
+    orange: "bg-orange-400",
+    rose:   "bg-rose-400",
+    slate:  "bg-slate-400",
+    amber:  "bg-amber-400",
+  };
+  return (
+    <div className={cn("rounded-xl border p-4", colorMap[color])}>
+      <div className="text-[10px] font-semibold uppercase tracking-wider opacity-70">{title}</div>
+      <div className="mt-1 text-sm font-semibold">{label}</div>
+      <div className="mt-2 h-1.5 w-full rounded-full bg-current/10">
+        <div
+          className={cn("h-1.5 rounded-full transition-all", barMap[color])}
+          style={{ width: `${confidence}%` }}
+        />
+      </div>
+      <div className="mt-1 text-[10px] font-medium">{confidence}% confidence</div>
+      <div className="mt-2 text-[10px] opacity-60">{detail}</div>
+    </div>
   );
 }
