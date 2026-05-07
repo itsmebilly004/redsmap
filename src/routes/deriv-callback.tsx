@@ -1,11 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { send } from "@/lib/deriv";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/deriv-callback")({
+  // Accept all string search params so Deriv's acct1/token1/cur1/acct2/... are preserved
+  // through TanStack Router's navigation and server-side redirect.
+  validateSearch: z.record(z.string()).catch({}),
   component: DerivCallback,
 });
 
@@ -47,7 +51,9 @@ async function ensureSupabaseSession(primaryAccountId: string) {
 
 function DerivCallback() {
   const navigate = useNavigate();
-  const searchParams = Route.useSearch();
+  // Route.useSearch() is the reliable source — populated by validateSearch
+  // from both the server-side beforeLoad redirect and direct Deriv callbacks.
+  const search = Route.useSearch();
   const [status, setStatus] = useState("Connecting your Deriv account…");
   const ran = useRef(false);
 
@@ -57,14 +63,25 @@ function DerivCallback() {
 
     (async () => {
       try {
-        const params = new URLSearchParams(window.location.search);
+        // Build URLSearchParams from the validated search object. This works
+        // whether we arrived via beforeLoad redirect (search has all params)
+        // or directly from Deriv's OAuth redirect.
+        const params = new URLSearchParams(search as Record<string, string>);
+
+        // Fallback: if the router search is empty (edge case during hydration),
+        // read directly from the URL.
+        if (!params.get("acct1") && typeof window !== "undefined") {
+          const urlParams = new URLSearchParams(window.location.search);
+          urlParams.forEach((v, k) => params.set(k, v));
+        }
+
         const accounts = parseAccounts(params);
-        
+
         if (!accounts.length) {
           throw new Error("No tokens returned from Deriv. Please try again.");
         }
 
-        // Identify the primary account (Real CR account preferred over VR)
+        // Prefer a real CR account over demo VR account as the primary identity
         const primary = accounts.find((a) => !a.account.startsWith("VR")) ?? accounts[0];
 
         setStatus("Setting up your internal profile…");
@@ -75,14 +92,13 @@ function DerivCallback() {
           setStatus(`Syncing account ${acc.account}…`);
           let balance = 0;
           let currency = acc.currency;
-          
+
           try {
-            // Validate token and get fresh balance/currency
             const auth = await send({ authorize: acc.token });
             balance = Number(auth.authorize?.balance ?? 0);
             currency = auth.authorize?.currency ?? currency;
           } catch (e) {
-            console.error(`Validation failed for ${acc.account}`, e);
+            console.error(`Token validation failed for ${acc.account}`, e);
           }
 
           // Upsert — refresh the 30-day expiry window on every login
@@ -106,7 +122,7 @@ function DerivCallback() {
           }
         }
 
-        toast.success(`Successfully connected ${accounts.length} account${accounts.length > 1 ? 's' : ''}.`);
+        toast.success(`Connected ${accounts.length} account${accounts.length > 1 ? "s" : ""} successfully.`);
         navigate({ to: "/dashboard" });
       } catch (e: any) {
         console.error("OAuth Processing Error:", e);

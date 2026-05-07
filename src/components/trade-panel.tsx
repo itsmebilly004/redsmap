@@ -70,7 +70,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
     if (!user) return;
     supabase
       .from("sessions")
-      .select("deriv_token, is_demo")
+      .select("deriv_token, is_demo, currency")
       .eq("user_id", user.id)
       .eq("is_active", true)
       .gt("expires_at", new Date().toISOString())
@@ -81,6 +81,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
         if (data) {
           setToken(data.deriv_token);
           setIsDemo(data.is_demo);
+          if (data.currency) setCurrency(data.currency as typeof currency);
         }
       });
   }, [user]);
@@ -311,7 +312,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
                 .eq("id", trade.id);
             }
             toast[profit >= 0 ? "success" : "error"](
-              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`,
+              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} ${currency}`,
             );
           }
         } catch {
