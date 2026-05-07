@@ -1,7 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import {
-  LayoutDashboard,
   TrendingUp,
   Bot,
   BarChart3,
@@ -11,15 +10,15 @@ import {
   CircleDot,
   ChevronDown,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { useDerivBalance } from "@/hooks/use-deriv-balance";
+import { useDerivBalance } from "@/contexts/deriv-balance";
 import { Button } from "@/components/ui/button";
 import { buildOAuthUrl } from "@/lib/deriv";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
@@ -28,8 +27,13 @@ export const Route = createFileRoute("/dashboard")({
   component: DashboardLayout,
 });
 
+const CURRENCY_FLAG: Record<string, string> = {
+  USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", AUD: "🇦🇺",
+  CAD: "🇨🇦", CHF: "🇨🇭", JPY: "🇯🇵", NZD: "🇳🇿",
+  tUSDT: "🇺🇸", BTC: "🇺🇸", ETH: "🇺🇸",
+};
+
 const items = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/dashboard/trade", label: "Trade", icon: TrendingUp },
   { to: "/dashboard/bot", label: "Bot", icon: Bot },
   { to: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
@@ -41,14 +45,14 @@ function DashboardLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  const { account, accounts, balance, currency, switchAccount } = useDerivBalance();
+  const { account, accounts, balance, currency, switchAccount, logout } = useDerivBalance();
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth", search: { mode: "signin" } });
   }, [user, loading, navigate]);
 
-  async function logout() {
-    await supabase.auth.signOut();
+  async function handleLogout() {
+    await logout();
     navigate({ to: "/" });
   }
 
@@ -62,6 +66,8 @@ function DashboardLayout() {
 
   if (loading || !user) return null;
 
+  const flag = account ? (CURRENCY_FLAG[currency] ?? (account.is_demo ? "🎮" : "🇺🇸")) : null;
+
   return (
     <div className="flex min-h-dvh">
       {/* Sidebar */}
@@ -72,7 +78,7 @@ function DashboardLayout() {
         </Link>
         <nav className="flex-1 space-y-1 p-3">
           {items.map((item) => {
-            const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
+            const active = pathname.startsWith(item.to);
             const Icon = item.icon;
             return (
               <Link
@@ -90,8 +96,14 @@ function DashboardLayout() {
           })}
         </nav>
         <div className="border-t border-glass-border p-3">
+          <Link
+            to="/"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-sidebar-accent/50 mb-1"
+          >
+            ← Manual Traders
+          </Link>
           <button
-            onClick={logout}
+            onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-sidebar-accent/50"
           >
             <LogOut className="size-4" /> Sign out
@@ -109,6 +121,7 @@ function DashboardLayout() {
             <span className="text-muted-foreground">
               {account ? (
                 <>
+                  {flag && <span className="mr-1">{flag}</span>}
                   <span className="font-mono text-foreground">{account.account_id}</span>
                   <span className="ml-2 rounded bg-foreground/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wider">
                     {account.is_demo ? "Demo" : "Live"}
@@ -124,7 +137,7 @@ function DashboardLayout() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="flex items-center gap-2 rounded-lg border border-glass-border bg-foreground/[0.02] px-3 py-1.5 text-left transition hover:bg-foreground/[0.05]">
-                    <span className={`size-2 rounded-full ${account.is_demo ? "bg-yellow-500" : "bg-emerald-500"}`} />
+                    {flag && <span className="text-base">{flag}</span>}
                     <div className="leading-tight">
                       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                         {account.is_demo ? "Demo" : "Real"} {currency}
@@ -133,33 +146,40 @@ function DashboardLayout() {
                         {(balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}
                       </div>
                     </div>
-                    {accounts.length > 1 && <ChevronDown className="size-4 text-muted-foreground" />}
+                    <ChevronDown className="size-4 text-muted-foreground" />
                   </button>
                 </DropdownMenuTrigger>
-                {accounts.length > 1 && (
-                  <DropdownMenuContent align="end" className="w-64">
-                    {accounts.map((a) => (
-                      <DropdownMenuItem
-                        key={a.account_id}
-                        onClick={() => switchAccount(a.account_id)}
-                        className="flex items-center justify-between gap-2"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className={`size-2 rounded-full ${a.is_demo ? "bg-yellow-500" : "bg-emerald-500"}`} />
-                          <div className="leading-tight">
-                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                              {a.is_demo ? "Demo" : "Real"} {a.currency ?? "USD"}
-                            </div>
-                            <div className="font-mono text-xs">{a.account_id}</div>
-                          </div>
-                        </div>
-                        <span className="font-mono text-xs tabular-nums">
-                          {Number(a.balance ?? 0).toFixed(2)}
+                <DropdownMenuContent align="end" className="w-72">
+                  {accounts.map((a) => (
+                    <DropdownMenuItem
+                      key={a.account_id}
+                      onClick={() => switchAccount(a.account_id)}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">
+                          {CURRENCY_FLAG[a.currency] ?? (a.is_demo ? "🎮" : "🇺🇸")}
                         </span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                )}
+                        <div className="leading-tight">
+                          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                            {a.is_demo ? "Demo" : "Real"} {a.currency}
+                          </div>
+                          <div className="font-mono text-xs">{a.account_id}</div>
+                        </div>
+                      </div>
+                      <span className="font-mono text-xs tabular-nums">
+                        {Number(a.balance ?? 0).toFixed(2)} {a.currency}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={connectDeriv} className="gap-2 text-muted-foreground">
+                    <Plug className="size-3.5" /> Add / reconnect account
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleLogout} className="gap-2 text-red-600 focus:text-red-600">
+                    <LogOut className="size-3.5" /> Disconnect &amp; sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
               </DropdownMenu>
             ) : (
               <Button onClick={connectDeriv} size="sm">
@@ -174,9 +194,9 @@ function DashboardLayout() {
         </main>
 
         {/* Mobile bottom nav */}
-        <nav className="sticky bottom-0 z-20 grid grid-cols-5 border-t border-glass-border bg-background/80 backdrop-blur md:hidden">
+        <nav className="sticky bottom-0 z-20 grid grid-cols-4 border-t border-glass-border bg-background/80 backdrop-blur md:hidden">
           {items.map((item) => {
-            const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
+            const active = pathname.startsWith(item.to);
             const Icon = item.icon;
             return (
               <Link

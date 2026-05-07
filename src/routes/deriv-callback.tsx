@@ -123,7 +123,7 @@ function DerivCallback() {
         }
 
         toast.success(`Connected ${accounts.length} account${accounts.length > 1 ? "s" : ""} successfully.`);
-        navigate({ to: "/dashboard" });
+        navigate({ to: "/" });
       } catch (e: any) {
         console.error("OAuth Processing Error:", e);
         toast.error(e.message || "Authentication failed. Please check your Deriv connection.");

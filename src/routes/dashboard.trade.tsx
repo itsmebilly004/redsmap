@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useDerivBalance } from "@/contexts/deriv-balance";
 import {
   send,
   subscribeProposal,
@@ -14,14 +15,7 @@ import { DerivChart } from "@/components/deriv-chart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Minus, Plus, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -31,6 +25,12 @@ export const Route = createFileRoute("/dashboard/trade")({
 
 function TradePage() {
   const { user } = useAuth();
+  const { account, balance, currency } = useDerivBalance();
+
+  // Always read token & currency from the shared context — no independent Supabase query
+  const token = account?.deriv_token ?? null;
+  const isDemo = account?.is_demo ?? true;
+
   const [market, setMarket] = useState("R_100");
   const [category, setCategory] = useState<TradeCategory>("over_under");
   const [side, setSide] = useState("over");
@@ -43,52 +43,25 @@ function TradePage() {
   const [growthRate, setGrowthRate] = useState(0.03);
   const [multiplier, setMultiplier] = useState(100);
   const [lastPrice, setLastPrice] = useState<number | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isDemo, setIsDemo] = useState(true);
-  const [currency, setCurrency] = useState("USD");
   const [busy, setBusy] = useState(false);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
   const [highBarrier, setHighBarrier] = useState<number | null>(null);
   const [lowBarrier, setLowBarrier] = useState<number | null>(null);
   const [chartHeight, setChartHeight] = useState(460);
   const lastPriceRef = useRef<number | null>(null);
+
   const handlePrice = useCallback((p: number) => {
     setLastPrice(p);
     lastPriceRef.current = p;
   }, []);
 
-  // SSR-safe responsive chart height
   useEffect(() => {
     setChartHeight(window.innerWidth < 768 ? 260 : 460);
   }, []);
 
-  // Reset side when category changes
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
   }, [category]);
-
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("sessions")
-      .select("deriv_token, is_demo, currency")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .gt("expires_at", new Date().toISOString())
-      .order("is_demo", { ascending: true })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setToken(data.deriv_token);
-          setIsDemo(data.is_demo);
-          setCurrency(data.currency ?? "USD");
-        }
-      });
-  }, [user]);
-
-  // chart subscription handled inside <DerivChart />
-
 
   const isDigit = ["even_odd", "over_under", "matches_differs"].includes(category);
   const needsDigit = category === "over_under" || category === "matches_differs";
@@ -101,6 +74,10 @@ function TradePage() {
     if (!user) return;
     if (!token) {
       toast.error("Connect your Deriv account first.");
+      return;
+    }
+    if (balance !== null && balance < stake) {
+      toast.error(`Insufficient balance: ${balance.toFixed(2)} ${currency}. Stake: ${stake.toFixed(2)} ${currency}.`);
       return;
     }
     setBusy(true);
@@ -137,7 +114,7 @@ function TradePage() {
       if (!proposalId) throw new Error("No proposal returned");
       const buyResp = await send({ buy: proposalId, price: stake });
       const contract = buyResp.buy;
-      toast.success(`Bought contract ${contract.contract_id}`);
+      toast.success(`Opened contract ${contract.contract_id}`);
 
       const { data: trade } = await supabase
         .from("trades")
@@ -181,17 +158,14 @@ function TradePage() {
   }
 
   const sides = SIDES_BY_CATEGORY[category];
-
-  // Index for prev/next arrows on category pill
   const catIdx = TRADE_CATEGORIES.findIndex((c) => c.value === category);
   const cycleCategory = (dir: -1 | 1) => {
     const next = (catIdx + dir + TRADE_CATEGORIES.length) % TRADE_CATEGORIES.length;
     setCategory(TRADE_CATEGORIES[next].value);
   };
-
   const currentCategory = TRADE_CATEGORIES[catIdx];
 
-  // Live proposal pricing for non-accumulator trade types
+  // Live proposal pricing (non-accumulator)
   useEffect(() => {
     if (!token || isAccumulator) return;
     let cancelled = false;
@@ -222,7 +196,7 @@ function TradePage() {
             const pct = stake > 0 ? ((p - stake) / stake) * 100 : 0;
             next[s.value] = { payout: p, pct };
           } catch {
-            /* ignore individual side errors */
+            /* ignore */
           }
         }
         if (!cancelled) setPayouts(next);
@@ -235,10 +209,9 @@ function TradePage() {
       cancelled = true;
       clearTimeout(t);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, multiplier, market, payoutMode, currency, isAccumulator]);
 
-  // Accumulator: subscribe to the live proposal stream for real-time barrier updates
+  // Accumulator: live proposal stream for barriers
   useEffect(() => {
     if (!isAccumulator || !token) {
       setHighBarrier(null);
@@ -324,8 +297,7 @@ function TradePage() {
               <ChevronLeft className="h-4 w-4" />
             </button>
             <div className="flex flex-1 items-center justify-center gap-2 rounded-md bg-muted/40 px-3 py-2">
-              <TrendingUp className="h-4 w-4 text-rose-400" />
-              <TrendingDown className="h-4 w-4 text-rose-400" />
+              <span className="text-lg">{isAccumulator ? "📈" : "📊"}</span>
               <span className="font-medium">{currentCategory?.label}</span>
             </div>
             <button onClick={() => cycleCategory(1)} className="rounded-md p-1 hover:bg-muted/40" aria-label="Next trade type">
@@ -422,24 +394,25 @@ function TradePage() {
           </div>
         )}
 
-        {/* Accumulator live barrier display — mirrors Deriv's proposal summary */}
+        {/* Accumulator barriers */}
         {isAccumulator && (highBarrier != null || lowBarrier != null) && (
           <div className="glass-card rounded-xl p-4 text-sm">
             {highBarrier != null && lowBarrier != null && (
-              <div className="flex items-center justify-between py-1">
-                <span className="text-muted-foreground">Barriers</span>
-                <span className="font-mono text-xs">
-                  {lowBarrier.toFixed(4)} / {highBarrier.toFixed(4)}
-                </span>
-              </div>
+              <>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Barriers</div>
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-emerald-500">▲ High</span>
+                  <span className="font-mono font-semibold text-emerald-500">{highBarrier.toFixed(4)}</span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-rose-500">▼ Low</span>
+                  <span className="font-mono font-semibold text-rose-500">{lowBarrier.toFixed(4)}</span>
+                </div>
+              </>
             )}
             <div className="flex items-center justify-between py-1 text-xs text-muted-foreground">
               <span>Win condition</span>
               <span>Price stays within barriers each tick</span>
-            </div>
-            <div className="flex items-center justify-between py-1 text-xs text-muted-foreground">
-              <span>Loss condition</span>
-              <span>Price exits barrier zone</span>
             </div>
           </div>
         )}
@@ -447,40 +420,50 @@ function TradePage() {
         {isMultiplier && (
           <div className="glass-card rounded-xl p-4">
             <div className="mb-2 text-sm">Multiplier</div>
-            <Select value={String(multiplier)} onValueChange={(v) => setMultiplier(Number(v))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {[10, 20, 30, 50, 100, 200, 300, 500].map((m) => (
-                  <SelectItem key={m} value={String(m)}>×{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="grid grid-cols-4 gap-2">
+              {[10, 20, 30, 50, 100, 200, 300, 500].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMultiplier(m)}
+                  className={cn(
+                    "rounded-md border py-1.5 text-sm font-medium transition",
+                    multiplier === m
+                      ? "border-primary bg-primary/15"
+                      : "border-border bg-muted/30 hover:bg-muted/50",
+                  )}
+                >
+                  ×{m}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Stake / Payout */}
+        {/* Stake */}
         <div className="glass-card overflow-hidden rounded-xl p-3">
-          <div className="grid grid-cols-2 overflow-hidden rounded-lg bg-muted/30 p-1">
-            <button
-              onClick={() => setPayoutMode("stake")}
-              className={cn(
-                "rounded-md py-1.5 text-sm font-medium transition",
-                payoutMode === "stake" ? "bg-background shadow" : "text-muted-foreground",
-              )}
-            >
-              Stake
-            </button>
-            <button
-              onClick={() => setPayoutMode("payout")}
-              className={cn(
-                "rounded-md py-1.5 text-sm font-medium transition",
-                payoutMode === "payout" ? "bg-background shadow" : "text-muted-foreground",
-              )}
-            >
-              Payout
-            </button>
-          </div>
-          <div className="mt-3 flex items-center gap-2">
+          {!isAccumulator && (
+            <div className="mb-3 grid grid-cols-2 overflow-hidden rounded-lg bg-muted/30 p-1">
+              <button
+                onClick={() => setPayoutMode("stake")}
+                className={cn(
+                  "rounded-md py-1.5 text-sm font-medium transition",
+                  payoutMode === "stake" ? "bg-background shadow" : "text-muted-foreground",
+                )}
+              >
+                Stake
+              </button>
+              <button
+                onClick={() => setPayoutMode("payout")}
+                className={cn(
+                  "rounded-md py-1.5 text-sm font-medium transition",
+                  payoutMode === "payout" ? "bg-background shadow" : "text-muted-foreground",
+                )}
+              >
+                Payout
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setStake((s) => Math.max(0.35, +(s - 0.5).toFixed(2)))}
               className="rounded-md bg-muted/50 p-2 hover:bg-muted"
@@ -496,7 +479,10 @@ function TradePage() {
               onChange={(e) => setStake(Number(e.target.value))}
               className="text-right font-mono text-base"
             />
-            <span className="text-xs text-muted-foreground">{currency}</span>
+            {/* Currency locked to account currency */}
+            <span className="min-w-[3.5rem] rounded-md border border-border bg-muted/30 px-2 py-2 text-center text-xs font-semibold text-muted-foreground">
+              {currency}
+            </span>
             <button
               onClick={() => setStake((s) => +(s + 0.5).toFixed(2))}
               className="rounded-md bg-muted/50 p-2 hover:bg-muted"
@@ -505,6 +491,16 @@ function TradePage() {
               <Plus className="h-4 w-4" />
             </button>
           </div>
+          {balance !== null && (
+            <p className="mt-1.5 text-center text-[10px] text-muted-foreground">
+              Balance: <span className="font-mono font-medium">{balance.toFixed(2)} {currency}</span>
+              {account && (
+                <span className="ml-1 rounded bg-muted/50 px-1 py-0.5 text-[9px] uppercase tracking-wider">
+                  {account.is_demo ? "Demo" : "Real"}
+                </span>
+              )}
+            </p>
+          )}
         </div>
 
         {/* Side / payout cards */}
@@ -538,7 +534,7 @@ function TradePage() {
         </Button>
 
         <p className="text-[11px] text-muted-foreground">
-          Last price: <span className="font-mono text-foreground">{lastPrice?.toFixed(4) ?? "—"}</span>. Trades execute on the Deriv account selected in your dashboard. You can lose money rapidly.
+          Last price: <span className="font-mono text-foreground">{lastPrice?.toFixed(4) ?? "—"}</span>. You can lose money rapidly.
         </p>
       </div>
     </div>

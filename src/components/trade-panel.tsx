@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useDerivBalance } from "@/contexts/deriv-balance";
 import {
   send,
   subscribeProposal,
@@ -13,14 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Info, Minus, Plus, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Minus, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -33,10 +27,16 @@ interface TradePanelProps {
 
 export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategoryChange }: TradePanelProps) {
   const { user } = useAuth();
+  const { account, balance, currency: accountCurrency } = useDerivBalance();
+
+  // Derive token and currency directly from the shared context — no separate Supabase query
+  const token = account?.deriv_token ?? null;
+  const isDemo = account?.is_demo ?? true;
+  const currency = accountCurrency; // always matches the active Deriv account
+
   const [category, setCategory] = useState<TradeCategory>("accumulator");
   const [side, setSide] = useState("buy");
   const [stake, setStake] = useState(10);
-  const [currency, setCurrency] = useState<"USD" | "AUD" | "EUR" | "GBP">("AUD");
   const [payoutMode, setPayoutMode] = useState<"stake" | "payout">("stake");
   const [duration, setDuration] = useState(1);
   const [durationUnit, setDurationUnit] = useState<"t" | "s" | "m">("t");
@@ -46,8 +46,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
   const [multiplier, setMultiplier] = useState(100);
   const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
   const [takeProfit, setTakeProfit] = useState<number>(0);
-  const [token, setToken] = useState<string | null>(null);
-  const [isDemo, setIsDemo] = useState(true);
   const [busy, setBusy] = useState(false);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
   const [accuMeta, setAccuMeta] = useState<{
@@ -56,35 +54,14 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
     high: number | null;
     low: number | null;
     tickSize: number | null;
-    tickFreq: number | null;
     minStake: number | null;
     maxStake: number | null;
-  }>({ maxPayout: null, maxTicks: null, high: null, low: null, tickSize: null, tickFreq: null, minStake: null, maxStake: null });
+  }>({ maxPayout: null, maxTicks: null, high: null, low: null, tickSize: null, minStake: null, maxStake: null });
 
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
     onCategoryChange?.(category);
   }, [category]);
-
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("sessions")
-      .select("deriv_token, is_demo, currency")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .gt("expires_at", new Date().toISOString())
-      .order("is_demo", { ascending: true })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setToken(data.deriv_token);
-          setIsDemo(data.is_demo);
-          if (data.currency) setCurrency(data.currency as typeof currency);
-        }
-      });
-  }, [user]);
 
   const isDigit = ["even_odd", "over_under", "matches_differs"].includes(category);
   const needsDigit = category === "over_under" || category === "matches_differs";
@@ -103,14 +80,14 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
   );
   const currentCategory = TRADE_CATEGORIES[catIdx];
 
+  // Live proposal pricing (non-accumulator)
   useEffect(() => {
-    if (isAccumulator) return; // accumulator uses streaming proposal below
+    if (isAccumulator || !token) return;
     let cancelled = false;
     const run = async () => {
       try {
-        if (token) await send({ authorize: token });
+        await send({ authorize: token });
         const next: Record<string, { payout: number; pct: number }> = {};
-        let accuInfo: typeof accuMeta | null = null;
         for (const s of sides) {
           const ct = contractTypeFor(category, s.value);
           const proposal: any = {
@@ -127,40 +104,20 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
           }
           if (needsDigit) proposal.barrier = String(barrierDigit);
           if (needsBarrierOffset) proposal.barrier = barrierOffset;
-          if (isAccumulator) proposal.growth_rate = growthRate;
           if (isMultiplier) proposal.multiplier = multiplier;
           try {
             const r = await send(proposal);
             const p = Number(r.proposal?.payout ?? 0);
             const pct = stake > 0 ? ((p - stake) / stake) * 100 : 0;
             next[s.value] = { payout: p, pct };
-            if (isAccumulator) {
-              const pr = r.proposal ?? {};
-              const high = pr.high_barrier ?? pr.barrier_spot_distance ?? null;
-              const low = pr.low_barrier ?? null;
-              accuInfo = {
-                maxPayout: Number(pr.maximum_payout ?? 0) || null,
-                maxTicks: Number(pr.maximum_ticks ?? 0) || null,
-                high: high != null ? Number(high) : null,
-                low: low != null ? Number(low) : null,
-                tickSize: pr.tick_size_barrier != null ? Number(pr.tick_size_barrier) : null,
-                tickFreq: pr.tick_count != null ? Number(pr.tick_count) : null,
-                minStake: pr.min_stake != null ? Number(pr.min_stake) : null,
-                maxStake: pr.max_stake != null ? Number(pr.max_stake) : null,
-              };
-            }
           } catch {
-            /* ignore */
+            /* ignore per-side errors */
           }
         }
         if (!cancelled) {
           setPayouts(next);
-          if (isAccumulator && accuInfo) {
-            setAccuMeta(accuInfo);
-          } else if (!isAccumulator) {
-            setAccuMeta((m) => ({ ...m, high: null, low: null, tickSize: null }));
-            onAccumulatorBarriers?.({ high: null, low: null });
-          }
+          setAccuMeta((m) => ({ ...m, high: null, low: null, tickSize: null }));
+          onAccumulatorBarriers?.({ high: null, low: null });
         }
       } catch {
         /* ignore */
@@ -171,12 +128,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
       cancelled = true;
       clearTimeout(t);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, growthRate, multiplier, market, payoutMode, currency]);
+  }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, growthRate, multiplier, market, payoutMode, currency, isAccumulator]);
 
-  // Stream the Deriv accumulator proposal — Deriv updates `high_barrier` and
-  // `low_barrier` on every tick. Subscribing (not re-requesting) mirrors the
-  // exact behavior of deriv.com's accumulator chart.
+  // Accumulator: stream live proposal for real-time barriers
   useEffect(() => {
     if (!isAccumulator) {
       onAccumulatorBarriers?.({ high: null, low: null });
@@ -213,7 +167,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
               high,
               low,
               tickSize: tsb,
-              tickFreq: pr.tick_count != null ? Number(pr.tick_count) : null,
               minStake: pr.min_stake != null ? Number(pr.min_stake) : null,
               maxStake: pr.max_stake != null ? Number(pr.max_stake) : null,
             });
@@ -233,9 +186,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
       cancelled = true;
       unsub?.();
     };
-  }, [isAccumulator, token, stake, currency, market, growthRate, payoutMode, takeProfitEnabled, takeProfit, onAccumulatorBarriers]);
+  }, [isAccumulator, token, stake, currency, market, growthRate, payoutMode, takeProfitEnabled, takeProfit]);
 
-  // Track latest price in a ref for the proposal stream callback.
   const lastPriceRef = useRef<number | null>(null);
   useEffect(() => {
     lastPriceRef.current = lastPrice ?? null;
@@ -248,7 +200,15 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
       return;
     }
     if (!token) {
-      toast.error("Connect your Deriv account first.");
+      toast.message("Connect your Deriv account to trade.");
+      window.location.href = buildOAuthUrl();
+      return;
+    }
+    // Balance guard — warn if balance appears insufficient
+    if (balance !== null && balance < stake) {
+      toast.error(
+        `Insufficient balance: ${balance.toFixed(2)} ${currency}. Your stake is ${stake.toFixed(2)} ${currency}.`,
+      );
       return;
     }
     setBusy(true);
@@ -279,10 +239,10 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
 
       const propResp = await send(proposal);
       const proposalId = propResp.proposal?.id;
-      if (!proposalId) throw new Error("No proposal returned");
+      if (!proposalId) throw new Error("No proposal returned from Deriv");
       const buyResp = await send({ buy: proposalId, price: stake });
       const contract = buyResp.buy;
-      toast.success(`Bought contract ${contract.contract_id}`);
+      toast.success(`Opened contract ${contract.contract_id}`);
 
       const { data: trade } = await supabase
         .from("trades")
@@ -298,6 +258,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
         .select()
         .single();
 
+      // Poll for contract settlement
       const poll = setInterval(async () => {
         try {
           const res = await send({ proposal_open_contract: 1, contract_id: contract.contract_id });
@@ -308,7 +269,11 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
             if (trade?.id) {
               await supabase
                 .from("trades")
-                .update({ profit_loss: profit, status: profit >= 0 ? "won" : "lost", closed_at: new Date().toISOString() })
+                .update({
+                  profit_loss: profit,
+                  status: profit >= 0 ? "won" : "lost",
+                  closed_at: new Date().toISOString(),
+                })
                 .eq("id", trade.id);
             }
             toast[profit >= 0 ? "success" : "error"](
@@ -316,10 +281,10 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
             );
           }
         } catch {
-          /* ignore */
+          /* ignore poll errors */
         }
       }, 1500);
-      setTimeout(() => clearInterval(poll), 120000);
+      setTimeout(() => clearInterval(poll), 120_000);
     } catch (e: any) {
       toast.error(e.message ?? "Trade failed");
     } finally {
@@ -340,9 +305,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
 
   return (
     <div className="space-y-3">
-      {/* Trade type pill (green border highlight matches Deriv accumulator selector) */}
+      {/* Trade type selector */}
       <div className="rounded-xl border-2 border-[oklch(0.7_0.17_150)] bg-white p-3 shadow-sm">
-        <div className="text-[11px] text-[oklch(0.45_0.02_260)] underline underline-offset-2">
+        <div className="text-[11px] text-[oklch(0.45_0.02_260)] underline underline-offset-2 cursor-pointer">
           Learn about this trade type
         </div>
         <div className="mt-2 flex items-center gap-2">
@@ -351,12 +316,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
           </button>
           <div className="flex flex-1 items-center justify-center gap-2 px-3 py-1">
             {isAccumulator ? (
-              <span className="text-[oklch(0.7_0.17_150)]">📈</span>
+              <span className="text-[oklch(0.7_0.17_150)] text-lg">📈</span>
             ) : (
-              <>
-                <TrendingUp className="h-4 w-4 text-emerald-500" />
-                <TrendingDown className="h-4 w-4 text-rose-500" />
-              </>
+              <span className="text-lg">📊</span>
             )}
             <span className="font-semibold">{currentCategory?.label}</span>
           </div>
@@ -366,6 +328,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
         </div>
       </div>
 
+      {/* Duration / Ticks */}
       {showDuration && (
         <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="text-center text-sm text-[oklch(0.45_0.02_260)]">
@@ -394,6 +357,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
         </div>
       )}
 
+      {/* Last Digit Prediction */}
       {needsDigit && (
         <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="text-center text-sm">Last Digit Prediction</div>
@@ -416,6 +380,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
         </div>
       )}
 
+      {/* Barrier offset (Higher/Lower, Touch/No Touch) */}
       {needsBarrierOffset && (
         <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="mb-1 text-sm">Barrier (offset from spot)</div>
@@ -423,7 +388,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
         </div>
       )}
 
-      {/* Accumulator: Growth rate pills */}
+      {/* Accumulator: Growth rate */}
       {isAccumulator && (
         <div className="rounded-xl bg-white p-3">
           <div className="mb-2 flex items-center justify-center gap-1 text-sm text-[oklch(0.45_0.02_260)]">
@@ -448,21 +413,30 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
         </div>
       )}
 
+      {/* Multiplier selector */}
       {isMultiplier && (
         <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="mb-2 text-sm">Multiplier</div>
-          <Select value={String(multiplier)} onValueChange={(v) => setMultiplier(Number(v))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {[10, 20, 30, 50, 100, 200, 300, 500].map((m) => (
-                <SelectItem key={m} value={String(m)}>×{m}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="grid grid-cols-4 gap-2">
+            {[10, 20, 30, 50, 100, 200, 300, 500].map((m) => (
+              <button
+                key={m}
+                onClick={() => setMultiplier(m)}
+                className={cn(
+                  "rounded-md border py-1.5 text-sm font-medium transition",
+                  multiplier === m
+                    ? "border-[oklch(0.7_0.17_150)] bg-[oklch(0.7_0.17_150)]/10"
+                    : "border-[oklch(0.92_0.005_240)] bg-white hover:bg-[oklch(0.96_0.005_240)]",
+                )}
+              >
+                ×{m}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Stake (with currency selector for accumulator) */}
+      {/* Stake */}
       <div className="rounded-xl bg-white p-3">
         {!isAccumulator && (
           <div className="mb-3 grid grid-cols-2 overflow-hidden rounded-lg bg-[oklch(0.96_0.005_240)] p-1">
@@ -510,20 +484,25 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
           >
             <Plus className="h-4 w-4" />
           </button>
-          <Select value={currency} onValueChange={(v) => setCurrency(v as any)}>
-            <SelectTrigger className="w-20">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(["USD", "AUD", "EUR", "GBP"] as const).map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Currency locked to account currency — no manual override */}
+          <span className="min-w-[3rem] rounded-md border border-[oklch(0.92_0.005_240)] bg-[oklch(0.97_0.003_240)] px-2 py-2 text-center text-xs font-semibold text-[oklch(0.4_0.02_260)]">
+            {currency}
+          </span>
         </div>
+        {/* Live balance hint */}
+        {balance !== null && (
+          <p className="mt-1.5 text-center text-[10px] text-[oklch(0.55_0.02_260)]">
+            Balance: <span className="font-mono font-medium">{balance.toFixed(2)} {currency}</span>
+            {account && (
+              <span className="ml-1 rounded bg-[oklch(0.93_0.005_240)] px-1 py-0.5 text-[9px] uppercase tracking-wider">
+                {account.is_demo ? "Demo" : "Real"}
+              </span>
+            )}
+          </p>
+        )}
       </div>
 
-      {/* Take profit (Accumulator only) — Deriv-style stepper */}
+      {/* Take profit (Accumulator only) */}
       {isAccumulator && (
         <div className="rounded-xl bg-white p-3">
           <label className="flex items-center justify-between text-sm">
@@ -568,9 +547,38 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
         </div>
       )}
 
-      {/* Accumulator stat rows (mirrors Deriv's proposal summary) */}
+      {/* Accumulator stat rows — Barriers, Max payout, Max ticks */}
       {isAccumulator && (
         <div className="rounded-xl bg-white p-3 text-sm">
+          {/* Barriers — most important, shown prominently */}
+          {accuMeta.high != null && accuMeta.low != null ? (
+            <div className="mb-2 rounded-lg border border-[oklch(0.7_0.17_150)]/30 bg-[oklch(0.97_0.01_150)] p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[oklch(0.5_0.15_150)]">
+                Barriers (current tick)
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1 text-emerald-700">
+                  <span className="inline-block h-0.5 w-3 rounded bg-emerald-500" />
+                  High
+                </span>
+                <span className="font-mono text-sm font-semibold text-emerald-700">{accuMeta.high.toFixed(4)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1 text-red-600">
+                  <span className="inline-block h-0.5 w-3 rounded bg-red-500" />
+                  Low
+                </span>
+                <span className="font-mono text-sm font-semibold text-red-600">{accuMeta.low.toFixed(4)}</span>
+              </div>
+              <div className="mt-1 text-[10px] text-[oklch(0.5_0.02_260)]">
+                Price must stay within these levels each tick
+              </div>
+            </div>
+          ) : (
+            <div className="mb-2 rounded-lg border border-[oklch(0.92_0.005_240)] bg-[oklch(0.97_0.003_240)] p-2 text-[11px] text-[oklch(0.55_0.02_260)]">
+              Barriers will appear once connected to Deriv
+            </div>
+          )}
           <div className="flex items-center justify-between py-1">
             <span className="text-[oklch(0.4_0.02_260)]">Max. payout</span>
             <span className="font-medium underline decoration-dotted">
@@ -597,18 +605,10 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
               </span>
             </div>
           )}
-          {accuMeta.high != null && accuMeta.low != null && (
-            <div className="flex items-center justify-between py-1">
-              <span className="text-[oklch(0.4_0.02_260)]">Barriers</span>
-              <span className="font-mono text-xs">
-                {accuMeta.low.toFixed(4)} / {accuMeta.high.toFixed(4)}
-              </span>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Side cards (non-accumulator) — click to execute the trade for that side */}
+      {/* Side cards (non-accumulator) */}
       {!isAccumulator && (
         <div className="space-y-2">
           {sides.map((s) => {

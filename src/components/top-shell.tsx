@@ -1,10 +1,9 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalance } from "@/hooks/use-deriv-balance";
 import { buildOAuthUrl } from "@/lib/deriv";
 import {
-  LayoutGrid,
   Bot,
   LineChart as LineChartIcon,
   BarChart3,
@@ -17,11 +16,13 @@ import {
   Plug,
   ChevronDown,
   LogIn,
+  LogOut,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ReactNode } from "react";
@@ -29,11 +30,34 @@ import type { ReactNode } from "react";
 type TabDef = {
   to: string;
   label: string;
-  icon: typeof LayoutGrid;
+  icon: typeof LineChartIcon;
 };
 
+// Currency → flag emoji map for common Deriv currencies
+const CURRENCY_FLAG: Record<string, string> = {
+  USD: "🇺🇸",
+  EUR: "🇪🇺",
+  GBP: "🇬🇧",
+  AUD: "🇦🇺",
+  CAD: "🇨🇦",
+  CHF: "🇨🇭",
+  JPY: "🇯🇵",
+  NZD: "🇳🇿",
+  SGD: "🇸🇬",
+  // tUSDT and crypto currencies get the US flag on real accounts
+  tUSDT: "🇺🇸",
+  BTC: "🇺🇸",
+  ETH: "🇺🇸",
+  LTC: "🇺🇸",
+  USDC: "🇺🇸",
+};
+
+function getAccountFlag(isDemo: boolean, currency: string): string {
+  if (isDemo) return "🎮";
+  return CURRENCY_FLAG[currency] ?? "🇺🇸";
+}
+
 export const TOP_TABS: TabDef[] = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutGrid },
   { to: "/bot-builder", label: "Bot Builder", icon: Bot },
   { to: "/", label: "Manual Traders", icon: LineChartIcon },
   { to: "/charts", label: "Charts", icon: BarChart3 },
@@ -46,8 +70,14 @@ export const TOP_TABS: TabDef[] = [
 
 export function TopShell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { account, accounts, balance, currency, switchAccount } = useDerivBalance();
+  const { account, accounts, balance, currency, switchAccount, logout } = useDerivBalance();
+
+  async function handleLogout() {
+    await logout();
+    navigate({ to: "/" });
+  }
 
   return (
     <div className="min-h-dvh bg-[oklch(0.985_0.003_240)] text-[oklch(0.2_0.02_260)]">
@@ -64,14 +94,14 @@ export function TopShell({ children }: { children: ReactNode }) {
         </Link>
 
         <div className="flex items-center gap-1.5 md:gap-2">
-          {/* Balance / account switcher */}
+          {/* Balance / account switcher (shown when logged in and has account) */}
           {user && account && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-1.5 rounded-md border border-[oklch(0.92_0.005_240)] bg-white px-2 py-1.5 text-left transition hover:bg-[oklch(0.97_0.003_240)] md:gap-2 md:px-3">
-                  <span
-                    className={`size-2 shrink-0 rounded-full ${account.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`}
-                  />
+                  <span className="text-base leading-none">
+                    {getAccountFlag(account.is_demo, currency)}
+                  </span>
                   <div className="leading-tight">
                     <div className="hidden text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)] sm:block">
                       {account.is_demo ? "Demo" : "Real"} {currency}
@@ -84,65 +114,74 @@ export function TopShell({ children }: { children: ReactNode }) {
                       <span className="hidden sm:inline">{currency}</span>
                     </div>
                   </div>
-                  {accounts.length > 1 && (
-                    <ChevronDown className="size-3.5 text-[oklch(0.5_0.02_260)]" />
-                  )}
+                  <ChevronDown className="size-3.5 text-[oklch(0.5_0.02_260)]" />
                 </button>
               </DropdownMenuTrigger>
-              {accounts.length > 1 && (
-                <DropdownMenuContent align="end" className="w-60">
-                  {accounts.map((a) => (
-                    <DropdownMenuItem
-                      key={a.account_id}
-                      onClick={() => switchAccount(a.account_id)}
-                      className="flex items-center justify-between gap-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`size-2 rounded-full ${a.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`}
-                        />
-                        <div className="leading-tight">
-                          <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
-                            {a.is_demo ? "Demo" : "Real"} {a.currency ?? "USD"}
-                          </div>
-                          <div className="font-mono text-xs">{a.account_id}</div>
+              <DropdownMenuContent align="end" className="w-64">
+                {accounts.map((a) => (
+                  <DropdownMenuItem
+                    key={a.account_id}
+                    onClick={() => switchAccount(a.account_id)}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{getAccountFlag(a.is_demo, a.currency)}</span>
+                      <div className="leading-tight">
+                        <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
+                          {a.is_demo ? "Demo" : "Real"} {a.currency}
                         </div>
+                        <div className="font-mono text-xs">{a.account_id}</div>
                       </div>
-                      <span className="font-mono text-xs tabular-nums">
-                        {Number(a.balance ?? 0).toFixed(2)}
-                      </span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              )}
+                    </div>
+                    <span className="font-mono text-xs tabular-nums">
+                      {Number(a.balance ?? 0).toFixed(2)} {a.currency}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => (window.location.href = buildOAuthUrl())}
+                  className="gap-2 text-[oklch(0.5_0.02_260)]"
+                >
+                  <Plug className="size-3.5" />
+                  Add / reconnect account
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  className="gap-2 text-red-600 focus:text-red-600"
+                >
+                  <LogOut className="size-3.5" />
+                  Disconnect &amp; sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
             </DropdownMenu>
           )}
 
-          {/* Connect Deriv (logged in but no account) */}
+          {/* Connect Deriv (logged in but no Deriv account linked) */}
           {user && !account && (
-            <Button
-              onClick={() => (window.location.href = buildOAuthUrl())}
-              size="sm"
-              className="h-8 rounded-md bg-[oklch(0.72_0.17_55)] px-2 text-xs text-white hover:bg-[oklch(0.65_0.17_55)] md:h-9 md:px-4 md:text-sm"
-            >
-              <Plug className="mr-1 size-3.5" />
-              <span className="hidden sm:inline">Connect Deriv</span>
-              <span className="sm:hidden">Connect</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => (window.location.href = buildOAuthUrl())}
+                size="sm"
+                className="h-8 rounded-md bg-[oklch(0.72_0.17_55)] px-2 text-xs text-white hover:bg-[oklch(0.65_0.17_55)] md:h-9 md:px-4 md:text-sm"
+              >
+                <Plug className="mr-1 size-3.5" />
+                <span className="hidden sm:inline">Connect Deriv</span>
+                <span className="sm:hidden">Connect</span>
+              </Button>
+              <Button
+                onClick={handleLogout}
+                size="sm"
+                variant="ghost"
+                className="h-8 rounded-md px-2 text-xs text-[oklch(0.5_0.02_260)] md:h-9 md:px-3"
+              >
+                <LogOut className="size-3.5" />
+              </Button>
+            </div>
           )}
 
-          {user ? (
-            <Button
-              asChild
-              size="sm"
-              className="h-8 rounded-md bg-[oklch(0.55_0.22_265)] px-2 text-xs text-white hover:bg-[oklch(0.5_0.22_265)] md:h-9 md:px-5 md:text-sm"
-            >
-              <Link to="/dashboard">
-                <span className="hidden sm:inline">Open dashboard</span>
-                <span className="sm:hidden">Dashboard</span>
-              </Link>
-            </Button>
-          ) : (
+          {/* Not logged in */}
+          {!user && (
             <>
               <Button
                 asChild
@@ -169,7 +208,7 @@ export function TopShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      {/* ── Tab navigation — scrollable on mobile ── */}
+      {/* ── Tab navigation ── */}
       <nav className="border-b border-[oklch(0.92_0.005_240)] bg-white">
         <div className="flex items-center overflow-x-auto px-2 scrollbar-none">
           {TOP_TABS.map((t) => {
