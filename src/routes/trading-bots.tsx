@@ -31,7 +31,7 @@ function TradingBots() {
               <div className="text-base font-semibold">{b.name}</div>
               <p className="mt-1 text-sm text-[oklch(0.5_0.02_260)]">{b.desc}</p>
               <Button asChild size="sm" className="mt-4 bg-[oklch(0.55_0.22_265)] text-white">
-                <Link to={user ? "/bot-builder" : "/auth"} search={user ? undefined : { mode: "signup" }}>
+                <Link to={user ? "/dashboard/bot" : "/auth"} search={user ? undefined : { mode: "signup" }}>
                   {user ? "Deploy" : "Sign up to deploy"}
                 </Link>
               </Button>

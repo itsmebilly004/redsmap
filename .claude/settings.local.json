@@ -19,18 +19,7 @@
       "mcp__supabase__get_edge_function",
       "Bash(npx tsc *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)",
-      "Bash(python -c \"import json; d=json.load\\(open\\('C:/Users/ADMIN/Desktop/deriv/arktrader-hub/node_modules/nitro/package.json'\\)\\); print\\(list\\(d.get\\('exports',{}\\).keys\\(\\)\\)\\)\")",
-      "Bash(grep -n \"import\" /c/Users/ADMIN/Desktop/deriv/arktrader-hub/src/routes/strategy.\\\\$slug.tsx | head -20)",
-      "Read(//c/Users/ADMIN/Desktop/deriv/arktrader-hub/src/routes/**)",
-      "Bash(Get-ChildItem *)",
-      "Bash(grep -E \"\\\\.\\(md|MD|txt|json\\)$\")",
-      "Bash(bun run *)",
-      "Bash(Select-Object Name)",
-      "Bash(grep -E \"\\\\.tsx$|\\\\.ts$\")",
-      "Bash(xargs grep -l \"createNitro\\\\|defineEventHandler\")",
-      "Bash(xargs grep -l \"defineNitroPlugin\\\\|defineEventHandler\\\\|createRouter.*handler\\\\|use\\\\\\(\")",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); deps={**d.get\\('dependencies',{}\\), **d.get\\('devDependencies',{}\\)}; [print\\(k,v\\) for k,v in deps.items\\(\\) if any\\(x in k for x in ['tanstack','supabase','nitro','vite','react']\\)]\")"
+      "Bash(git commit -m ' *)"
     ]
   },
   "enableAllProjectMcpServers": true,

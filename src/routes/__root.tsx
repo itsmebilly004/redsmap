@@ -1,13 +1,5 @@
-import {
-  Outlet,
-  Link,
-  createRootRoute,
-  HeadContent,
-  Scripts,
-  useRouter,
-} from "@tanstack/react-router";
+import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
-import { DerivBalanceProvider } from "@/contexts/deriv-balance";
 
 import appCss from "../styles.css?url";
 import faviconUrl from "../assets/favicon.png?url";
@@ -19,7 +11,7 @@ function NotFoundComponent() {
         <h1 className="text-7xl font-bold text-foreground font-mono">404</h1>
         <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The page you&apos;re looking for doesn&apos;t exist or has been moved.
+          The page you're looking for doesn't exist or has been moved.
         </p>
         <div className="mt-6">
           <Link
@@ -28,40 +20,6 @@ function NotFoundComponent() {
           >
             Go home
           </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RootErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  const router = useRouter();
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Something went wrong</h1>
-        <p className="mt-2 text-sm text-muted-foreground">An unexpected error occurred.</p>
-        {import.meta.env.DEV && error?.message && (
-          <pre className="mt-4 max-h-40 overflow-auto rounded-md bg-muted p-3 text-left font-mono text-xs text-destructive">
-            {error.message}
-          </pre>
-        )}
-        <div className="mt-6 flex items-center justify-center gap-3">
-          <button
-            onClick={() => {
-              router.invalidate();
-              reset();
-            }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Try again
-          </button>
-          <a
-            href="/"
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
-            Go home
-          </a>
         </div>
       </div>
     </div>
@@ -104,14 +62,11 @@ export const Route = createRootRoute({
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
-  errorComponent: RootErrorComponent,
 });
 
-// No `className="dark"` here — dark mode is scoped to the dashboard layout.
-// The Manual Traders landing page uses explicit light-theme colors.
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <head>
         <HeadContent />
       </head>
@@ -125,9 +80,5 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return (
-    <DerivBalanceProvider>
-      <Outlet />
-    </DerivBalanceProvider>
-  );
+  return <Outlet />;
 }

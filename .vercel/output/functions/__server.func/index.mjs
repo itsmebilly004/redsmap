@@ -18,7 +18,9 @@ function lazyService(loader) {
   };
 }
 const services = {
-  ["ssr"]: lazyService(() => import("./_ssr/index.mjs"))
+  ["ssr"]: lazyService(() => import("./_ssr/index.mjs").then(function(n) {
+    return n.a2;
+  }))
 };
 globalThis.__nitro_vite_envs__ = services;
 const errorHandler$1 = (error, event) => {
@@ -90,9 +92,9 @@ const findRouteRules = /* @__PURE__ */ (() => {
     return r;
   };
 })();
-const _lazy_G3op7d = defineLazyEventHandler(() => import("./_chunks/ssr-renderer.mjs"));
+const _lazy_j21Qvj = defineLazyEventHandler(() => import("./_chunks/ssr-renderer.mjs"));
 const findRoute = /* @__PURE__ */ (() => {
-  const data = { route: "/**", handler: _lazy_G3op7d };
+  const data = { route: "/**", handler: _lazy_j21Qvj };
   return ((_m, p) => {
     return { data, params: { "_": p.slice(1) } };
   });
