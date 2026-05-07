@@ -20,7 +20,9 @@
       "Bash(npx tsc *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(python -c \"import json; d=json.load\\(open\\('C:/Users/ADMIN/Desktop/deriv/arktrader-hub/node_modules/nitro/package.json'\\)\\); print\\(list\\(d.get\\('exports',{}\\).keys\\(\\)\\)\\)\")"
+      "Bash(python -c \"import json; d=json.load\\(open\\('C:/Users/ADMIN/Desktop/deriv/arktrader-hub/node_modules/nitro/package.json'\\)\\); print\\(list\\(d.get\\('exports',{}\\).keys\\(\\)\\)\\)\")",
+      "Bash(grep -n \"import\" /c/Users/ADMIN/Desktop/deriv/arktrader-hub/src/routes/strategy.\\\\$slug.tsx | head -20)",
+      "Read(//c/Users/ADMIN/Desktop/deriv/arktrader-hub/src/routes/**)"
     ]
   },
   "enableAllProjectMcpServers": true,
