@@ -25,7 +25,12 @@
       "Read(//c/Users/ADMIN/Desktop/deriv/arktrader-hub/src/routes/**)",
       "Bash(Get-ChildItem *)",
       "Bash(grep -E \"\\\\.\\(md|MD|txt|json\\)$\")",
-      "Bash(bun run *)"
+      "Bash(bun run *)",
+      "Bash(Select-Object Name)",
+      "Bash(grep -E \"\\\\.tsx$|\\\\.ts$\")",
+      "Bash(xargs grep -l \"createNitro\\\\|defineEventHandler\")",
+      "Bash(xargs grep -l \"defineNitroPlugin\\\\|defineEventHandler\\\\|createRouter.*handler\\\\|use\\\\\\(\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); deps={**d.get\\('dependencies',{}\\), **d.get\\('devDependencies',{}\\)}; [print\\(k,v\\) for k,v in deps.items\\(\\) if any\\(x in k for x in ['tanstack','supabase','nitro','vite','react']\\)]\")"
     ]
   },
   "enableAllProjectMcpServers": true,
