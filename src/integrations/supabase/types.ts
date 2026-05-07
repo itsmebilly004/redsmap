@@ -137,12 +137,8 @@ export type Database = {
       user_settings: {
         Row: {
           created_at: string
-          daily_loss_limit: number | null
-          default_demo: boolean | null
           default_duration: string | null
           default_stake: number | null
-          max_consecutive_losses: number | null
-          max_stake: number | null
           preferred_symbol: string | null
           theme: string | null
           updated_at: string
@@ -150,12 +146,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          daily_loss_limit?: number | null
-          default_demo?: boolean | null
           default_duration?: string | null
           default_stake?: number | null
-          max_consecutive_losses?: number | null
-          max_stake?: number | null
           preferred_symbol?: string | null
           theme?: string | null
           updated_at?: string
@@ -163,12 +155,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          daily_loss_limit?: number | null
-          default_demo?: boolean | null
           default_duration?: string | null
           default_stake?: number | null
-          max_consecutive_losses?: number | null
-          max_stake?: number | null
           preferred_symbol?: string | null
           theme?: string | null
           updated_at?: string
@@ -179,7 +167,7 @@ export type Database = {
       users: {
         Row: {
           created_at: string
-          deriv_default_account: string | null
+          deriv_account: string | null
           deriv_currency: string | null
           deriv_user_id: string | null
           email: string | null
@@ -188,7 +176,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          deriv_default_account?: string | null
+          deriv_account?: string | null
           deriv_currency?: string | null
           deriv_user_id?: string | null
           email?: string | null
@@ -197,7 +185,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          deriv_default_account?: string | null
+          deriv_account?: string | null
           deriv_currency?: string | null
           deriv_user_id?: string | null
           email?: string | null

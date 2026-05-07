@@ -35,8 +35,6 @@ function DashboardHome() {
       .from("sessions")
       .select("id")
       .eq("user_id", user.id)
-      .eq("is_active", true)
-      .gt("expires_at", new Date().toISOString())
       .limit(1)
       .then(({ data }) => setHasDeriv((data?.length ?? 0) > 0));
     supabase

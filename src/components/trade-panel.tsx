@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
   send,
-  subscribeProposal,
   TRADE_CATEGORIES,
   SIDES_BY_CATEGORY,
   contractTypeFor,
@@ -28,10 +27,9 @@ interface TradePanelProps {
   market: string;
   lastPrice?: number | null;
   onAccumulatorBarriers?: (b: { high: number | null; low: number | null }) => void;
-  onCategoryChange?: (category: TradeCategory) => void;
 }
 
-export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategoryChange }: TradePanelProps) {
+export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePanelProps) {
   const { user } = useAuth();
   const [category, setCategory] = useState<TradeCategory>("accumulator");
   const [side, setSide] = useState("buy");
@@ -63,17 +61,15 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
 
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
-    onCategoryChange?.(category);
   }, [category]);
 
   useEffect(() => {
     if (!user) return;
     supabase
       .from("sessions")
-      .select("deriv_token, is_demo, currency")
+      .select("deriv_token, is_demo")
       .eq("user_id", user.id)
       .eq("is_active", true)
-      .gt("expires_at", new Date().toISOString())
       .order("is_demo", { ascending: true })
       .limit(1)
       .maybeSingle()
@@ -81,7 +77,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
         if (data) {
           setToken(data.deriv_token);
           setIsDemo(data.is_demo);
-          if (data.currency) setCurrency(data.currency as typeof currency);
         }
       });
   }, [user]);
@@ -104,7 +99,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
   const currentCategory = TRADE_CATEGORIES[catIdx];
 
   useEffect(() => {
-    if (isAccumulator) return; // accumulator uses streaming proposal below
     let cancelled = false;
     const run = async () => {
       try {
@@ -174,72 +168,24 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, growthRate, multiplier, market, payoutMode, currency]);
 
-  // Stream the Deriv accumulator proposal — Deriv updates `high_barrier` and
-  // `low_barrier` on every tick. Subscribing (not re-requesting) mirrors the
-  // exact behavior of deriv.com's accumulator chart.
+  // Deriv accumulator barriers are recomputed on every tick from the current
+  // spot using `tick_size_barrier` (fractional distance from spot). Mirror that
+  // exact logic so the blue guide lines track the price the same way Deriv's
+  // own chart does.
   useEffect(() => {
-    if (!isAccumulator) {
-      onAccumulatorBarriers?.({ high: null, low: null });
-      return;
+    if (!isAccumulator) return;
+    if (lastPrice == null || !Number.isFinite(lastPrice)) return;
+    const tsb = accuMeta.tickSize;
+    if (tsb != null && Number.isFinite(tsb) && tsb > 0) {
+      const high = lastPrice * (1 + tsb);
+      const low = lastPrice * (1 - tsb);
+      onAccumulatorBarriers?.({ high, low });
+    } else if (accuMeta.high != null && accuMeta.low != null) {
+      // Until we receive proposal metadata, fall back to the absolute barriers
+      // returned by the most recent proposal.
+      onAccumulatorBarriers?.({ high: accuMeta.high, low: accuMeta.low });
     }
-    let cancelled = false;
-    let unsub: (() => void) | undefined;
-    (async () => {
-      try {
-        if (token) await send({ authorize: token });
-        unsub = await subscribeProposal(
-          {
-            amount: stake,
-            basis: payoutMode,
-            contract_type: "ACCU",
-            currency,
-            symbol: market,
-            growth_rate: growthRate,
-            ...(takeProfitEnabled && takeProfit > 0
-              ? { limit_order: { take_profit: takeProfit } }
-              : {}),
-          },
-          (pr) => {
-            if (cancelled) return;
-            const high = pr.high_barrier != null ? Number(pr.high_barrier) : null;
-            const low = pr.low_barrier != null ? Number(pr.low_barrier) : null;
-            const tsb = pr.tick_size_barrier != null ? Number(pr.tick_size_barrier) : null;
-            const p = Number(pr.payout ?? 0);
-            const pct = stake > 0 ? ((p - stake) / stake) * 100 : 0;
-            setPayouts((prev) => ({ ...prev, buy: { payout: p, pct } }));
-            setAccuMeta({
-              maxPayout: Number(pr.maximum_payout ?? 0) || null,
-              maxTicks: Number(pr.maximum_ticks ?? 0) || null,
-              high,
-              low,
-              tickSize: tsb,
-              tickFreq: pr.tick_count != null ? Number(pr.tick_count) : null,
-              minStake: pr.min_stake != null ? Number(pr.min_stake) : null,
-              maxStake: pr.max_stake != null ? Number(pr.max_stake) : null,
-            });
-            if (high != null && low != null) {
-              onAccumulatorBarriers?.({ high, low });
-            } else if (tsb != null && lastPriceRef.current != null) {
-              const px = lastPriceRef.current;
-              onAccumulatorBarriers?.({ high: px * (1 + tsb), low: px * (1 - tsb) });
-            }
-          },
-        );
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-      unsub?.();
-    };
-  }, [isAccumulator, token, stake, currency, market, growthRate, payoutMode, takeProfitEnabled, takeProfit, onAccumulatorBarriers]);
-
-  // Track latest price in a ref for the proposal stream callback.
-  const lastPriceRef = useRef<number | null>(null);
-  useEffect(() => {
-    lastPriceRef.current = lastPrice ?? null;
-  }, [lastPrice]);
+  }, [isAccumulator, lastPrice, accuMeta.tickSize, accuMeta.high, accuMeta.low, onAccumulatorBarriers]);
 
   async function handleBuy(sideOverride?: string) {
     const activeSide = sideOverride ?? side;
@@ -312,7 +258,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers, onCategor
                 .eq("id", trade.id);
             }
             toast[profit >= 0 ? "success" : "error"](
-              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} ${currency}`,
+              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`,
             );
           }
         } catch {

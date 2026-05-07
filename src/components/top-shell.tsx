@@ -2,7 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalance } from "@/hooks/use-deriv-balance";
-import { buildOAuthUrl, buildSwitchAccountUrl } from "@/lib/deriv";
+import { buildOAuthUrl } from "@/lib/deriv";
 import {
   LayoutGrid,
   Bot,
@@ -16,13 +16,11 @@ import {
   Sparkles,
   Plug,
   ChevronDown,
-  LogIn,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ReactNode } from "react";
@@ -52,122 +50,84 @@ export function TopShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh bg-[oklch(0.985_0.003_240)] text-[oklch(0.2_0.02_260)]">
-      {/* ── Header ── */}
-      <header className="flex h-14 items-center justify-between gap-2 border-b border-[oklch(0.92_0.005_240)] bg-white px-3 md:px-6">
-        <Link to="/" className="flex shrink-0 items-center gap-2">
-          <div className="size-5 rotate-45 rounded-sm bg-[oklch(0.72_0.17_55)] md:size-6" />
-          <span className="hidden text-base font-bold tracking-tight text-[oklch(0.72_0.17_55)] sm:block md:text-lg">
+      <header className="flex h-14 items-center justify-between border-b border-[oklch(0.92_0.005_240)] bg-white px-4 md:px-6">
+        <Link to="/" className="flex items-center gap-2">
+          <div className="size-6 rotate-45 rounded-sm bg-[oklch(0.72_0.17_55)]" />
+          <span className="text-lg font-bold tracking-tight text-[oklch(0.72_0.17_55)]">
             ArkTrader Hub
           </span>
-          <span className="text-base font-bold tracking-tight text-[oklch(0.72_0.17_55)] sm:hidden">
-            ArkTrader
-          </span>
         </Link>
-
-        <div className="flex items-center gap-1.5 md:gap-2">
-          {/* Balance / account switcher */}
+        <div className="flex items-center gap-2">
           {user && account && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-1.5 rounded-md border border-[oklch(0.92_0.005_240)] bg-white px-2 py-1.5 text-left transition hover:bg-[oklch(0.97_0.003_240)] md:gap-2 md:px-3">
-                  {account.is_demo ? (
-                    <span className="size-2 shrink-0 rounded-full bg-[oklch(0.78_0.16_85)]" />
-                  ) : (
-                    <span className="text-sm leading-none" aria-label="US">🇺🇸</span>
-                  )}
+                <button className="flex items-center gap-2 rounded-md border border-[oklch(0.92_0.005_240)] bg-white px-3 py-1.5 text-left transition hover:bg-[oklch(0.97_0.003_240)]">
+                  <span className={`size-2 rounded-full ${account.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`} />
                   <div className="leading-tight">
-                    <div className="hidden text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)] sm:block">
+                    <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
                       {account.is_demo ? "Demo" : "Real"} {currency}
                     </div>
-                    <div className="font-mono text-xs font-semibold tabular-nums sm:text-sm">
-                      {(balance ?? 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}{" "}
-                      <span className="hidden sm:inline">{currency}</span>
+                    <div className="font-mono text-sm font-semibold tabular-nums">
+                      {(balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}
                     </div>
                   </div>
-                  <ChevronDown className="size-3.5 text-[oklch(0.5_0.02_260)]" />
+                  {accounts.length > 1 && <ChevronDown className="size-4 text-[oklch(0.5_0.02_260)]" />}
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                {accounts.map((a) => (
-                  <DropdownMenuItem
-                    key={a.account_id}
-                    onClick={() => switchAccount(a.account_id)}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      {a.is_demo ? (
-                        <span className="size-2 rounded-full bg-[oklch(0.78_0.16_85)]" />
-                      ) : (
-                        <span className="text-sm leading-none">🇺🇸</span>
-                      )}
-                      <div className="leading-tight">
-                        <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
-                          {a.is_demo ? "Demo" : "Real"} {a.currency ?? "USD"}
+              {accounts.length > 1 && (
+                <DropdownMenuContent align="end" className="w-64">
+                  {accounts.map((a) => (
+                    <DropdownMenuItem
+                      key={a.account_id}
+                      onClick={() => switchAccount(a.account_id)}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`size-2 rounded-full ${a.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`} />
+                        <div className="leading-tight">
+                          <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
+                            {a.is_demo ? "Demo" : "Real"} {a.currency ?? "USD"}
+                          </div>
+                          <div className="font-mono text-xs">{a.account_id}</div>
                         </div>
-                        <div className="font-mono text-xs">{a.account_id}</div>
                       </div>
-                    </div>
-                    <span className="font-mono text-xs tabular-nums">
-                      {Number(a.balance ?? 0).toFixed(2)}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => (window.location.href = buildSwitchAccountUrl())}
-                  className="gap-2 text-[oklch(0.55_0.22_265)]"
-                >
-                  <Plug className="size-3.5" />
-                  Switch / Add Deriv account
-                </DropdownMenuItem>
-              </DropdownMenuContent>
+                      <span className="font-mono text-xs tabular-nums">
+                        {Number(a.balance ?? 0).toFixed(2)}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              )}
             </DropdownMenu>
           )}
-
-          {/* Connect Deriv (logged in but no account) */}
           {user && !account && (
             <Button
               onClick={() => (window.location.href = buildOAuthUrl())}
-              size="sm"
-              className="h-8 rounded-md bg-[oklch(0.72_0.17_55)] px-2 text-xs text-white hover:bg-[oklch(0.65_0.17_55)] md:h-9 md:px-4 md:text-sm"
+              className="h-9 rounded-md bg-[oklch(0.72_0.17_55)] px-4 text-white hover:bg-[oklch(0.65_0.17_55)]"
             >
-              <Plug className="mr-1 size-3.5" />
-              <span className="hidden sm:inline">Connect Deriv</span>
-              <span className="sm:hidden">Connect</span>
+              <Plug className="mr-1 size-4" /> Connect Deriv
             </Button>
           )}
-
           {user ? (
             <Button
               asChild
-              size="sm"
-              className="h-8 rounded-md bg-[oklch(0.55_0.22_265)] px-2 text-xs text-white hover:bg-[oklch(0.5_0.22_265)] md:h-9 md:px-5 md:text-sm"
+              className="h-9 rounded-md bg-[oklch(0.55_0.22_265)] px-5 text-white hover:bg-[oklch(0.5_0.22_265)]"
             >
-              <Link to="/dashboard">
-                <span className="hidden sm:inline">Open dashboard</span>
-                <span className="sm:hidden">Dashboard</span>
-              </Link>
+              <Link to="/dashboard">Open dashboard</Link>
             </Button>
           ) : (
             <>
               <Button
                 asChild
-                size="sm"
-                className="h-8 rounded-md bg-[oklch(0.55_0.22_265)] px-2 text-xs font-medium text-white shadow-sm hover:bg-[oklch(0.5_0.22_265)] md:h-9 md:px-5 md:text-sm"
+                className="h-9 rounded-md bg-[oklch(0.55_0.22_265)] px-5 font-medium text-white shadow-sm hover:bg-[oklch(0.5_0.22_265)]"
               >
                 <Link to="/auth" search={{ mode: "signin" }}>
-                  <LogIn className="mr-1 size-3.5 sm:hidden" />
-                  <span className="hidden sm:inline">Log in</span>
-                  <span className="sm:hidden">Login</span>
+                  Log in
                 </Link>
               </Button>
               <Button
                 asChild
-                size="sm"
-                className="hidden h-9 rounded-md bg-[oklch(0.55_0.22_265)] px-5 text-sm font-medium text-white shadow-sm hover:bg-[oklch(0.5_0.22_265)] sm:flex"
+                className="h-9 rounded-md bg-[oklch(0.55_0.22_265)] px-5 font-medium text-white shadow-sm hover:bg-[oklch(0.5_0.22_265)]"
               >
                 <Link to="/auth" search={{ mode: "signup" }}>
                   Sign up
@@ -178,9 +138,8 @@ export function TopShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      {/* ── Tab navigation — scrollable on mobile ── */}
       <nav className="border-b border-[oklch(0.92_0.005_240)] bg-white">
-        <div className="flex items-center overflow-x-auto px-2 scrollbar-none">
+        <div className="flex items-center overflow-x-auto px-2">
           {TOP_TABS.map((t) => {
             const active =
               t.to === "/" ? pathname === "/" : pathname.startsWith(t.to);
@@ -190,13 +149,13 @@ export function TopShell({ children }: { children: ReactNode }) {
                 key={t.to}
                 to={t.to}
                 className={[
-                  "flex shrink-0 items-center gap-1.5 px-3 py-3 text-xs font-medium transition-colors md:gap-2 md:px-4 md:text-sm",
+                  "flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
                   active
                     ? "bg-[oklch(0.7_0.17_150)] text-white"
                     : "text-[oklch(0.3_0.02_260)] hover:bg-[oklch(0.96_0.005_240)]",
                 ].join(" ")}
               >
-                <Icon className="size-3.5 md:size-4" />
+                <Icon className="size-4" />
                 <span className={active ? "uppercase tracking-wide" : ""}>
                   {t.label}
                 </span>
@@ -208,14 +167,13 @@ export function TopShell({ children }: { children: ReactNode }) {
 
       <main>{children}</main>
 
-      {/* ── AI assistant FAB ── */}
       <button
         aria-label="AI assistant"
-        className="fixed bottom-6 right-4 z-50 flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-[oklch(0.55_0.22_300)] to-[oklch(0.4_0.2_280)] text-white shadow-[0_10px_30px_-5px_oklch(0.4_0.2_280_/_0.6)] transition-transform hover:scale-105 md:right-6 md:size-14"
+        className="fixed bottom-6 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-[oklch(0.55_0.22_300)] to-[oklch(0.4_0.2_280)] text-white shadow-[0_10px_30px_-5px_oklch(0.4_0.2_280_/_0.6)] transition-transform hover:scale-105"
       >
-        <Sparkles className="size-4 md:size-5" />
-        <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-white bg-[oklch(0.7_0.17_150)] md:size-3" />
-        <span className="absolute -bottom-1 text-[9px] font-bold md:text-[10px]">AI</span>
+        <Sparkles className="size-5" />
+        <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-[oklch(0.7_0.17_150)]" />
+        <span className="absolute -bottom-1 text-[10px] font-bold">AI</span>
       </button>
     </div>
   );
@@ -231,12 +189,10 @@ export function PageHero({
   children?: ReactNode;
 }) {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 md:px-8 md:py-10">
-      <h1 className="text-2xl font-bold tracking-tight md:text-4xl">{title}</h1>
-      <p className="mt-2 max-w-2xl text-sm text-[oklch(0.45_0.02_260)] md:text-base">
-        {subtitle}
-      </p>
-      {children && <div className="mt-6 md:mt-8">{children}</div>}
+    <div className="mx-auto max-w-6xl px-4 py-10 md:px-8">
+      <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{title}</h1>
+      <p className="mt-2 max-w-2xl text-[oklch(0.45_0.02_260)]">{subtitle}</p>
+      {children && <div className="mt-8">{children}</div>}
     </div>
   );
 }

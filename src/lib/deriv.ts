@@ -140,39 +140,6 @@ export async function send(payload: Record<string, any>): Promise<any> {
   });
 }
 
-/**
- * Subscribe to the Deriv `proposal` stream. Deriv recomputes the proposal
- * (including accumulator high/low barriers) on every tick, so subscribing —
- * not polling — is the only way to mirror what deriv.com renders.
- */
-export async function subscribeProposal(
-  payload: Record<string, any>,
-  onProposal: (p: any) => void,
-): Promise<() => void> {
-  const ws = await connect();
-  const id = reqId++;
-  let subId: string | null = null;
-  const key = `proposal:${id}`;
-  const sub = { send: { ...payload, proposal: 1, subscribe: 1, req_id: id }, key };
-  activeSubs.set(key, sub);
-  const off = onMessage((msg) => {
-    if (msg.req_id !== id) return;
-    if (msg.error) return;
-    if (msg.proposal) {
-      subId = msg.subscription?.id ?? subId;
-      onProposal(msg.proposal);
-    }
-  });
-  ws.send(JSON.stringify(sub.send));
-  return () => {
-    off();
-    activeSubs.delete(key);
-    if (socket?.readyState === WebSocket.OPEN && subId) {
-      socket.send(JSON.stringify({ forget: subId }));
-    }
-  };
-}
-
 export async function subscribeTicks(
   symbol: string,
   onTick: (price: number, time: number) => void,
@@ -260,22 +227,6 @@ export async function fetchCandles(
   }));
 }
 
-export async function fetchTicks(
-  symbol: string,
-  count = 500,
-): Promise<{ time: number; price: number }[]> {
-  const res = await send({
-    ticks_history: symbol,
-    style: "ticks",
-    count,
-    end: "latest",
-    adjust_start_time: 1,
-  });
-  const times: number[] = res.history?.times ?? [];
-  const prices: number[] = res.history?.prices ?? [];
-  return times.map((t, i) => ({ time: Number(t), price: Number(prices[i]) }));
-}
-
 let symbolsCache: { symbol: string; display_name: string; market: string }[] | null = null;
 export async function getActiveSymbols() {
   if (symbolsCache) return symbolsCache;
@@ -288,35 +239,21 @@ export async function getActiveSymbols() {
   return symbolsCache!;
 }
 
-// Redirect back to the current origin's /deriv-callback. The origin must be
-// whitelisted in the Deriv App dashboard (app ID 133647) — preview, published
-// and custom domains all need to be added as allowed redirect URLs.
-export function getDerivRedirectUrl() {
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/deriv-callback`;
-  }
-  return "https://www.arktradershub.com/deriv-callback";
-}
+// IMPORTANT: Deriv ignores the `redirect_uri` query parameter — the redirect
+// URL is taken from the "Redirect URL" field configured on your app at
+// https://app.deriv.com/account/api-token (Manage apps). Make sure
+// https://www.arktradershub.com is registered there, otherwise Deriv will
+// not redirect back no matter what we pass here.
+export const DERIV_REDIRECT_URL = "https://www.arktradershub.com";
 
 export function buildOAuthUrl() {
   const params = new URLSearchParams({
     app_id: DERIV_APP_ID,
     l: "EN",
     brand: "deriv",
-    redirect_uri: getDerivRedirectUrl(),
+    redirect_uri: DERIV_REDIRECT_URL,
   });
   return `https://oauth.deriv.com/oauth2/authorize?${params.toString()}`;
-}
-
-/**
- * Logs the user out of Deriv first, then re-enters the OAuth flow. Use this
- * for "Switch / Add account" so the user always sees Deriv's login screen
- * (and can pick a different account or create a new one) instead of being
- * silently SSO'd back with their existing session.
- */
-export function buildSwitchAccountUrl() {
-  const next = encodeURIComponent(buildOAuthUrl());
-  return `https://oauth.deriv.com/oauth2/sessions/logout?post_logout_redirect_uri=${next}`;
 }
 
 export const SYNTHETIC_MARKETS = [

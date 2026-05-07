@@ -1,11 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { useDerivBalance } from "@/hooks/use-deriv-balance";
 import {
   send,
-  subscribeProposal,
   TRADE_CATEGORIES,
   SIDES_BY_CATEGORY,
   contractTypeFor,
@@ -32,15 +30,6 @@ export const Route = createFileRoute("/dashboard/trade")({
 
 function TradePage() {
   const { user } = useAuth();
-  // Source of truth: the account selected in the top-shell switcher. This
-  // ensures trades always execute on the currency/account the user actually
-  // sees in the header, fixing "tUSDT is not the default currency" and
-  // "balance 0.00" errors caused by trading on a stale row.
-  const { account } = useDerivBalance();
-  const token = account?.deriv_token ?? null;
-  const isDemo = account?.is_demo ?? true;
-  const currency = account?.currency ?? "USD";
-
   const [market, setMarket] = useState("R_100");
   const [category, setCategory] = useState<TradeCategory>("over_under");
   const [side, setSide] = useState("over");
@@ -53,28 +42,34 @@ function TradePage() {
   const [growthRate, setGrowthRate] = useState(0.03);
   const [multiplier, setMultiplier] = useState(100);
   const [lastPrice, setLastPrice] = useState<number | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isDemo, setIsDemo] = useState(true);
   const [busy, setBusy] = useState(false);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
-  const [highBarrier, setHighBarrier] = useState<number | null>(null);
-  const [lowBarrier, setLowBarrier] = useState<number | null>(null);
-  const [chartHeight, setChartHeight] = useState(460);
-  const lastPriceRef = useRef<number | null>(null);
-  const handlePrice = useCallback((p: number) => {
-    setLastPrice(p);
-    lastPriceRef.current = p;
-  }, []);
-
-  // SSR-safe responsive chart height
-  useEffect(() => {
-    setChartHeight(window.innerWidth < 768 ? 260 : 460);
-  }, []);
+  const handlePrice = useCallback((p: number) => setLastPrice(p), []);
 
   // Reset side when category changes
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
   }, [category]);
 
-  // Active account is provided by useDerivBalance() — no separate fetch needed.
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("sessions")
+      .select("deriv_token, is_demo")
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .order("is_demo", { ascending: true })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setToken(data.deriv_token);
+          setIsDemo(data.is_demo);
+        }
+      });
+  }, [user]);
 
   // chart subscription handled inside <DerivChart />
 
@@ -102,7 +97,7 @@ function TradePage() {
         amount: stake,
         basis: "stake",
         contract_type,
-        currency,
+        currency: "USD",
         symbol: market,
       };
 
@@ -154,7 +149,7 @@ function TradePage() {
               .update({ profit_loss: profit, status: profit >= 0 ? "won" : "lost", closed_at: new Date().toISOString() })
               .eq("id", trade!.id);
             toast[profit >= 0 ? "success" : "error"](
-              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} ${currency}`,
+              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`,
             );
           }
         } catch {
@@ -180,9 +175,9 @@ function TradePage() {
 
   const currentCategory = TRADE_CATEGORIES[catIdx];
 
-  // Live proposal pricing for non-accumulator trade types
+  // Live proposal pricing for the visible sides — fetched whenever inputs change
   useEffect(() => {
-    if (!token || isAccumulator) return;
+    if (!token) return;
     let cancelled = false;
     const run = async () => {
       try {
@@ -195,7 +190,7 @@ function TradePage() {
             amount: stake,
             basis: payoutMode,
             contract_type: ct,
-            currency,
+            currency: "USD",
             symbol: market,
           };
           if (showDuration) {
@@ -204,6 +199,7 @@ function TradePage() {
           }
           if (needsDigit) proposal.barrier = String(barrierDigit);
           if (needsBarrierOffset) proposal.barrier = barrierOffset;
+          if (isAccumulator) proposal.growth_rate = growthRate;
           if (isMultiplier) proposal.multiplier = multiplier;
           try {
             const r = await send(proposal);
@@ -225,58 +221,7 @@ function TradePage() {
       clearTimeout(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, multiplier, market, payoutMode, currency, isAccumulator]);
-
-  // Accumulator: subscribe to the live proposal stream for real-time barrier updates
-  useEffect(() => {
-    if (!isAccumulator || !token) {
-      setHighBarrier(null);
-      setLowBarrier(null);
-      return;
-    }
-    let cancelled = false;
-    let unsub: (() => void) | undefined;
-    (async () => {
-      try {
-        await send({ authorize: token });
-        unsub = await subscribeProposal(
-          {
-            amount: stake,
-            basis: "stake",
-            contract_type: "ACCU",
-            currency,
-            symbol: market,
-            growth_rate: growthRate,
-          },
-          (pr) => {
-            if (cancelled) return;
-            const high = pr.high_barrier != null ? Number(pr.high_barrier) : null;
-            const low = pr.low_barrier != null ? Number(pr.low_barrier) : null;
-            const tsb = pr.tick_size_barrier != null ? Number(pr.tick_size_barrier) : null;
-            const p = Number(pr.payout ?? 0);
-            const pct = stake > 0 ? ((p - stake) / stake) * 100 : 0;
-            setPayouts((prev) => ({ ...prev, buy: { payout: p, pct } }));
-            if (high != null && low != null) {
-              setHighBarrier(high);
-              setLowBarrier(low);
-            } else if (tsb != null && lastPriceRef.current != null) {
-              const px = lastPriceRef.current;
-              setHighBarrier(px * (1 + tsb));
-              setLowBarrier(px * (1 - tsb));
-            }
-          },
-        );
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-      unsub?.();
-      setHighBarrier(null);
-      setLowBarrier(null);
-    };
-  }, [isAccumulator, token, stake, currency, market, growthRate]);
+  }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, growthRate, multiplier, market, payoutMode]);
 
   const sideAccent: Record<string, string> = {
     up: "bg-emerald-500", down: "bg-rose-500",
@@ -293,15 +238,7 @@ function TradePage() {
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
       <div className="glass-card rounded-xl p-3">
-        <DerivChart
-          symbol={market}
-          onSymbolChange={setMarket}
-          onPrice={handlePrice}
-          height={chartHeight}
-          highBarrier={highBarrier}
-          lowBarrier={lowBarrier}
-          isAccumulator={isAccumulator}
-        />
+        <DerivChart symbol={market} onSymbolChange={setMarket} onPrice={handlePrice} height={460} />
       </div>
 
       <div className="space-y-3">
@@ -392,44 +329,14 @@ function TradePage() {
         {isAccumulator && (
           <div className="glass-card rounded-xl p-4">
             <div className="mb-2 text-sm">Growth rate</div>
-            <div className="grid grid-cols-5 gap-2">
-              {[0.01, 0.02, 0.03, 0.04, 0.05].map((g) => (
-                <button
-                  key={g}
-                  onClick={() => setGrowthRate(g)}
-                  className={cn(
-                    "rounded-md py-2 text-sm font-medium transition",
-                    growthRate === g
-                      ? "bg-primary/15 text-primary ring-1 ring-primary"
-                      : "bg-muted/30 text-muted-foreground hover:bg-muted/50",
-                  )}
-                >
-                  {Math.round(g * 100)}%
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Accumulator live barrier display — mirrors Deriv's proposal summary */}
-        {isAccumulator && (highBarrier != null || lowBarrier != null) && (
-          <div className="glass-card rounded-xl p-4 text-sm">
-            {highBarrier != null && lowBarrier != null && (
-              <div className="flex items-center justify-between py-1">
-                <span className="text-muted-foreground">Barriers</span>
-                <span className="font-mono text-xs">
-                  {lowBarrier.toFixed(4)} / {highBarrier.toFixed(4)}
-                </span>
-              </div>
-            )}
-            <div className="flex items-center justify-between py-1 text-xs text-muted-foreground">
-              <span>Win condition</span>
-              <span>Price stays within barriers each tick</span>
-            </div>
-            <div className="flex items-center justify-between py-1 text-xs text-muted-foreground">
-              <span>Loss condition</span>
-              <span>Price exits barrier zone</span>
-            </div>
+            <Select value={String(growthRate)} onValueChange={(v) => setGrowthRate(Number(v))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {[0.01, 0.02, 0.03, 0.04, 0.05].map((g) => (
+                  <SelectItem key={g} value={String(g)}>{Math.round(g * 100)}%</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -485,7 +392,7 @@ function TradePage() {
               onChange={(e) => setStake(Number(e.target.value))}
               className="text-right font-mono text-base"
             />
-            <span className="text-xs text-muted-foreground">{currency}</span>
+            <span className="text-xs text-muted-foreground">USD</span>
             <button
               onClick={() => setStake((s) => +(s + 0.5).toFixed(2))}
               className="rounded-md bg-muted/50 p-2 hover:bg-muted"
@@ -511,7 +418,7 @@ function TradePage() {
                 )}
               >
                 <div className="flex items-center justify-between bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
-                  <span>Payout {live ? live.payout.toFixed(2) : "—"} {currency}</span>
+                  <span>Payout {live ? live.payout.toFixed(2) : "—"} USD</span>
                 </div>
                 <div className={cn("flex items-center justify-between px-4 py-3 text-white", sideAccent[s.value] ?? "bg-muted")}>
                   <span className="font-semibold">{s.label}</span>

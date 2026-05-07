@@ -169,7 +169,7 @@ function DashboardLayout() {
           </div>
         </header>
 
-        <main className="flex-1 px-4 py-8 pb-24 md:px-8 md:pb-8">
+        <main className="flex-1 px-4 py-8 md:px-8">
           <Outlet />
         </main>
 

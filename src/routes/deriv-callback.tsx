@@ -1,20 +1,18 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { send } from "@/lib/deriv";
+import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/deriv-callback")({
-  // Accept all string search params so Deriv's acct1/token1/cur1/acct2/... are preserved
-  // through TanStack Router's navigation and server-side redirect.
-  validateSearch: z.record(z.string()).catch({}),
   component: DerivCallback,
 });
 
 // Deriv OAuth returns ?acct1=...&token1=...&cur1=...&acct2=...&token2=...
-function parseAccounts(params: URLSearchParams) {
+function parseAccounts(search: string) {
+  const params = new URLSearchParams(search);
   const out: { account: string; token: string; currency: string }[] = [];
   let i = 1;
   while (params.get(`acct${i}`)) {
@@ -28,82 +26,71 @@ function parseAccounts(params: URLSearchParams) {
   return out;
 }
 
-// Uses the deriv-auth Edge Function (admin API) to find-or-create the Supabase
-// user without triggering email confirmation or hitting signup rate limits.
 async function ensureSupabaseSession(primaryAccountId: string) {
-  const { data, error } = await supabase.functions.invoke("deriv-auth", {
-    body: { derivAccountId: primaryAccountId },
-  });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
-  if (!data?.session) throw new Error("No session returned from auth service");
+  // We treat the Deriv account as the source of identity. Derive a stable
+  // email + password and try to sign in; if the user doesn't exist yet,
+  // sign them up (auth is configured to auto-confirm).
+  const { email, password } = await derivCredentials(primaryAccountId);
 
-  const { error: setErr } = await supabase.auth.setSession({
-    access_token: data.session.access_token,
-    refresh_token: data.session.refresh_token,
+  const { data: signIn, error: signInError } = await supabase.auth.signInWithPassword({
+    email,
+    password,
   });
-  if (setErr) throw setErr;
+  if (!signInError && signIn.user) return signIn.user;
 
-  const { data: { user }, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !user) throw userErr ?? new Error("Failed to retrieve user");
-  return user;
+  const { data: signUp, error: signUpError } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { display_name: primaryAccountId, deriv_account_id: primaryAccountId },
+    },
+  });
+  if (signUpError) throw signUpError;
+
+  if (!signUp.session) {
+    // Auto-confirm should grant a session immediately, but fall back to a
+    // password sign-in just in case.
+    const { data: retry, error: retryErr } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (retryErr) throw retryErr;
+    return retry.user!;
+  }
+  return signUp.user!;
 }
 
 function DerivCallback() {
   const navigate = useNavigate();
-  // Route.useSearch() is the reliable source — populated by validateSearch
-  // from both the server-side beforeLoad redirect and direct Deriv callbacks.
-  const search = Route.useSearch();
   const [status, setStatus] = useState("Connecting your Deriv account…");
   const ran = useRef(false);
 
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
-
     (async () => {
       try {
-        // Build URLSearchParams from the validated search object. This works
-        // whether we arrived via beforeLoad redirect (search has all params)
-        // or directly from Deriv's OAuth redirect.
-        const params = new URLSearchParams(search as Record<string, string>);
+        const accounts = parseAccounts(window.location.search);
+        if (!accounts.length) throw new Error("No tokens returned from Deriv.");
 
-        // Fallback: if the router search is empty (edge case during hydration),
-        // read directly from the URL.
-        if (!params.get("acct1") && typeof window !== "undefined") {
-          const urlParams = new URLSearchParams(window.location.search);
-          urlParams.forEach((v, k) => params.set(k, v));
-        }
-
-        const accounts = parseAccounts(params);
-
-        if (!accounts.length) {
-          throw new Error("No tokens returned from Deriv. Please try again.");
-        }
-
-        // Prefer a real CR account over demo VR account as the primary identity
+        // Prefer a real (CR) account as the identity, fall back to the first.
         const primary = accounts.find((a) => !a.account.startsWith("VR")) ?? accounts[0];
 
-        setStatus("Setting up your internal profile…");
+        setStatus("Creating your ArkTrader session…");
         const sessionUser = await ensureSupabaseSession(primary.account);
 
-        // Store all returned tokens in the Supabase 'sessions' table
         for (const acc of accounts) {
-          setStatus(`Syncing account ${acc.account}…`);
+          setStatus(`Authorizing ${acc.account}…`);
           let balance = 0;
           let currency = acc.currency;
-
           try {
             const auth = await send({ authorize: acc.token });
             balance = Number(auth.authorize?.balance ?? 0);
             currency = auth.authorize?.currency ?? currency;
           } catch (e) {
-            console.error(`Token validation failed for ${acc.account}`, e);
+            console.error("Authorize failed", e);
           }
-
-          // Upsert — refresh the 30-day expiry window on every login
-          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-          const { error: upsertError } = await supabase.from("sessions").upsert(
+          await supabase.from("sessions").upsert(
             {
               user_id: sessionUser.id,
               account_id: acc.account,
@@ -112,34 +99,25 @@ function DerivCallback() {
               balance,
               is_demo: acc.account.startsWith("VR"),
               is_active: true,
-              expires_at: expiresAt,
             },
-            { onConflict: "user_id,account_id" }
+            { onConflict: "user_id,account_id" },
           );
-
-          if (upsertError) {
-            console.error(`Failed to store token for ${acc.account}`, upsertError);
-          }
         }
-
-        toast.success(`Connected ${accounts.length} account${accounts.length > 1 ? "s" : ""} successfully.`);
+        toast.success(`Welcome — ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`);
         navigate({ to: "/dashboard" });
       } catch (e: any) {
-        console.error("OAuth Processing Error:", e);
-        toast.error(e.message || "Authentication failed. Please check your Deriv connection.");
+        console.error(e);
+        toast.error(e.message ?? "Connection failed");
         navigate({ to: "/auth", search: { mode: "signin" } });
       }
     })();
   }, [navigate]);
 
   return (
-    <div className="grid min-h-dvh place-items-center bg-background">
-      <div className="glass-card flex flex-col items-center gap-4 rounded-2xl p-8 text-center max-w-sm">
-        <Loader2 className="size-8 animate-spin text-primary" />
-        <div className="space-y-1">
-          <h2 className="font-semibold text-lg">Authorizing</h2>
-          <p className="text-sm text-muted-foreground">{status}</p>
-        </div>
+    <div className="grid min-h-dvh place-items-center">
+      <div className="glass-card flex items-center gap-3 rounded-xl p-6">
+        <Loader2 className="size-5 animate-spin text-primary" />
+        <span className="text-sm">{status}</span>
       </div>
     </div>
   );
