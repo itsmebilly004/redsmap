@@ -1,6 +1,4 @@
-// Deriv WebSocket helper with auto-reconnect, keepalive ping, connection
-// status notifications, and helpers for active_symbols / ticks_history /
-// tick & candle subscriptions.
+// src/lib/deriv.ts
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID || "133647";
 const WS_URL = `wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}&l=EN`;
 
@@ -15,6 +13,7 @@ export type ConnectionStatus =
 type Listener = (msg: any) => void;
 type StatusListener = (s: ConnectionStatus) => void;
 
+// Singleton state
 let socket: WebSocket | null = null;
 let listeners = new Set<Listener>();
 let statusListeners = new Set<StatusListener>();
@@ -23,6 +22,10 @@ let reqId = 1;
 let connecting: Promise<WebSocket> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
 let reconnectAttempts = 0;
+
+// Helper to check environment
+const isBrowser = typeof window !== "undefined";
+
 // Active subscriptions to replay after a reconnect.
 type Sub = { send: Record<string, any>; key: string };
 const activeSubs = new Map<string, Sub>();
@@ -45,8 +48,10 @@ export function getStatus() {
 
 function startKeepalive() {
   stopKeepalive();
+  if (!isBrowser) return;
+  
   pingTimer = setInterval(() => {
-    if (socket?.readyState === WebSocket.OPEN) {
+    if (socket?.readyState === 1) { // 1 = WebSocket.OPEN
       try {
         socket.send(JSON.stringify({ ping: 1, req_id: reqId++ }));
       } catch {
@@ -64,54 +69,62 @@ function stopKeepalive() {
 }
 
 function connect(): Promise<WebSocket> {
-  if (socket && socket.readyState === WebSocket.OPEN) return Promise.resolve(socket);
+  // Guard for SSR
+  if (!isBrowser) {
+    return new Promise((_, reject) => reject(new Error("WebSocket is not available on the server")));
+  }
+
+  if (socket && socket.readyState === 1) return Promise.resolve(socket);
   if (connecting) return connecting;
+
   setStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
   connecting = new Promise((resolve, reject) => {
-    const ws = new WebSocket(WS_URL);
-    ws.onopen = () => {
-      socket = ws;
-      connecting = null;
-      reconnectAttempts = 0;
-      setStatus("connected");
-      startKeepalive();
-      // Replay subscriptions
-      for (const sub of activeSubs.values()) {
+    try {
+      const ws = new WebSocket(WS_URL);
+      
+      ws.onopen = () => {
+        socket = ws;
+        connecting = null;
+        reconnectAttempts = 0;
+        setStatus("connected");
+        startKeepalive();
+        // Replay subscriptions
+        for (const sub of activeSubs.values()) {
+          try {
+            ws.send(JSON.stringify(sub.send));
+          } catch { /* ignore */ }
+        }
+        resolve(ws);
+      };
+
+      ws.onerror = () => { /* reconnect logic handled in onclose */ };
+
+      ws.onclose = () => {
+        socket = null;
+        connecting = null;
+        stopKeepalive();
+        setStatus("disconnected");
+        // Schedule reconnect with backoff (cap 10s).
+        const delay = Math.min(10000, 500 * Math.pow(2, reconnectAttempts));
+        reconnectAttempts++;
+        setTimeout(() => {
+          if (activeSubs.size > 0 || statusListeners.size > 0) {
+            setStatus("reconnecting");
+            connect().catch(() => {});
+          }
+        }, delay);
+        reject(new Error("WebSocket closed"));
+      };
+
+      ws.onmessage = (event) => {
         try {
-          ws.send(JSON.stringify(sub.send));
-        } catch {
-          /* ignore */
-        }
-      }
-      resolve(ws);
-    };
-    ws.onerror = () => {
-      // Do not reject here: onclose will trigger reconnect cycle.
-    };
-    ws.onclose = () => {
-      socket = null;
-      connecting = null;
-      stopKeepalive();
-      setStatus("disconnected");
-      // Schedule reconnect with backoff (cap 10s).
-      const delay = Math.min(10000, 500 * Math.pow(2, reconnectAttempts));
-      reconnectAttempts++;
-      setTimeout(() => {
-        if (activeSubs.size > 0 || statusListeners.size > 0) {
-          setStatus("reconnecting");
-          connect().catch(() => {});
-        }
-      }, delay);
-      reject(new Error("WebSocket closed"));
-    };
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        listeners.forEach((l) => l(data));
-      } catch {
-        /* ignore */
-      }
-    };
+          const data = JSON.parse(event.data);
+          listeners.forEach((l) => l(data));
+        } catch { /* ignore */ }
+      };
+    } catch (e) {
+      reject(e);
+    }
   });
   return connecting;
 }
@@ -122,6 +135,8 @@ export function onMessage(fn: Listener) {
 }
 
 export async function send(payload: Record<string, any>): Promise<any> {
+  if (!isBrowser) return null; // Reject silently on server
+
   const ws = await connect();
   const id = reqId++;
   return new Promise((resolve, reject) => {
@@ -146,39 +161,42 @@ export async function subscribeTicks(
   symbol: string,
   onTick: (price: number, time: number) => void,
 ) {
+  if (!isBrowser) return () => {};
+
   const ws = await connect();
   const key = `ticks:${symbol}`;
   const sub = { send: { ticks: symbol, subscribe: 1 }, key };
   activeSubs.set(key, sub);
+  
   const off = onMessage((msg) => {
     if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
       onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
     }
   });
+  
   ws.send(JSON.stringify(sub.send));
+  
   return () => {
     off();
     activeSubs.delete(key);
-    if (socket?.readyState === WebSocket.OPEN) {
+    if (socket?.readyState === 1) {
       socket.send(JSON.stringify({ forget_all: "ticks" }));
     }
   };
 }
 
-/**
- * Subscribe to live balance updates for the authorized account, mirroring
- * Deriv's own balance stream (authorize → balance:1, subscribe:1).
- * Returns an unsubscribe function.
- */
 export async function subscribeBalance(
   token: string,
   onBalance: (b: { balance: number; currency: string; loginid: string }) => void,
 ) {
+  if (!isBrowser) return () => {};
+
   const ws = await connect();
   await send({ authorize: token });
   const key = `balance:${token.slice(-6)}`;
   const sub = { send: { balance: 1, subscribe: 1 }, key };
   activeSubs.set(key, sub);
+  
   const off = onMessage((msg) => {
     if (msg.msg_type === "balance" && msg.balance) {
       onBalance({
@@ -188,18 +206,20 @@ export async function subscribeBalance(
       });
     }
   });
+  
   ws.send(JSON.stringify(sub.send));
+  
   return () => {
     off();
     activeSubs.delete(key);
-    if (socket?.readyState === WebSocket.OPEN) {
+    if (socket?.readyState === 1) {
       socket.send(JSON.stringify({ forget_all: "balance" }));
     }
   };
 }
 
 export type Candle = {
-  time: number; // unix seconds
+  time: number;
   open: number;
   high: number;
   low: number;
@@ -211,6 +231,8 @@ export async function fetchCandles(
   granularity: number,
   count = 500,
 ): Promise<Candle[]> {
+  if (!isBrowser) return [];
+
   const res = await send({
     ticks_history: symbol,
     style: "candles",
@@ -219,7 +241,7 @@ export async function fetchCandles(
     end: "latest",
     adjust_start_time: 1,
   });
-  const candles = res.candles ?? [];
+  const candles = res?.candles ?? [];
   return candles.map((c: any) => ({
     time: Number(c.epoch),
     open: Number(c.open),
@@ -230,7 +252,9 @@ export async function fetchCandles(
 }
 
 let symbolsCache: { symbol: string; display_name: string; market: string }[] | null = null;
+
 export function disconnectAll(): void {
+  if (!isBrowser) return;
   activeSubs.clear();
   stopKeepalive();
   if (socket) {
@@ -243,9 +267,11 @@ export function disconnectAll(): void {
 }
 
 export async function getActiveSymbols() {
+  if (!isBrowser) return [];
   if (symbolsCache) return symbolsCache;
+  
   const res = await send({ active_symbols: "brief", product_type: "basic" });
-  symbolsCache = (res.active_symbols ?? []).map((s: any) => ({
+  symbolsCache = (res?.active_symbols ?? []).map((s: any) => ({
     symbol: s.symbol,
     display_name: s.display_name,
     market: s.market,
@@ -253,14 +279,10 @@ export async function getActiveSymbols() {
   return symbolsCache!;
 }
 
-// IMPORTANT: Deriv ignores the `redirect_uri` query parameter — the redirect
-// URL is taken from the "Redirect URL" field configured on your app at
-// https://app.deriv.com/account/api-token (Manage apps). Make sure
-// https://www.arktradershub.com is registered there, otherwise Deriv will
-// not redirect back no matter what we pass here.
 export const DERIV_REDIRECT_URL = "https://www.arktradershub.com";
 
 export function buildOAuthUrl() {
+  if (!isBrowser) return "";
   const params = new URLSearchParams({
     app_id: DERIV_APP_ID,
     l: "EN",

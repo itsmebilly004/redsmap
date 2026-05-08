@@ -1,3 +1,4 @@
+// src/hooks/use-deriv-balance.ts
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -20,10 +21,6 @@ export type LiveBalance = {
   switchAccount: (accountId: string) => void;
 };
 
-/**
- * Loads the user's Deriv sessions and subscribes to live balance updates
- * for the active account — same logic Deriv uses (authorize → balance stream).
- */
 export function useDerivBalance(): LiveBalance {
   const { user } = useAuth();
   const [accounts, setAccounts] = useState<DerivAccount[]>([]);
@@ -32,9 +29,11 @@ export function useDerivBalance(): LiveBalance {
   const [currency, setCurrency] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
+  const isBrowser = typeof window !== "undefined";
+
   // Load all sessions for this user.
   useEffect(() => {
-    if (!user) {
+    if (!user || !isBrowser) {
       setLoading(false);
       return;
     }
@@ -46,11 +45,13 @@ export function useDerivBalance(): LiveBalance {
         .eq("user_id", user.id)
         .eq("is_active", true)
         .order("is_demo", { ascending: true });
+      
       if (cancelled) return;
       if (error) {
         setLoading(false);
         return;
       }
+      
       const list = (data ?? []) as DerivAccount[];
       setAccounts(list);
       if (list.length) {
@@ -63,33 +64,37 @@ export function useDerivBalance(): LiveBalance {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, isBrowser]);
 
   const active = accounts.find((a) => a.account_id === activeId) ?? null;
 
   // Subscribe to live balance for the active account.
   useEffect(() => {
-    if (!active || !user) return;
+    if (!isBrowser || !active || !user) return;
     let unsub: (() => void) | undefined;
+    
     (async () => {
       try {
         unsub = await subscribeBalance(active.deriv_token, async (b) => {
           setBalance(b.balance);
           if (b.currency) setCurrency(b.currency);
+          
+          // Background update to DB
           await supabase
             .from("sessions")
             .update({ balance: b.balance, currency: b.currency })
             .eq("user_id", user.id)
             .eq("account_id", active.account_id);
         });
-      } catch {
-        /* network errors handled by status badge */
+      } catch (err) {
+        console.error("Balance subscription error:", err);
       }
     })();
+    
     return () => {
-      unsub?.();
+      if (unsub) unsub();
     };
-  }, [active?.account_id, active?.deriv_token, user]);
+  }, [active?.account_id, active?.deriv_token, user, isBrowser]);
 
   function switchAccount(accountId: string) {
     setActiveId(accountId);
