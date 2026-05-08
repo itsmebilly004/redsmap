@@ -1,3 +1,21 @@
+// src/integrations/supabase/client.ts
+
+// 1. POLYFILL MUST BE AT THE TOP - DO NOT MOVE
+if (typeof window === "undefined" && !(global as any).WebSocket) {
+  (global as any).WebSocket = class {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSING = 2;
+    static readonly CLOSED = 3;
+    readyState = 3;
+    constructor() {}
+    close() {}
+    send() {}
+    addEventListener() {}
+    removeEventListener() {}
+  };
+}
+
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
@@ -6,19 +24,6 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'placehold
 
 const isBrowser = typeof window !== "undefined";
 
-// FIX: Node.js 20 does not have a global WebSocket. 
-// Supabase Realtime checks for this even if we don't use it on the server.
-if (!isBrowser) {
-  // We define a dummy class on the server global object to prevent the library from crashing
-  // during the initial module evaluation.
-  (global as any).WebSocket = class {
-    constructor() {}
-    close() {}
-    send() {}
-    on() {}
-  };
-}
-
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     storage: isBrowser ? localStorage : undefined,
@@ -26,9 +31,8 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
     autoRefreshToken: true,
     detectSessionInUrl: isBrowser,
   },
-  // We tell Supabase not to attempt a WebSocket connection if we are on the server
+  // Disable realtime on server to prevent constructor calls
   realtime: isBrowser ? {} : {
-    worker: false,
-    enabled: false
+    enabled: false,
   }
 });

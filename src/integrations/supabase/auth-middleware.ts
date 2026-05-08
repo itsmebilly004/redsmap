@@ -1,9 +1,10 @@
+// src/integrations/supabase/auth-middleware.ts
 import { createMiddleware } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from './types'
 
-// Prevent crash in auth middleware
+// Ensure WebSocket global exists for Supabase constructor in Node 20
 if (typeof window === 'undefined' && !(global as any).WebSocket) {
   (global as any).WebSocket = class {};
 }
@@ -14,7 +15,6 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
     const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
     if (!SUPABASE_URL || !SUPABASE_KEY) {
-      console.error("[Supabase Middleware] Keys missing in environment.");
       return next({ context: { supabase: null as any, userId: null, claims: null } });
     }
     
@@ -22,20 +22,19 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
     const authHeader = request?.headers?.get('authorization');
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new Response('Unauthorized: Missing token', { status: 401 });
+      throw new Response('Unauthorized', { status: 401 });
     }
 
     const token = authHeader.replace('Bearer ', '');
     const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
-      auth: {
-        persistSession: false,
-      },
+      auth: { persistSession: false },
       realtime: { enabled: false }
     });
 
     const { data, error } = await supabase.auth.getUser(token);
+    
     if (error || !data?.user) {
-      throw new Response('Unauthorized: Invalid token', { status: 401 });
+      throw new Response('Invalid Session', { status: 401 });
     }
 
     return next({
