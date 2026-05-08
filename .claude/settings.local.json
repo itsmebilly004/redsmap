@@ -8,7 +8,8 @@
       "PowerShell(cd \"C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\"; Get-ChildItem -Force | Format-Table -Property Name, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"DIR\"}else{\"FILE\"}}} -AutoSize)",
       "Bash(xargs grep -l \"context\\\\|Context\\\\|Provider\\\\|store\\\\|Store\")",
       "Bash(npx tsc *)",
-      "Bash(dir C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\\\\src\\\\routes *)"
+      "Bash(dir C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\\\\src\\\\routes *)",
+      "Bash(node -e \"require.resolve\\('nitro/vite'\\)\")"
     ]
   }
 }

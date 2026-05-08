@@ -22,9 +22,7 @@ import { Route as AnalysisRouteImport } from './routes/analysis'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as StrategySlugRouteImport } from './routes/strategy.$slug'
-import { Route as DashboardTradeRouteImport } from './routes/dashboard.trade'
 import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
-import { Route as DashboardBotRouteImport } from './routes/dashboard.bot'
 import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard.analytics'
 
 const TradingviewRoute = TradingviewRouteImport.update({
@@ -92,19 +90,9 @@ const StrategySlugRoute = StrategySlugRouteImport.update({
   path: '/strategy/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardTradeRoute = DashboardTradeRouteImport.update({
-  id: '/trade',
-  path: '/trade',
-  getParentRoute: () => DashboardRoute,
-} as any)
 const DashboardSettingsRoute = DashboardSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const DashboardBotRoute = DashboardBotRouteImport.update({
-  id: '/bot',
-  path: '/bot',
   getParentRoute: () => DashboardRoute,
 } as any)
 const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
@@ -126,9 +114,7 @@ export interface FileRoutesByFullPath {
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
-  '/dashboard/bot': typeof DashboardBotRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
-  '/dashboard/trade': typeof DashboardTradeRoute
   '/strategy/$slug': typeof StrategySlugRoute
   '/dashboard/': typeof DashboardIndexRoute
 }
@@ -144,9 +130,7 @@ export interface FileRoutesByTo {
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
-  '/dashboard/bot': typeof DashboardBotRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
-  '/dashboard/trade': typeof DashboardTradeRoute
   '/strategy/$slug': typeof StrategySlugRoute
   '/dashboard': typeof DashboardIndexRoute
 }
@@ -164,9 +148,7 @@ export interface FileRoutesById {
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
-  '/dashboard/bot': typeof DashboardBotRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
-  '/dashboard/trade': typeof DashboardTradeRoute
   '/strategy/$slug': typeof StrategySlugRoute
   '/dashboard/': typeof DashboardIndexRoute
 }
@@ -185,9 +167,7 @@ export interface FileRouteTypes {
     | '/trading-bots'
     | '/tradingview'
     | '/dashboard/analytics'
-    | '/dashboard/bot'
     | '/dashboard/settings'
-    | '/dashboard/trade'
     | '/strategy/$slug'
     | '/dashboard/'
   fileRoutesByTo: FileRoutesByTo
@@ -203,9 +183,7 @@ export interface FileRouteTypes {
     | '/trading-bots'
     | '/tradingview'
     | '/dashboard/analytics'
-    | '/dashboard/bot'
     | '/dashboard/settings'
-    | '/dashboard/trade'
     | '/strategy/$slug'
     | '/dashboard'
   id:
@@ -222,9 +200,7 @@ export interface FileRouteTypes {
     | '/trading-bots'
     | '/tradingview'
     | '/dashboard/analytics'
-    | '/dashboard/bot'
     | '/dashboard/settings'
-    | '/dashboard/trade'
     | '/strategy/$slug'
     | '/dashboard/'
   fileRoutesById: FileRoutesById
@@ -337,25 +313,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StrategySlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard/trade': {
-      id: '/dashboard/trade'
-      path: '/trade'
-      fullPath: '/dashboard/trade'
-      preLoaderRoute: typeof DashboardTradeRouteImport
-      parentRoute: typeof DashboardRoute
-    }
     '/dashboard/settings': {
       id: '/dashboard/settings'
       path: '/settings'
       fullPath: '/dashboard/settings'
       preLoaderRoute: typeof DashboardSettingsRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/dashboard/bot': {
-      id: '/dashboard/bot'
-      path: '/bot'
-      fullPath: '/dashboard/bot'
-      preLoaderRoute: typeof DashboardBotRouteImport
       parentRoute: typeof DashboardRoute
     }
     '/dashboard/analytics': {
@@ -370,17 +332,13 @@ declare module '@tanstack/react-router' {
 
 interface DashboardRouteChildren {
   DashboardAnalyticsRoute: typeof DashboardAnalyticsRoute
-  DashboardBotRoute: typeof DashboardBotRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
-  DashboardTradeRoute: typeof DashboardTradeRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAnalyticsRoute: DashboardAnalyticsRoute,
-  DashboardBotRoute: DashboardBotRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
-  DashboardTradeRoute: DashboardTradeRoute,
   DashboardIndexRoute: DashboardIndexRoute,
 }
 
@@ -405,3 +363,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}
