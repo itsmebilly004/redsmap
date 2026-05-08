@@ -1,4 +1,5 @@
 // src/lib/deriv.ts
+
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID || "133647";
 const WS_URL = `wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}&l=EN`;
 
@@ -23,7 +24,6 @@ let connecting: Promise<WebSocket> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
 let reconnectAttempts = 0;
 
-// Helper to check environment
 const isBrowser = typeof window !== "undefined";
 
 // Active subscriptions to replay after a reconnect.
@@ -46,12 +46,15 @@ export function getStatus() {
   return status;
 }
 
+/**
+ * Keeps the connection alive. Deriv closes connections 
+ * that are idle for more than 30-60 seconds.
+ */
 function startKeepalive() {
   stopKeepalive();
   if (!isBrowser) return;
-  
   pingTimer = setInterval(() => {
-    if (socket?.readyState === 1) { // 1 = WebSocket.OPEN
+    if (socket?.readyState === 1) { // OPEN
       try {
         socket.send(JSON.stringify({ ping: 1, req_id: reqId++ }));
       } catch {
@@ -68,16 +71,19 @@ function stopKeepalive() {
   }
 }
 
+/**
+ * Core connection logic with auto-reconnect and SSR guards.
+ */
 function connect(): Promise<WebSocket> {
-  // Guard for SSR
   if (!isBrowser) {
-    return new Promise((_, reject) => reject(new Error("WebSocket is not available on the server")));
+    return new Promise((_, reject) => reject(new Error("WebSocket unavailable on server")));
   }
 
   if (socket && socket.readyState === 1) return Promise.resolve(socket);
   if (connecting) return connecting;
 
   setStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
+  
   connecting = new Promise((resolve, reject) => {
     try {
       const ws = new WebSocket(WS_URL);
@@ -88,7 +94,7 @@ function connect(): Promise<WebSocket> {
         reconnectAttempts = 0;
         setStatus("connected");
         startKeepalive();
-        // Replay subscriptions
+        // Replay active subscriptions (e.g. if the user was watching a chart)
         for (const sub of activeSubs.values()) {
           try {
             ws.send(JSON.stringify(sub.send));
@@ -97,19 +103,16 @@ function connect(): Promise<WebSocket> {
         resolve(ws);
       };
 
-      ws.onerror = () => { /* reconnect logic handled in onclose */ };
-
       ws.onclose = () => {
         socket = null;
         connecting = null;
         stopKeepalive();
         setStatus("disconnected");
-        // Schedule reconnect with backoff (cap 10s).
+        // Backoff reconnection
         const delay = Math.min(10000, 500 * Math.pow(2, reconnectAttempts));
         reconnectAttempts++;
         setTimeout(() => {
           if (activeSubs.size > 0 || statusListeners.size > 0) {
-            setStatus("reconnecting");
             connect().catch(() => {});
           }
         }, delay);
@@ -122,6 +125,8 @@ function connect(): Promise<WebSocket> {
           listeners.forEach((l) => l(data));
         } catch { /* ignore */ }
       };
+
+      ws.onerror = () => { /* Handled by onclose */ };
     } catch (e) {
       reject(e);
     }
@@ -134,8 +139,11 @@ export function onMessage(fn: Listener) {
   return () => listeners.delete(fn);
 }
 
+/**
+ * Sends a single request and waits for the specific response via req_id.
+ */
 export async function send(payload: Record<string, any>): Promise<any> {
-  if (!isBrowser) return null; // Reject silently on server
+  if (!isBrowser) return null;
 
   const ws = await connect();
   const id = reqId++;
@@ -157,13 +165,16 @@ export async function send(payload: Record<string, any>): Promise<any> {
   });
 }
 
+/**
+ * Real-time tick subscription for charts and analysis.
+ */
 export async function subscribeTicks(
   symbol: string,
   onTick: (price: number, time: number) => void,
 ) {
   if (!isBrowser) return () => {};
 
-  const ws = await connect();
+  await connect();
   const key = `ticks:${symbol}`;
   const sub = { send: { ticks: symbol, subscribe: 1 }, key };
   activeSubs.set(key, sub);
@@ -174,7 +185,9 @@ export async function subscribeTicks(
     }
   });
   
-  ws.send(JSON.stringify(sub.send));
+  if (socket?.readyState === 1) {
+    socket.send(JSON.stringify(sub.send));
+  }
   
   return () => {
     off();
@@ -185,13 +198,16 @@ export async function subscribeTicks(
   };
 }
 
+/**
+ * Real-time balance subscription.
+ */
 export async function subscribeBalance(
   token: string,
   onBalance: (b: { balance: number; currency: string; loginid: string }) => void,
 ) {
   if (!isBrowser) return () => {};
 
-  const ws = await connect();
+  await connect();
   await send({ authorize: token });
   const key = `balance:${token.slice(-6)}`;
   const sub = { send: { balance: 1, subscribe: 1 }, key };
@@ -207,7 +223,9 @@ export async function subscribeBalance(
     }
   });
   
-  ws.send(JSON.stringify(sub.send));
+  if (socket?.readyState === 1) {
+    socket.send(JSON.stringify(sub.send));
+  }
   
   return () => {
     off();
@@ -226,6 +244,9 @@ export type Candle = {
   close: number;
 };
 
+/**
+ * Fetches historical candle data for charts.
+ */
 export async function fetchCandles(
   symbol: string,
   granularity: number,
@@ -253,6 +274,18 @@ export async function fetchCandles(
 
 let symbolsCache: { symbol: string; display_name: string; market: string }[] | null = null;
 
+export async function getActiveSymbols() {
+  if (!isBrowser) return [];
+  if (symbolsCache) return symbolsCache;
+  const res = await send({ active_symbols: "brief", product_type: "basic" });
+  symbolsCache = (res?.active_symbols ?? []).map((s: any) => ({
+    symbol: s.symbol,
+    display_name: s.display_name,
+    market: s.market,
+  }));
+  return symbolsCache!;
+}
+
 export function disconnectAll(): void {
   if (!isBrowser) return;
   activeSubs.clear();
@@ -266,28 +299,13 @@ export function disconnectAll(): void {
   setStatus("disconnected");
 }
 
-export async function getActiveSymbols() {
-  if (!isBrowser) return [];
-  if (symbolsCache) return symbolsCache;
-  
-  const res = await send({ active_symbols: "brief", product_type: "basic" });
-  symbolsCache = (res?.active_symbols ?? []).map((s: any) => ({
-    symbol: s.symbol,
-    display_name: s.display_name,
-    market: s.market,
-  }));
-  return symbolsCache!;
-}
-
-export const DERIV_REDIRECT_URL = "https://www.arktradershub.com";
-
 export function buildOAuthUrl() {
   if (!isBrowser) return "";
   const params = new URLSearchParams({
     app_id: DERIV_APP_ID,
     l: "EN",
     brand: "deriv",
-    redirect_uri: DERIV_REDIRECT_URL,
+    redirect_uri: "https://www.arktradershub.com",
   });
   return `https://oauth.deriv.com/oauth2/authorize?${params.toString()}`;
 }
@@ -312,15 +330,7 @@ export const SYNTHETIC_MARKETS = [
   { symbol: "RDBULL", name: "Bull Market Index" },
 ];
 
-export type TradeCategory =
-  | "rise_fall"
-  | "higher_lower"
-  | "touch_no_touch"
-  | "even_odd"
-  | "over_under"
-  | "matches_differs"
-  | "accumulator"
-  | "multiplier";
+export type TradeCategory = "rise_fall" | "higher_lower" | "touch_no_touch" | "even_odd" | "over_under" | "matches_differs" | "accumulator" | "multiplier";
 
 export const TRADE_CATEGORIES: { value: TradeCategory; label: string; description: string }[] = [
   { value: "rise_fall", label: "Rise / Fall", description: "Predict if the market goes up or down." },
@@ -355,33 +365,12 @@ export function contractTypeFor(category: TradeCategory, side: string): string {
 }
 
 export const SIDES_BY_CATEGORY: Record<TradeCategory, { value: string; label: string }[]> = {
-  rise_fall: [
-    { value: "up", label: "Rise" },
-    { value: "down", label: "Fall" },
-  ],
-  higher_lower: [
-    { value: "higher", label: "Higher" },
-    { value: "lower", label: "Lower" },
-  ],
-  touch_no_touch: [
-    { value: "touch", label: "Touch" },
-    { value: "no_touch", label: "No Touch" },
-  ],
-  even_odd: [
-    { value: "even", label: "Even" },
-    { value: "odd", label: "Odd" },
-  ],
-  over_under: [
-    { value: "over", label: "Over" },
-    { value: "under", label: "Under" },
-  ],
-  matches_differs: [
-    { value: "matches", label: "Matches" },
-    { value: "differs", label: "Differs" },
-  ],
+  rise_fall: [{ value: "up", label: "Rise" }, { value: "down", label: "Fall" }],
+  higher_lower: [{ value: "higher", label: "Higher" }, { value: "lower", label: "Lower" }],
+  touch_no_touch: [{ value: "touch", label: "Touch" }, { value: "no_touch", label: "No Touch" }],
+  even_odd: [{ value: "even", label: "Even" }, { value: "odd", label: "Odd" }],
+  over_under: [{ value: "over", label: "Over" }, { value: "under", label: "Under" }],
+  matches_differs: [{ value: "matches", label: "Matches" }, { value: "differs", label: "Differs" }],
   accumulator: [{ value: "buy", label: "Buy Accumulator" }],
-  multiplier: [
-    { value: "up", label: "Multiplier Up" },
-    { value: "down", label: "Multiplier Down" },
-  ],
+  multiplier: [{ value: "up", label: "Multiplier Up" }, { value: "down", label: "Multiplier Down" }],
 };

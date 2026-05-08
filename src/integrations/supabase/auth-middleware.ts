@@ -1,13 +1,9 @@
 // src/integrations/supabase/auth-middleware.ts
+import '../../polyfill';
 import { createMiddleware } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from './types'
-
-// Ensure WebSocket global exists for Supabase constructor in Node 20
-if (typeof window === 'undefined' && !(global as any).WebSocket) {
-  (global as any).WebSocket = class {};
-}
 
 export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server(
   async ({ next }) => {
@@ -15,6 +11,7 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
     const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
     if (!SUPABASE_URL || !SUPABASE_KEY) {
+      console.error("[Supabase Middleware] URL or Key missing in Vercel.");
       return next({ context: { supabase: null as any, userId: null, claims: null } });
     }
     

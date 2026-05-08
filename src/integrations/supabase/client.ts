@@ -1,21 +1,5 @@
 // src/integrations/supabase/client.ts
-
-// 1. POLYFILL MUST BE AT THE TOP - DO NOT MOVE
-if (typeof window === "undefined" && !(global as any).WebSocket) {
-  (global as any).WebSocket = class {
-    static readonly CONNECTING = 0;
-    static readonly OPEN = 1;
-    static readonly CLOSING = 2;
-    static readonly CLOSED = 3;
-    readyState = 3;
-    constructor() {}
-    close() {}
-    send() {}
-    addEventListener() {}
-    removeEventListener() {}
-  };
-}
-
+import '../../polyfill'; 
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
@@ -31,7 +15,7 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
     autoRefreshToken: true,
     detectSessionInUrl: isBrowser,
   },
-  // Disable realtime on server to prevent constructor calls
+  // We disable Realtime connection on the server to prevent crashing Node
   realtime: isBrowser ? {} : {
     enabled: false,
   }
