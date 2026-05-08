@@ -4,7 +4,8 @@
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\" -Recurse | Where-Object { !$_.PSIsContainer } | Select-Object -ExpandProperty FullName | Where-Object { $_ -notmatch \"node_modules|\\\\.git|dist\" })",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\" -Recurse -Filter \"*.tsx\" -o Name)",
       "Bash(Select-Object -First 20)",
-      "Bash(Get-ChildItem *)"
+      "Bash(Get-ChildItem *)",
+      "PowerShell(cd \"C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\"; Get-ChildItem -Force | Format-Table -Property Name, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"DIR\"}else{\"FILE\"}}} -AutoSize)"
     ]
   }
 }
