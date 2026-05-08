@@ -6,7 +6,7 @@
 // The synthetic email uses a domain we control so it never conflicts with a
 // real inbox. Password contains 24 chars derived via SubtleCrypto.
 
-const SUFFIX = "deriv.arktradershub.local";
+const SUFFIX = "arktradershub.com";
 // Per-app salt — does not need to be secret, only stable.
 const SALT = "ark-trader-hub::v1::";
 
