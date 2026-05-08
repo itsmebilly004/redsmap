@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -19,19 +19,23 @@ function SettingsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!user) return;
-    const [{ data: accs }, { data: sett }] = await Promise.all([
+    const [{ data: accs, error: accsErr }, { data: sett, error: settErr }] = await Promise.all([
       supabase.from("sessions").select("*").eq("user_id", user.id).order("is_demo"),
       supabase.from("user_settings").select("*").eq("user_id", user.id).maybeSingle(),
     ]);
+    if (accsErr) { toast.error("Could not load accounts"); return; }
+    if (settErr) { toast.error("Could not load settings"); return; }
     setAccounts(accs ?? []);
     setSettings(sett ?? { default_stake: 1, default_duration: "5t", preferred_symbol: "R_100", theme: "dark" });
-  }
-  useEffect(() => { load(); }, [user]);
+  }, [user]);
+
+  useEffect(() => { load(); }, [load]);
 
   async function disconnect(id: string) {
-    await supabase.from("sessions").delete().eq("id", id);
+    const { error } = await supabase.from("sessions").delete().eq("id", id);
+    if (error) { toast.error("Failed to disconnect account"); return; }
     toast.success("Account disconnected");
     load();
   }
@@ -46,9 +50,16 @@ function SettingsPage() {
   async function deleteAccount() {
     if (!user) return;
     if (!confirm("Permanently delete your account and all data?")) return;
-    await supabase.from("sessions").delete().eq("user_id", user.id);
-    await supabase.from("trades").delete().eq("user_id", user.id);
-    await supabase.from("bots").delete().eq("user_id", user.id);
+    const results = await Promise.all([
+      supabase.from("sessions").delete().eq("user_id", user.id),
+      supabase.from("trades").delete().eq("user_id", user.id),
+      supabase.from("bots").delete().eq("user_id", user.id),
+    ]);
+    const failed = results.find((r) => r.error);
+    if (failed?.error) {
+      toast.error("Partial deletion failed: " + failed.error.message);
+      return;
+    }
     await supabase.auth.signOut();
     toast.success("Account data cleared.");
     window.location.href = "/";
@@ -100,22 +111,22 @@ function SettingsPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Daily loss limit</Label>
-              <Input type="number" value={settings.daily_loss_limit} onChange={(e) => setSettings({ ...settings, daily_loss_limit: Number(e.target.value) })} />
+              <Input type="number" value={settings.daily_loss_limit ?? ""} onChange={(e) => setSettings({ ...settings, daily_loss_limit: Number(e.target.value) })} />
             </div>
             <div className="space-y-1.5">
               <Label>Max stake per trade</Label>
-              <Input type="number" value={settings.max_stake} onChange={(e) => setSettings({ ...settings, max_stake: Number(e.target.value) })} />
+              <Input type="number" value={settings.max_stake ?? ""} onChange={(e) => setSettings({ ...settings, max_stake: Number(e.target.value) })} />
             </div>
             <div className="space-y-1.5">
               <Label>Max consecutive losses</Label>
-              <Input type="number" value={settings.max_consecutive_losses} onChange={(e) => setSettings({ ...settings, max_consecutive_losses: Number(e.target.value) })} />
+              <Input type="number" value={settings.max_consecutive_losses ?? ""} onChange={(e) => setSettings({ ...settings, max_consecutive_losses: Number(e.target.value) })} />
             </div>
             <div className="flex items-center justify-between rounded-lg border border-glass-border bg-foreground/[0.02] p-3">
               <div>
                 <Label>Default to demo</Label>
                 <p className="text-[11px] text-muted-foreground">New trades & bots default to demo.</p>
               </div>
-              <Switch checked={settings.default_demo} onCheckedChange={(v) => setSettings({ ...settings, default_demo: v })} />
+              <Switch checked={!!settings.default_demo} onCheckedChange={(v) => setSettings({ ...settings, default_demo: v })} />
             </div>
           </div>
           <Button className="mt-4" onClick={saveSettings}>Save settings</Button>

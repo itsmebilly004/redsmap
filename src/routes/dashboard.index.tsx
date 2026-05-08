@@ -33,25 +33,30 @@ function DashboardHome() {
 
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
     supabase
       .from("sessions")
       .select("id")
       .eq("user_id", user.id)
       .limit(1)
-      .then(({ data }) => setHasDeriv((data?.length ?? 0) > 0));
+      .then(({ data, error }) => { if (!cancelled && !error) setHasDeriv((data?.length ?? 0) > 0); });
     supabase
       .from("trades")
       .select("*")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(10)
-      .then(({ data }) => setTrades(data ?? []));
+      .then(({ data, error }) => { if (!cancelled && !error) setTrades(data ?? []); });
+    return () => { cancelled = true; };
   }, [user]);
 
   useEffect(() => {
+    let mounted = true;
     let off: (() => void) | undefined;
-    subscribeTicks("R_100", (price) => setTick(price)).then((unsub) => (off = unsub));
-    return () => off?.();
+    subscribeTicks("R_100", (price) => { if (mounted) setTick(price); }).then((unsub) => {
+      if (mounted) { off = unsub; } else { unsub(); }
+    });
+    return () => { mounted = false; off?.(); };
   }, []);
 
   const totalPL = trades.reduce((a, t) => a + Number(t.profit_loss ?? 0), 0);

@@ -125,15 +125,17 @@ export async function send(payload: Record<string, any>): Promise<any> {
   const ws = await connect();
   const id = reqId++;
   return new Promise((resolve, reject) => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const off = onMessage((msg) => {
       if (msg.req_id === id) {
+        clearTimeout(timeoutId);
         off();
         if (msg.error) reject(new Error(msg.error.message));
         else resolve(msg);
       }
     });
     ws.send(JSON.stringify({ ...payload, req_id: id }));
-    setTimeout(() => {
+    timeoutId = setTimeout(() => {
       off();
       reject(new Error("Deriv request timed out"));
     }, 15000);

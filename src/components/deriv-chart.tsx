@@ -91,7 +91,7 @@ export function DerivChart({
 
   useEffect(() => {
     const off = onStatus(setStatus);
-    return () => off();
+    return () => { off(); };
   }, []);
 
   // Build chart once; rebuild when chart type changes.

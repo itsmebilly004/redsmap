@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { TopShell } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
@@ -187,6 +187,13 @@ function BotBuilder() {
   const token = derivAccount?.deriv_token ?? null;
   const isDemo = derivAccount?.is_demo ?? false;
 
+  const activePollsRef = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
+  useEffect(() => {
+    return () => {
+      activePollsRef.current.forEach(clearInterval);
+    };
+  }, []);
+
   // Validate parameters live
   const errors = useMemo<Partial<Record<ParamKey, string>>>(() => {
     const values: Record<ParamKey, number> = { stake, stakeW, stopLoss, takeProfit, durationTicks, martingaleAfterLoss };
@@ -315,6 +322,7 @@ function BotBuilder() {
           const c = r.proposal_open_contract;
           if (c?.is_sold) {
             clearInterval(poll);
+            activePollsRef.current.delete(poll);
             const profit = Number(c.profit ?? 0);
             const won = profit >= 0;
             setStats((s) => ({
@@ -334,7 +342,11 @@ function BotBuilder() {
           }
         } catch { /* ignore */ }
       }, 1500);
-      setTimeout(() => clearInterval(poll), 120000);
+      activePollsRef.current.add(poll);
+      setTimeout(() => {
+        clearInterval(poll);
+        activePollsRef.current.delete(poll);
+      }, 120000);
     } catch (e: any) {
       logJournal(`Error: ${e.message ?? "trade failed"}`);
       toast.error(e.message ?? "Trade failed");

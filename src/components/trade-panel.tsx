@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
@@ -50,6 +50,14 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const [takeProfit, setTakeProfit] = useState<number>(0);
   const [busy, setBusy] = useState(false);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
+  const activePollsRef = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
+
+  useEffect(() => {
+    return () => {
+      activePollsRef.current.forEach(clearInterval);
+    };
+  }, []);
+
   const [accuMeta, setAccuMeta] = useState<{
     maxPayout: number | null;
     maxTicks: number | null;
@@ -240,6 +248,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           const c = res.proposal_open_contract;
           if (c?.is_sold) {
             clearInterval(poll);
+            activePollsRef.current.delete(poll);
             const profit = Number(c.profit ?? 0);
             if (trade?.id) {
               await supabase
@@ -255,7 +264,11 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           /* ignore */
         }
       }, 1500);
-      setTimeout(() => clearInterval(poll), 120000);
+      activePollsRef.current.add(poll);
+      setTimeout(() => {
+        clearInterval(poll);
+        activePollsRef.current.delete(poll);
+      }, 120000);
     } catch (e: any) {
       toast.error(e.message ?? "Trade failed");
     } finally {

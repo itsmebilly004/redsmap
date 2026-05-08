@@ -90,7 +90,7 @@ function DerivCallback() {
           } catch (e) {
             console.error("Authorize failed", e);
           }
-          await supabase.from("sessions").upsert(
+          const { error: upsertErr } = await supabase.from("sessions").upsert(
             {
               user_id: sessionUser.id,
               account_id: acc.account,
@@ -102,6 +102,7 @@ function DerivCallback() {
             },
             { onConflict: "user_id,account_id" },
           );
+          if (upsertErr) throw upsertErr;
         }
         toast.success(`Welcome — ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`);
         navigate({ to: "/" });

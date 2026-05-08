@@ -14,12 +14,17 @@ function AnalyticsPage() {
 
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
     supabase
       .from("trades")
       .select("*")
       .eq("user_id", user.id)
       .order("created_at", { ascending: true })
-      .then(({ data }) => setTrades(data ?? []));
+      .then(({ data, error }) => {
+        if (cancelled || error) return;
+        setTrades(data ?? []);
+      });
+    return () => { cancelled = true; };
   }, [user]);
 
   const stats = useMemo(() => {
@@ -34,7 +39,8 @@ function AnalyticsPage() {
       cum += Number(t.profit_loss ?? 0);
       return { x: new Date(t.created_at).toLocaleString(), y: Number(cum.toFixed(2)) };
     });
-    return { wins, losses, total, profit, roi, winRate: wins + losses ? (wins / (wins + losses)) * 100 : 0, equity };
+    const reversed = [...trades].reverse();
+    return { wins, losses, total, profit, roi, winRate: wins + losses ? (wins / (wins + losses)) * 100 : 0, equity, reversed };
   }, [trades]);
 
   return (
@@ -106,7 +112,7 @@ function AnalyticsPage() {
                   <td colSpan={6} className="py-8 text-center text-muted-foreground">No trades yet.</td>
                 </tr>
               ) : (
-                [...trades].reverse().map((t) => (
+                stats.reversed.map((t) => (
                   <tr key={t.id} className="border-b border-glass-border/50">
                     <td className="py-2 font-mono text-xs text-muted-foreground">{new Date(t.created_at).toLocaleString()}</td>
                     <td className="py-2 font-mono text-xs">{t.symbol}</td>
