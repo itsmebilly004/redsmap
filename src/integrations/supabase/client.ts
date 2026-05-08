@@ -15,8 +15,5 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
     autoRefreshToken: true,
     detectSessionInUrl: isBrowser,
   },
-  // We disable Realtime connection on the server to prevent crashing Node
-  realtime: isBrowser ? {} : {
-    enabled: false,
-  }
+  realtime: isBrowser ? {} : { enabled: false }
 });

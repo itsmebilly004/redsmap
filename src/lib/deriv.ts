@@ -46,20 +46,14 @@ export function getStatus() {
   return status;
 }
 
-/**
- * Keeps the connection alive. Deriv closes connections 
- * that are idle for more than 30-60 seconds.
- */
 function startKeepalive() {
   stopKeepalive();
   if (!isBrowser) return;
   pingTimer = setInterval(() => {
-    if (socket?.readyState === 1) { // OPEN
+    if (socket?.readyState === 1) { // 1 = OPEN
       try {
         socket.send(JSON.stringify({ ping: 1, req_id: reqId++ }));
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     }
   }, 30000);
 }
@@ -71,65 +65,48 @@ function stopKeepalive() {
   }
 }
 
-/**
- * Core connection logic with auto-reconnect and SSR guards.
- */
 function connect(): Promise<WebSocket> {
   if (!isBrowser) {
     return new Promise((_, reject) => reject(new Error("WebSocket unavailable on server")));
   }
-
   if (socket && socket.readyState === 1) return Promise.resolve(socket);
   if (connecting) return connecting;
 
   setStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
-  
   connecting = new Promise((resolve, reject) => {
     try {
       const ws = new WebSocket(WS_URL);
-      
       ws.onopen = () => {
         socket = ws;
         connecting = null;
         reconnectAttempts = 0;
         setStatus("connected");
         startKeepalive();
-        // Replay active subscriptions (e.g. if the user was watching a chart)
         for (const sub of activeSubs.values()) {
-          try {
-            ws.send(JSON.stringify(sub.send));
-          } catch { /* ignore */ }
+          try { ws.send(JSON.stringify(sub.send)); } catch { /* ignore */ }
         }
         resolve(ws);
       };
-
       ws.onclose = () => {
         socket = null;
         connecting = null;
         stopKeepalive();
         setStatus("disconnected");
-        // Backoff reconnection
         const delay = Math.min(10000, 500 * Math.pow(2, reconnectAttempts));
         reconnectAttempts++;
         setTimeout(() => {
-          if (activeSubs.size > 0 || statusListeners.size > 0) {
-            connect().catch(() => {});
-          }
+          if (activeSubs.size > 0 || statusListeners.size > 0) connect().catch(() => {});
         }, delay);
         reject(new Error("WebSocket closed"));
       };
-
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           listeners.forEach((l) => l(data));
         } catch { /* ignore */ }
       };
-
-      ws.onerror = () => { /* Handled by onclose */ };
-    } catch (e) {
-      reject(e);
-    }
+      ws.onerror = () => {};
+    } catch (e) { reject(e); }
   });
   return connecting;
 }
@@ -139,12 +116,8 @@ export function onMessage(fn: Listener) {
   return () => listeners.delete(fn);
 }
 
-/**
- * Sends a single request and waits for the specific response via req_id.
- */
 export async function send(payload: Record<string, any>): Promise<any> {
   if (!isBrowser) return null;
-
   const ws = await connect();
   const id = reqId++;
   return new Promise((resolve, reject) => {
@@ -165,54 +138,32 @@ export async function send(payload: Record<string, any>): Promise<any> {
   });
 }
 
-/**
- * Real-time tick subscription for charts and analysis.
- */
-export async function subscribeTicks(
-  symbol: string,
-  onTick: (price: number, time: number) => void,
-) {
+export async function subscribeTicks(symbol: string, onTick: (price: number, time: number) => void) {
   if (!isBrowser) return () => {};
-
   await connect();
   const key = `ticks:${symbol}`;
   const sub = { send: { ticks: symbol, subscribe: 1 }, key };
   activeSubs.set(key, sub);
-  
   const off = onMessage((msg) => {
     if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
       onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
     }
   });
-  
-  if (socket?.readyState === 1) {
-    socket.send(JSON.stringify(sub.send));
-  }
-  
+  if (socket?.readyState === 1) socket.send(JSON.stringify(sub.send));
   return () => {
     off();
     activeSubs.delete(key);
-    if (socket?.readyState === 1) {
-      socket.send(JSON.stringify({ forget_all: "ticks" }));
-    }
+    if (socket?.readyState === 1) socket.send(JSON.stringify({ forget_all: "ticks" }));
   };
 }
 
-/**
- * Real-time balance subscription.
- */
-export async function subscribeBalance(
-  token: string,
-  onBalance: (b: { balance: number; currency: string; loginid: string }) => void,
-) {
+export async function subscribeBalance(token: string, onBalance: (b: any) => void) {
   if (!isBrowser) return () => {};
-
   await connect();
   await send({ authorize: token });
   const key = `balance:${token.slice(-6)}`;
   const sub = { send: { balance: 1, subscribe: 1 }, key };
   activeSubs.set(key, sub);
-  
   const off = onMessage((msg) => {
     if (msg.msg_type === "balance" && msg.balance) {
       onBalance({
@@ -222,80 +173,42 @@ export async function subscribeBalance(
       });
     }
   });
-  
-  if (socket?.readyState === 1) {
-    socket.send(JSON.stringify(sub.send));
-  }
-  
+  if (socket?.readyState === 1) socket.send(JSON.stringify(sub.send));
   return () => {
     off();
     activeSubs.delete(key);
-    if (socket?.readyState === 1) {
-      socket.send(JSON.stringify({ forget_all: "balance" }));
-    }
+    if (socket?.readyState === 1) socket.send(JSON.stringify({ forget_all: "balance" }));
   };
 }
 
-export type Candle = {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-};
+export type Candle = { time: number; open: number; high: number; low: number; close: number };
 
-/**
- * Fetches historical candle data for charts.
- */
-export async function fetchCandles(
-  symbol: string,
-  granularity: number,
-  count = 500,
-): Promise<Candle[]> {
+export async function fetchCandles(symbol: string, granularity: number, count = 500): Promise<Candle[]> {
   if (!isBrowser) return [];
-
-  const res = await send({
-    ticks_history: symbol,
-    style: "candles",
-    granularity,
-    count,
-    end: "latest",
-    adjust_start_time: 1,
-  });
-  const candles = res?.candles ?? [];
-  return candles.map((c: any) => ({
-    time: Number(c.epoch),
-    open: Number(c.open),
-    high: Number(c.high),
-    low: Number(c.low),
-    close: Number(c.close),
+  const res = await send({ ticks_history: symbol, style: "candles", granularity, count, end: "latest", adjust_start_time: 1 });
+  return (res?.candles ?? []).map((c: any) => ({
+    time: Number(c.epoch), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close),
   }));
 }
-
-let symbolsCache: { symbol: string; display_name: string; market: string }[] | null = null;
 
 export async function getActiveSymbols() {
   if (!isBrowser) return [];
   if (symbolsCache) return symbolsCache;
   const res = await send({ active_symbols: "brief", product_type: "basic" });
   symbolsCache = (res?.active_symbols ?? []).map((s: any) => ({
-    symbol: s.symbol,
-    display_name: s.display_name,
-    market: s.market,
+    symbol: s.symbol, display_name: s.display_name, market: s.market,
   }));
   return symbolsCache!;
 }
+
+let symbolsCache: any[] | null = null;
 
 export function disconnectAll(): void {
   if (!isBrowser) return;
   activeSubs.clear();
   stopKeepalive();
-  if (socket) {
-    try { socket.close(); } catch { /* ignore */ }
-    socket = null;
-  }
+  if (socket) { try { socket.close(); } catch { } socket = null; }
   connecting = null;
-  reconnectAttempts = 0;
   setStatus("disconnected");
 }
 
@@ -345,21 +258,11 @@ export const TRADE_CATEGORIES: { value: TradeCategory; label: string; descriptio
 
 export function contractTypeFor(category: TradeCategory, side: string): string {
   const map: Record<string, string> = {
-    "rise_fall:up": "CALL",
-    "rise_fall:down": "PUT",
-    "higher_lower:higher": "CALL",
-    "higher_lower:lower": "PUT",
-    "touch_no_touch:touch": "ONETOUCH",
-    "touch_no_touch:no_touch": "NOTOUCH",
-    "even_odd:even": "DIGITEVEN",
-    "even_odd:odd": "DIGITODD",
-    "over_under:over": "DIGITOVER",
-    "over_under:under": "DIGITUNDER",
-    "matches_differs:matches": "DIGITMATCH",
-    "matches_differs:differs": "DIGITDIFF",
-    "accumulator:buy": "ACCU",
-    "multiplier:up": "MULTUP",
-    "multiplier:down": "MULTDOWN",
+    "rise_fall:up": "CALL", "rise_fall:down": "PUT", "higher_lower:higher": "CALL", "higher_lower:lower": "PUT",
+    "touch_no_touch:touch": "ONETOUCH", "touch_no_touch:no_touch": "NOTOUCH", "even_odd:even": "DIGITEVEN",
+    "even_odd:odd": "DIGITODD", "over_under:over": "DIGITOVER", "over_under:under": "DIGITUNDER",
+    "matches_differs:matches": "DIGITMATCH", "matches_differs:differs": "DIGITDIFF", "accumulator:buy": "ACCU",
+    "multiplier:up": "MULTUP", "multiplier:down": "MULTDOWN",
   };
   return map[`${category}:${side}`] ?? "CALL";
 }
