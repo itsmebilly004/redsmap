@@ -9,7 +9,10 @@
       "Bash(xargs grep -l \"context\\\\|Context\\\\|Provider\\\\|store\\\\|Store\")",
       "Bash(npx tsc *)",
       "Bash(dir C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\\\\src\\\\routes *)",
-      "Bash(node -e \"require.resolve\\('nitro/vite'\\)\")"
+      "Bash(node -e \"require.resolve\\('nitro/vite'\\)\")",
+      "Bash(xargs basename -a)",
+      "Bash(node -e \"const t = require\\('@tanstack/react-start/plugin/vite'\\); console.log\\(Object.keys\\(t\\)\\)\")",
+      "Bash(xargs grep -l \"TanStackStartViteInputConfig\\\\|server\\\\|preset\")"
     ]
   }
 }
