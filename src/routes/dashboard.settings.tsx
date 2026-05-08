@@ -99,7 +99,7 @@ function SettingsPage() {
           <h3 className="mb-4 text-sm font-medium">Risk controls</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Daily loss limit (USD)</Label>
+              <Label>Daily loss limit</Label>
               <Input type="number" value={settings.daily_loss_limit} onChange={(e) => setSettings({ ...settings, daily_loss_limit: Number(e.target.value) })} />
             </div>
             <div className="space-y-1.5">

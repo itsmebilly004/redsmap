@@ -181,7 +181,7 @@ export async function subscribeBalance(
     if (msg.msg_type === "balance" && msg.balance) {
       onBalance({
         balance: Number(msg.balance.balance),
-        currency: String(msg.balance.currency ?? "USD"),
+        currency: String(msg.balance.currency ?? ""),
         loginid: String(msg.balance.loginid ?? ""),
       });
     }

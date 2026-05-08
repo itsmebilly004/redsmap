@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { useDerivBalance } from "@/hooks/use-deriv-balance";
+import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
   send,
   TRADE_CATEGORIES,
@@ -32,7 +32,7 @@ interface TradePanelProps {
 
 export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePanelProps) {
   const { user } = useAuth();
-  const { account, currency } = useDerivBalance();
+  const { account, balance: accountBalance, currency } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const isDemo = account?.is_demo ?? true;
 
@@ -181,6 +181,12 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       toast.error("Connect your Deriv account first.");
       return;
     }
+    if (accountBalance !== null && accountBalance < stake) {
+      toast.error(
+        `Insufficient balance: ${accountBalance.toFixed(2)} ${currency} available, need ${stake.toFixed(2)} ${currency}.`,
+      );
+      return;
+    }
     setBusy(true);
     try {
       await send({ authorize: token });
@@ -242,7 +248,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                 .eq("id", trade.id);
             }
             toast[profit >= 0 ? "success" : "error"](
-              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`,
+              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} ${currency}`,
             );
           }
         } catch {

@@ -29,7 +29,7 @@ export function useDerivBalance(): LiveBalance {
   const [accounts, setAccounts] = useState<DerivAccount[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
-  const [currency, setCurrency] = useState<string>("USD");
+  const [currency, setCurrency] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
   // Load all sessions for this user.
@@ -56,7 +56,7 @@ export function useDerivBalance(): LiveBalance {
       if (list.length) {
         setActiveId(list[0].account_id);
         setBalance(list[0].balance != null ? Number(list[0].balance) : null);
-        setCurrency(list[0].currency ?? "USD");
+        setCurrency(list[0].currency ?? "");
       }
       setLoading(false);
     })();
@@ -75,8 +75,7 @@ export function useDerivBalance(): LiveBalance {
       try {
         unsub = await subscribeBalance(active.deriv_token, async (b) => {
           setBalance(b.balance);
-          setCurrency(b.currency);
-          // Persist latest balance so other parts of the app see it.
+          if (b.currency) setCurrency(b.currency);
           await supabase
             .from("sessions")
             .update({ balance: b.balance, currency: b.currency })
@@ -92,12 +91,21 @@ export function useDerivBalance(): LiveBalance {
     };
   }, [active?.account_id, active?.deriv_token, user]);
 
+  function switchAccount(accountId: string) {
+    setActiveId(accountId);
+    const target = accounts.find((a) => a.account_id === accountId);
+    if (target) {
+      setBalance(target.balance != null ? Number(target.balance) : null);
+      setCurrency(target.currency ?? "");
+    }
+  }
+
   return {
     account: active,
     accounts,
     balance,
     currency,
     loading,
-    switchAccount: setActiveId,
+    switchAccount,
   };
 }

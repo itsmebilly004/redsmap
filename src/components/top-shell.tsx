@@ -1,7 +1,7 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { useDerivBalance } from "@/hooks/use-deriv-balance";
+import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { buildOAuthUrl, disconnectAll } from "@/lib/deriv";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -26,6 +26,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ReactNode } from "react";
 
+const CURRENCY_FLAGS: Record<string, string> = {
+  USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", AUD: "🇦🇺",
+  CAD: "🇨🇦", CHF: "🇨🇭", JPY: "🇯🇵", NZD: "🇳🇿",
+  SGD: "🇸🇬", HKD: "🇭🇰", NOK: "🇳🇴", SEK: "🇸🇪",
+  BTC: "₿", ETH: "Ξ", USDT: "₮", tUSDT: "₮", LTC: "Ł",
+};
+function currencyFlag(cur?: string | null) {
+  return cur ? (CURRENCY_FLAGS[cur] ?? "💱") : "";
+}
+
 type TabDef = {
   to: string;
   label: string;
@@ -47,10 +57,10 @@ export const TOP_TABS: TabDef[] = [
 export function TopShell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { account, accounts, balance, currency, switchAccount } = useDerivBalance();
+  const { account, accounts, balance, currency, switchAccount } = useDerivBalanceContext();
 
   return (
-    <div className="min-h-dvh bg-[oklch(0.985_0.003_240)] text-[oklch(0.2_0.02_260)]">
+    <div className="flex min-h-dvh flex-col bg-[oklch(0.985_0.003_240)] text-[oklch(0.2_0.02_260)]">
       <header className="flex h-14 items-center justify-between border-b border-[oklch(0.92_0.005_240)] bg-white px-4 md:px-6">
         <Link to="/" className="flex items-center gap-2">
           <div className="size-6 rotate-45 rounded-sm bg-[oklch(0.72_0.17_55)]" />
@@ -66,7 +76,7 @@ export function TopShell({ children }: { children: ReactNode }) {
                   <span className={`size-2 rounded-full ${account.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`} />
                   <div className="leading-tight">
                     <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
-                      {account.is_demo ? "Demo" : "Real"} {currency}
+                      {account.is_demo ? "Demo" : "Real"} {currencyFlag(currency)} {currency}
                     </div>
                     <div className="font-mono text-sm font-semibold tabular-nums">
                       {(balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}
@@ -87,13 +97,13 @@ export function TopShell({ children }: { children: ReactNode }) {
                         <span className={`size-2 rounded-full ${a.is_demo ? "bg-[oklch(0.78_0.16_85)]" : "bg-[oklch(0.7_0.17_150)]"}`} />
                         <div className="leading-tight">
                           <div className="text-[9px] uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
-                            {a.is_demo ? "Demo" : "Real"} {a.currency ?? "USD"}
+                            {a.is_demo ? "Demo" : "Real"} {currencyFlag(a.currency)} {a.currency ?? ""}
                           </div>
                           <div className="font-mono text-xs">{a.account_id}</div>
                         </div>
                       </div>
                       <span className="font-mono text-xs tabular-nums">
-                        {Number(a.balance ?? 0).toFixed(2)}
+                        {Number(a.balance ?? 0).toFixed(2)} {a.currency ?? ""}
                       </span>
                     </DropdownMenuItem>
                   ))}
@@ -166,7 +176,7 @@ export function TopShell({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
-      <main>{children}</main>
+      <main className="flex flex-1 flex-col">{children}</main>
 
       <button
         aria-label="AI assistant"

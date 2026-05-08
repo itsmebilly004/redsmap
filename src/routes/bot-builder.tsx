@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
+import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { send, contractTypeFor, type TradeCategory } from "@/lib/deriv";
 import { toast } from "sonner";
 import {
@@ -182,8 +183,9 @@ function BotBuilder() {
   >([]);
   const [journal, setJournal] = useState<{ time: string; msg: string }[]>([]);
 
-  const [token, setToken] = useState<string | null>(null);
-  const [isDemo, setIsDemo] = useState(true);
+  const { account: derivAccount, currency: derivCurrency } = useDerivBalanceContext();
+  const token = derivAccount?.deriv_token ?? null;
+  const isDemo = derivAccount?.is_demo ?? false;
 
   // Validate parameters live
   const errors = useMemo<Partial<Record<ParamKey, string>>>(() => {
@@ -196,22 +198,6 @@ function BotBuilder() {
     return out;
   }, [stake, stakeW, stopLoss, takeProfit, durationTicks, martingaleAfterLoss]);
   const hasErrors = Object.keys(errors).length > 0;
-
-  // Fetch deriv account
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("sessions")
-      .select("deriv_token, is_demo")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .order("is_demo", { ascending: true })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }: any) => {
-        if (data) { setToken(data.deriv_token); setIsDemo(data.is_demo); }
-      });
-  }, [user]);
 
   // Load saved bots
   async function loadBots() {
@@ -307,7 +293,7 @@ function BotBuilder() {
       const ct = contractTypeFor(tradeType, contractType);
       const proposal: any = {
         proposal: 1, amount: stake, basis: "stake", contract_type: ct,
-        currency: "USD", symbol, duration: durationTicks, duration_unit: "t",
+        currency: derivCurrency, symbol, duration: durationTicks, duration_unit: "t",
       };
       if (tradeType === "over_under" || tradeType === "matches_differs") proposal.barrier = "5";
       const propResp = await send(proposal);
@@ -341,7 +327,7 @@ function BotBuilder() {
             }));
             setTransactions((t) =>
               [{ id: String(contract.contract_id), time: new Date().toLocaleTimeString(), type: ct, stake, profit }, ...t].slice(0, 200));
-            logJournal(`${won ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} USD`);
+            logJournal(`${won ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} ${derivCurrency}`);
             if ((trade as any)?.id) {
               await supabase.from("trades").update({ profit_loss: profit, status: won ? "won" : "lost", closed_at: new Date().toISOString() }).eq("id", (trade as any).id);
             }
@@ -567,8 +553,8 @@ function BotBuilder() {
             <span className="text-xs text-[oklch(0.55_0.18_265)] underline">What's this?</span>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Stat label="Total stake" value={`${stats.totalStake.toFixed(2)} USD`} />
-            <Stat label="Total payout" value={`${stats.totalPayout.toFixed(2)} USD`} />
+            <Stat label="Total stake" value={`${stats.totalStake.toFixed(2)} ${derivCurrency}`} />
+            <Stat label="Total payout" value={`${stats.totalPayout.toFixed(2)} ${derivCurrency}`} />
             <Stat label="No. of runs" value={String(stats.runs)} />
             <Stat label="Contracts lost" value={String(stats.contractsLost)} />
             <Stat label="Contracts won" value={String(stats.contractsWon)} />
