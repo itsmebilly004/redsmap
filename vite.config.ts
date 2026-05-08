@@ -8,4 +8,11 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
   cloudflare: false,
+  vite: {
+    ssr: {
+      // Keep ws as a runtime require() — its native deps (node:net, node:tls)
+      // can't be statically bundled by Rollup.
+      external: ["ws"],
+    },
+  },
 });
