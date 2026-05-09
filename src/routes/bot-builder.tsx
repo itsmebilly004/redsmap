@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { send, contractTypeFor, type TradeCategory } from "@/lib/deriv";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
   Play,
@@ -34,6 +35,7 @@ import {
   ChevronRight,
   Info,
   History,
+  FileCode,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BOT_PRESETS } from "./trading-bots";
@@ -47,14 +49,11 @@ export const Route = createFileRoute("/bot-builder")({
   component: BotBuilder,
 });
 
-const DEFAULT_BLOCKS = ["trade_parameters", "purchase_logic", "restart_conditions"] as const;
-type BlockId = (typeof DEFAULT_BLOCKS)[number];
-
-const BLOCK_META: Record<BlockId, { title: string; icon: any; color: string }> = {
-  trade_parameters: { title: "Trade Parameters", icon: Settings2, color: "text-sky-400" },
-  purchase_logic: { title: "Purchase Logic", icon: Target, color: "text-emerald-400" },
-  restart_conditions: { title: "Restart Conditions", icon: RotateCcw, color: "text-orange-400" },
-};
+const BLOCK_META = [
+  { id: "trade_params", title: "Trade Parameters", icon: Settings2, color: "text-sky-400" },
+  { id: "purchase_logic", title: "Purchase Logic", icon: Target, color: "text-emerald-400" },
+  { id: "restart_cond", title: "Restart Conditions", icon: RotateCcw, color: "text-orange-400" },
+];
 
 const MARKETS = {
   "R_10": "Volatility 10 Index",
@@ -70,18 +69,18 @@ function BotBuilder() {
   const { user } = useAuth();
   const { preset } = Route.useSearch();
 
-  // Strategy State
+  // Bot Configuration State
   const [symbol, setSymbol] = useState("R_100");
-  const [tradeType, setTradeType] = useState<TradeCategory>("even_odd");
-  const [contractType, setContractType] = useState("even");
+  const [tradeType] = useState<TradeCategory>("even_odd");
+  const [contractType] = useState("even");
   const [initialStake, setInitialStake] = useState(1);
   const [currentStake, setCurrentStake] = useState(1);
   const [stopLoss, setStopLoss] = useState(10);
   const [takeProfit, setTakeProfit] = useState(10);
   const [martingale, setMartingale] = useState(2.0);
-  const [botName, setBotName] = useState("Custom Strategy");
+  const [botName, setBotName] = useState("New Strategy");
 
-  // UI State
+  // UI / Runtime State
   const [running, setRunning] = useState(false);
   const [tab, setTab] = useState("summary");
   const [stats, setStats] = useState({ runs: 0, wins: 0, losses: 0, profit: 0 });
@@ -90,38 +89,60 @@ function BotBuilder() {
   const { account: derivAccount, currency: derivCurrency } = useDerivBalanceContext();
   const token = derivAccount?.deriv_token ?? null;
 
+  // 1. Load Presets
   useEffect(() => {
     if (preset) {
       const config = BOT_PRESETS.find(b => b.id === preset);
       if (config) {
         setSymbol(config.market);
-        setTradeType(config.tradeType as TradeCategory);
-        setContractType(config.contractType);
         setInitialStake(config.stake);
         setCurrentStake(config.stake);
         setTakeProfit(config.tp);
         setStopLoss(config.sl);
         setMartingale(config.martingale);
         setBotName(config.name);
-        toast.success(`Preset "${config.name}" loaded`);
+        toast.success(`Preset "${config.name}" deployed`);
       }
     }
   }, [preset]);
 
+  // 2. Journaling
   const logJournal = (msg: string, type: any = 'info') => {
-    setJournal(prev => [{ time: new Date().toLocaleTimeString(), msg, type }, ...prev].slice(0, 100));
+    setJournal(prev => [{ time: new Date().toLocaleTimeString(), msg, type }, ...prev].slice(0, 50));
   };
 
+  // 3. Save Functionality
+  const saveBot = async () => {
+    if (!user) return toast.error("Please sign in to save.");
+    const { error } = await supabase.from("bots").upsert({
+      user_id: user.id,
+      name: botName,
+      strategy: { symbol, initialStake, martingale, stopLoss, takeProfit },
+      status: running ? "running" : "stopped"
+    });
+    if (error) toast.error("Save failed: " + error.message);
+    else toast.success("Strategy saved to Cloud");
+  };
+
+  // 4. XML Export Functionality
+  const exportXML = () => {
+    const xmlContent = `<xml><strategy name="${botName}"><market>${symbol}</market><stake>${initialStake}</stake></strategy></xml>`;
+    const blob = new Blob([xmlContent], { type: "text/xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${botName.replace(/\s+/g, "_")}.xml`;
+    a.click();
+    toast.success("XML Strategy Exported");
+  };
+
+  // 5. Trading Execution Loop
   async function runCycle() {
     if (!token || !running) return;
 
-    if (stats.profit >= takeProfit) {
-      logJournal("🎯 Take Profit Reached!", 'success');
-      setRunning(false);
-      return;
-    }
-    if (Math.abs(stats.profit) >= stopLoss && stats.profit < 0) {
-      logJournal("🛑 Stop Loss Hit!", 'error');
+    if (stats.profit >= takeProfit || (stats.profit <= -stopLoss)) {
+      const result = stats.profit >= takeProfit ? "TARGET REACHED" : "STOP LOSS HIT";
+      logJournal(`🛑 Bot Stopped: ${result}`, stats.profit >= takeProfit ? 'success' : 'error');
       setRunning(false);
       return;
     }
@@ -129,321 +150,231 @@ function BotBuilder() {
     try {
       await send({ authorize: token });
       const ct = contractTypeFor(tradeType, contractType);
-      
       const proposal = await send({
-        proposal: 1,
-        amount: currentStake,
-        basis: "stake",
-        contract_type: ct,
-        currency: derivCurrency,
-        symbol: symbol,
-        duration: 1,
-        duration_unit: "t",
-        ...(tradeType === 'over_under' ? { barrier: "5" } : {})
+        proposal: 1, amount: currentStake, basis: "stake", contract_type: ct,
+        currency: derivCurrency, symbol: symbol, duration: 1, duration_unit: "t"
       });
 
       const buy = await send({ buy: proposal.proposal.id, price: currentStake });
-      logJournal(`Executing ${ct}...`);
+      logJournal(`Order Placed: ${currentStake} ${derivCurrency}`);
 
       const poll = setInterval(async () => {
         const res = await send({ proposal_open_contract: 1, contract_id: buy.buy.contract_id });
         const c = res.proposal_open_contract;
-
         if (c.is_sold) {
           clearInterval(poll);
           const pnl = Number(c.profit);
           const won = pnl > 0;
-
-          setStats(s => ({
-            runs: s.runs + 1,
-            wins: s.wins + (won ? 1 : 0),
-            losses: s.losses + (won ? 0 : 1),
-            profit: s.profit + pnl
-          }));
-
-          logJournal(`${won ? 'WIN' : 'LOSS'} cycle complete: ${pnl.toFixed(2)}`, won ? 'success' : 'error');
-
+          setStats(s => ({ runs: s.runs + 1, wins: s.wins + (won ? 1 : 0), losses: s.losses + (won ? 0 : 1), profit: s.profit + pnl }));
+          logJournal(`${won ? 'WIN' : 'LOSS'}: ${pnl.toFixed(2)}`, won ? 'success' : 'error');
           if (won) setCurrentStake(initialStake);
           else setCurrentStake(prev => Number((prev * martingale).toFixed(2)));
-
-          if (running) setTimeout(runCycle, 1000);
+          if (running) setTimeout(runCycle, 800);
         }
-      }, 1500);
-
+      }, 1000);
     } catch (e: any) {
-      logJournal(`Runtime Error: ${e.message}`, 'error');
+      logJournal(`Critical Error: ${e.message}`, 'error');
       setRunning(false);
     }
   }
 
-  useEffect(() => {
-    if (running) runCycle();
-  }, [running]);
-
-  const winRate = stats.runs > 0 ? Math.round((stats.wins / stats.runs) * 100) : 0;
+  useEffect(() => { if (running) runCycle(); }, [running]);
 
   return (
     <TopShell>
-      <div className="flex h-[calc(100vh-64px)] flex-col lg:grid lg:grid-cols-[260px_1fr_400px]">
+      <div className="flex h-[calc(100vh-64px)] flex-col lg:grid lg:grid-cols-[240px_1fr_340px] overflow-hidden bg-slate-950">
         
-        {/* LEFT SIDEBAR: BLOCK LIST */}
-        <aside className="hidden flex-col border-r border-white/10 bg-slate-900/50 backdrop-blur-md lg:flex">
+        {/* LEFT: WORKSPACE BLOCKS */}
+        <aside className="hidden flex-col border-r border-white/5 bg-slate-900/30 lg:flex">
           <div className="p-4 flex items-center gap-2 border-b border-white/5">
             <Layers className="size-4 text-sky-400" />
-            <span className="text-[11px] font-black uppercase tracking-widest text-slate-300">Logic Workspace</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Logic Workspace</span>
           </div>
-          
-          <div className="flex-1 space-y-3 p-4">
-            {(Object.keys(BLOCK_META) as BlockId[]).map((id) => {
-              const meta = BLOCK_META[id];
-              return (
-                <div key={id} className="group flex cursor-grab items-center gap-3 rounded-xl border border-white/10 bg-slate-800/40 p-4 transition hover:border-sky-500/50 hover:bg-slate-800 active:cursor-grabbing shadow-sm">
-                  <div className={cn("rounded-lg bg-white/5 p-2 shadow-inner", meta.color)}>
-                    <meta.icon className="size-4" />
-                  </div>
-                  <span className="text-sm font-bold text-slate-100">{meta.title}</span>
-                  <GripVertical className="ml-auto size-4 text-slate-600 opacity-0 group-hover:opacity-100" />
+          <div className="p-3 space-y-2">
+            {BLOCK_META.map((b) => (
+              <button 
+                key={b.id} 
+                onClick={() => toast.info(`Adding ${b.title} to flow...`)}
+                className="w-full group flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 transition hover:bg-white/[0.06] active:scale-95"
+              >
+                <div className={cn("rounded-lg bg-slate-950 p-2 border border-white/5", b.color)}>
+                  <b.icon className="size-4" />
                 </div>
-              );
-            })}
-            
-            <div className="mt-10 rounded-2xl border-2 border-dashed border-white/5 p-6 text-center">
-              <p className="text-xs font-medium leading-relaxed text-slate-400">
-                Drag blocks here to build custom triggers.
-              </p>
-            </div>
+                <span className="text-[11px] font-bold text-slate-300">{b.title}</span>
+              </button>
+            ))}
           </div>
         </aside>
 
-        {/* CENTER: BOT BUILDER WORKSPACE */}
-        <main className="flex flex-1 flex-col overflow-y-auto bg-slate-950 p-6">
-          <header className="mb-10 flex flex-wrap items-center justify-between gap-4">
+        {/* CENTER: MAIN BUILDER */}
+        <main className="flex flex-col flex-1 min-w-0">
+          {/* Internal Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-slate-900/20">
             <div className="flex items-center gap-4">
-              <div className="size-14 rounded-2xl bg-sky-500 flex items-center justify-center text-white shadow-[0_0_30px_-5px_rgba(14,165,233,0.5)]">
-                <Activity className="size-7" />
+              <div className="size-10 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400 border border-sky-500/30">
+                <FileCode className="size-5" />
               </div>
               <div>
-                <h1 className="text-3xl font-black tracking-tight text-white">{botName}</h1>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-black text-emerald-400 uppercase border border-emerald-500/20">
-                    <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live Ticks
-                  </span>
-                  <ChevronRight className="size-3 text-slate-600" />
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
-                    {MARKETS[symbol as keyof typeof MARKETS] || symbol}
-                  </span>
+                <h1 className="text-lg font-black text-white tracking-tight">{botName}</h1>
+                <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                  <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live</span>
+                  <ChevronRight className="size-3" />
+                  <span>{symbol}</span>
                 </div>
               </div>
             </div>
-            
-            <div className="flex gap-3">
-              <Button variant="secondary" className="rounded-xl font-bold bg-slate-800 text-white hover:bg-slate-700 h-11 px-5 border border-white/5">
-                <Save className="mr-2 size-5" /> Save Bot
+            <div className="flex gap-2">
+              <Button onClick={saveBot} variant="outline" size="sm" className="bg-slate-800 border-white/10 hover:bg-slate-700 text-xs h-8">
+                <Save className="size-3.5 mr-2" /> Save
               </Button>
-              <Button variant="outline" className="rounded-xl font-bold border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 h-11 px-5">
-                <Download className="mr-2 size-5" /> XML
+              <Button onClick={exportXML} variant="outline" size="sm" className="bg-slate-800 border-white/10 hover:bg-slate-700 text-xs h-8">
+                <Download className="size-3.5 mr-2" /> XML
               </Button>
             </div>
-          </header>
+          </div>
 
-          <div className="grid gap-8 md:grid-cols-2">
-            {/* Configuration Card */}
-            <section className="rounded-[32px] border border-white/10 bg-slate-900 p-8 shadow-2xl">
-              <div className="mb-8 flex items-center justify-between">
-                <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest text-sky-400">
-                  <Wallet className="size-5" /> Market & Position
-                </h3>
-                <div className="h-10 w-10 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
-                    <Info className="size-4 text-slate-500" />
-                </div>
-              </div>
-              
-              <div className="space-y-6">
-                <div className="space-y-3">
-                  <Label className="text-sm font-bold text-slate-200 ml-1">Asset Index</Label>
-                  <Select value={symbol} onValueChange={setSymbol}>
-                    <SelectTrigger className="h-14 rounded-2xl bg-slate-950 border-white/10 text-white font-bold text-base focus:ring-sky-500">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-900 border-white/10 text-white">
-                      {Object.entries(MARKETS).map(([v, l]) => <SelectItem key={v} value={v} className="focus:bg-sky-500">{l}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-6 pt-2">
+          {/* Config Grid */}
+          <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
+            <div className="grid gap-6">
+              {/* Row 1: Market */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-5 space-y-4">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                    <Wallet className="size-3.5 text-sky-400" /> Market Configuration
+                  </h3>
                   <div className="space-y-3">
-                    <Label className="text-sm font-bold text-slate-200 ml-1">Initial Stake</Label>
-                    <div className="relative">
-                      <Input 
-                        type="number" 
-                        value={initialStake} 
-                        onChange={e => setInitialStake(Number(e.target.value))}
-                        className="h-14 rounded-2xl bg-slate-950 border-white/20 pl-10 text-lg font-black text-white focus:border-sky-500 transition-colors"
-                      />
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-500 font-bold">$</div>
-                    </div>
+                    <Label className="text-[11px] text-slate-400 uppercase font-bold">Select Asset</Label>
+                    <Select value={symbol} onValueChange={setSymbol}>
+                      <SelectTrigger className="bg-slate-950 border-white/10 h-10 rounded-lg">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-900 border-white/10">
+                        {Object.entries(MARKETS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="space-y-3">
-                    <Label className="text-sm font-bold text-slate-200 ml-1">Martingale</Label>
-                    <div className="relative">
-                      <Input 
-                        type="number" 
-                        value={martingale} 
-                        onChange={e => setMartingale(Number(e.target.value))}
-                        className="h-14 rounded-2xl bg-slate-950 border-white/20 pl-10 text-lg font-black text-white focus:border-sky-500 transition-colors"
-                      />
-                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-400 font-bold">x</div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[11px] text-slate-400 uppercase font-bold">Base Stake</Label>
+                      <Input type="number" value={initialStake} onChange={e => setInitialStake(Number(e.target.value))} className="bg-slate-950 border-white/10 h-10 rounded-lg font-mono text-white" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[11px] text-slate-400 uppercase font-bold">Martingale</Label>
+                      <Input type="number" value={martingale} onChange={e => setMartingale(Number(e.target.value))} className="bg-slate-950 border-white/10 h-10 rounded-lg font-mono text-white" />
                     </div>
                   </div>
                 </div>
-              </div>
-            </section>
 
-            {/* Risk Control Card */}
-            <section className="rounded-[32px] border border-white/10 bg-slate-900 p-8 shadow-2xl">
-              <div className="mb-8 flex items-center justify-between">
-                <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest text-orange-400">
-                  <ShieldAlert className="size-5" /> Safety Mechanisms
-                </h3>
-                <Settings2 className="size-5 text-slate-600" />
-              </div>
-
-              <div className="space-y-10">
-                <div className="space-y-5">
-                  <div className="flex justify-between items-end">
-                    <span className="text-xs font-black uppercase text-slate-400 tracking-wider">Take Profit Target</span>
-                    <span className="text-2xl font-black text-emerald-400">+{takeProfit} <span className="text-xs text-slate-500 ml-1">{derivCurrency || 'USD'}</span></span>
+                <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-5 space-y-6">
+                   <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                    <ShieldAlert className="size-3.5 text-orange-400" /> Session Limits
+                  </h3>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase">Take Profit</span>
+                      <span className="text-emerald-400 font-black text-sm font-mono">+{takeProfit} {derivCurrency || 'USD'}</span>
+                    </div>
+                    <input type="range" min="1" max="1000" className="w-full accent-emerald-500 bg-slate-950 h-1.5 rounded-full" value={takeProfit} onChange={e => setTakeProfit(Number(e.target.value))} />
+                    
+                    <div className="flex justify-between items-center pt-2">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase">Stop Loss</span>
+                      <span className="text-rose-500 font-black text-sm font-mono">-{stopLoss} {derivCurrency || 'USD'}</span>
+                    </div>
+                    <input type="range" min="1" max="1000" className="w-full accent-rose-500 bg-slate-950 h-1.5 rounded-full" value={stopLoss} onChange={e => setStopLoss(Number(e.target.value))} />
                   </div>
-                  <input 
-                    type="range" min="1" max="5000" step="1"
-                    className="w-full accent-emerald-500 bg-slate-950 h-2.5 rounded-full appearance-none cursor-pointer border border-white/5"
-                    value={takeProfit} onChange={e => setTakeProfit(Number(e.target.value))} 
-                  />
-                </div>
-
-                <div className="space-y-5">
-                  <div className="flex justify-between items-end">
-                    <span className="text-xs font-black uppercase text-slate-400 tracking-wider">Max Stop Loss</span>
-                    <span className="text-2xl font-black text-rose-500">-{stopLoss} <span className="text-xs text-slate-500 ml-1">{derivCurrency || 'USD'}</span></span>
-                  </div>
-                  <input 
-                    type="range" min="1" max="5000" step="1"
-                    className="w-full accent-rose-500 bg-slate-950 h-2.5 rounded-full appearance-none cursor-pointer border border-white/5"
-                    value={stopLoss} onChange={e => setStopLoss(Number(e.target.value))} 
-                  />
                 </div>
               </div>
-              
-              <div className="mt-8 rounded-2xl bg-white/[0.03] p-4 border border-white/5 flex gap-3">
-                <Info className="size-5 text-sky-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] font-medium text-slate-400 leading-normal">
-                  Auto-Stop: Trading will immediately cease if your session profit hits <span className="text-emerald-400">+{takeProfit}</span> or if your loss exceeds <span className="text-rose-500">-{stopLoss}</span>.
+
+              {/* Bot Info Message */}
+              <div className="bg-sky-500/5 border border-sky-500/10 rounded-xl p-4 flex gap-4">
+                <Info className="size-5 text-sky-400 shrink-0" />
+                <p className="text-[11px] text-slate-400 leading-normal">
+                  The bot uses a **Dynamic Martingale** engine. On every loss, the next stake is multiplied by <span className="text-white font-bold">{martingale}x</span>. 
+                  On a win, the stake resets to <span className="text-white font-bold">${initialStake}</span>.
                 </p>
               </div>
-            </section>
+            </div>
           </div>
         </main>
 
-        {/* RIGHT SIDEBAR: PERFORMANCE PANEL */}
-        <aside className="flex flex-col border-l border-white/10 bg-slate-900 shadow-2xl">
+        {/* RIGHT: ANALYTICS & LOGS */}
+        <aside className="flex flex-col border-l border-white/5 bg-slate-900/40">
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
-            <TabsList className="grid grid-cols-2 h-16 bg-slate-950/50 border-b border-white/10 rounded-none p-0">
-              <TabsTrigger value="summary" className="h-full rounded-none data-[state=active]:bg-sky-500 data-[state=active]:text-white font-black text-xs uppercase tracking-widest text-slate-400 transition-all">
-                <Activity className="size-4 mr-2" /> Performance
-              </TabsTrigger>
-              <TabsTrigger value="journal" className="h-full rounded-none data-[state=active]:bg-sky-500 data-[state=active]:text-white font-black text-xs uppercase tracking-widest text-slate-400 transition-all">
-                <History className="size-4 mr-2" /> Live Logs
-              </TabsTrigger>
+            <TabsList className="grid grid-cols-2 h-12 bg-slate-950 rounded-none border-b border-white/5">
+              <TabsTrigger value="summary" className="text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-sky-500 data-[state=active]:text-white">Performance</TabsTrigger>
+              <TabsTrigger value="journal" className="text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-sky-500 data-[state=active]:text-white">Live Logs</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="summary" className="m-0 flex-1 p-8 space-y-8 overflow-y-auto">
-              {/* Primary Stats */}
-              <div className="grid grid-cols-1 gap-6">
-                <div className="relative overflow-hidden rounded-3xl bg-slate-950 border-2 border-white/5 p-6 shadow-inner">
-                  <div className="text-[11px] font-black uppercase text-slate-500 tracking-[0.2em] mb-2">Total Net Profit</div>
-                  <div className={cn("text-5xl font-black tracking-tighter tabular-nums", stats.profit >= 0 ? "text-emerald-400" : "text-rose-500")}>
+            <TabsContent value="summary" className="m-0 flex-1 p-5 flex flex-col justify-between overflow-hidden">
+              <div className="space-y-4">
+                <div className="bg-slate-950 border border-white/5 rounded-2xl p-5 shadow-inner">
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Total Net Profit</span>
+                  <div className={cn("text-4xl font-black tabular-nums mt-1", stats.profit >= 0 ? "text-emerald-400" : "text-rose-500")}>
                     {stats.profit >= 0 ? '+' : ''}{stats.profit.toFixed(2)}
                   </div>
-                  <TrendingUp className={cn("absolute -bottom-4 -right-4 size-24 opacity-[0.03]", stats.profit >= 0 ? "text-emerald-400" : "text-rose-500")} />
                 </div>
-                
-                <div className="rounded-3xl bg-slate-950 border-2 border-white/5 p-6 shadow-inner">
-                  <div className="text-[11px] font-black uppercase text-slate-500 tracking-[0.2em] mb-2">Accuracy (Win Rate)</div>
-                  <div className="text-5xl font-black tracking-tighter tabular-nums text-sky-400">
-                    {winRate}%
+
+                <div className="grid grid-cols-2 gap-3">
+                   <div className="bg-slate-950 border border-white/5 rounded-xl p-3 text-center">
+                    <span className="text-[8px] font-bold text-slate-500 uppercase">Win Rate</span>
+                    <div className="text-xl font-black text-sky-400 font-mono">{stats.runs > 0 ? Math.round((stats.wins/stats.runs)*100) : 0}%</div>
+                  </div>
+                  <div className="bg-slate-950 border border-white/5 rounded-xl p-3 text-center">
+                    <span className="text-[8px] font-bold text-slate-500 uppercase">Cycles</span>
+                    <div className="text-xl font-black text-white font-mono">{stats.runs}</div>
                   </div>
                 </div>
-              </div>
 
-              {/* Counts Breakdown */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between rounded-2xl bg-white/[0.03] p-5 border border-white/5">
-                  <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Total Cycles</span>
-                  <span className="text-xl font-black text-white">{stats.runs}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl bg-emerald-400/5 p-5 border border-emerald-400/10">
-                  <span className="text-sm font-bold text-emerald-400/80 uppercase tracking-widest">Wins</span>
-                  <span className="text-xl font-black text-emerald-400">{stats.wins}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl bg-rose-500/5 p-5 border border-rose-500/10">
-                  <span className="text-sm font-bold text-rose-500/80 uppercase tracking-widest">Losses</span>
-                  <span className="text-xl font-black text-rose-500">{stats.losses}</span>
+                <div className="space-y-2 pt-2 text-[11px] font-bold">
+                  <div className="flex justify-between text-emerald-400/80 uppercase"><span>Profit Wins</span> <span>{stats.wins}</span></div>
+                  <div className="flex justify-between text-rose-500/80 uppercase"><span>Martingale Losses</span> <span>{stats.losses}</span></div>
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-white/5">
+              <div className="pt-4 space-y-4">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[9px] font-black uppercase text-slate-500">
+                    <span>Session Progress</span>
+                    <span>{stats.runs}%</span>
+                  </div>
+                  <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-full bg-sky-500 transition-all duration-700" style={{ width: `${Math.min(stats.runs, 100)}%` }} />
+                  </div>
+                </div>
+
                 {!running ? (
                   <Button 
                     onClick={() => setRunning(true)} 
-                    className="w-full h-20 rounded-[28px] text-xl font-black shadow-[0_20px_40px_-10px_rgba(14,165,233,0.4)] bg-sky-500 text-white hover:bg-sky-400 hover:scale-[1.02] active:scale-[0.98] transition-all" 
+                    className="w-full h-16 rounded-2xl bg-sky-500 text-white font-black text-lg shadow-[0_10px_30px_-10px_rgba(14,165,233,0.5)] hover:bg-sky-400 transition-all active:scale-95"
                     disabled={!token}
                   >
-                    <Play className="mr-3 size-7 fill-current" /> START TRADING BOT
+                    <Play className="size-6 mr-3 fill-current" /> START BOT
                   </Button>
                 ) : (
                   <Button 
                     onClick={() => setRunning(false)} 
                     variant="destructive" 
-                    className="w-full h-20 rounded-[28px] text-xl font-black hover:bg-rose-500 bg-rose-600 shadow-[0_20px_40px_-10px_rgba(225,29,72,0.4)] transition-all"
+                    className="w-full h-16 rounded-2xl font-black text-lg shadow-[0_10px_30px_-10px_rgba(225,29,72,0.5)] active:scale-95"
                   >
-                    <Square className="mr-3 size-6 fill-current" /> STOP STRATEGY
+                    <Square className="size-5 mr-3 fill-current" /> STOP BOT
                   </Button>
-                )}
-                
-                {!token && (
-                  <div className="mt-6 flex items-start gap-3 rounded-2xl bg-rose-500/10 p-5 border border-rose-500/20">
-                    <ShieldAlert className="size-5 text-rose-500 shrink-0 mt-0.5" /> 
-                    <p className="text-xs font-bold text-rose-300 leading-tight">
-                      Authentication Required. Please connect your Deriv account to enable trading.
-                    </p>
-                  </div>
                 )}
               </div>
             </TabsContent>
 
-            <TabsContent value="journal" className="m-0 flex-1 flex flex-col p-4 bg-slate-950">
-              <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+            <TabsContent value="journal" className="m-0 flex-1 bg-slate-950/50 flex flex-col">
+              <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
                 {journal.map((j, i) => (
                   <div key={i} className={cn(
-                    "p-4 rounded-2xl border-l-4 text-xs font-bold leading-relaxed shadow-sm",
-                    j.type === 'error' ? "bg-rose-500/10 border-rose-600 text-rose-100" :
-                    j.type === 'success' ? "bg-emerald-500/10 border-emerald-500 text-emerald-100" :
-                    "bg-slate-900 border-sky-500 text-slate-100"
+                    "p-3 rounded-lg border-l-2 text-[10px] font-mono leading-tight",
+                    j.type === 'error' ? "bg-rose-500/5 border-rose-500/50 text-rose-300" :
+                    j.type === 'success' ? "bg-emerald-500/5 border-emerald-500/50 text-emerald-300" :
+                    "bg-white/[0.02] border-white/5 text-slate-400"
                   )}>
-                    <div className="flex justify-between items-center opacity-60 mb-2 border-b border-white/5 pb-1">
-                      <span className="uppercase tracking-tighter">Event Protocol</span>
-                      <span className="font-mono">{j.time}</span>
-                    </div>
-                    <div className="font-mono leading-tight">{j.msg}</div>
+                    <div className="flex justify-between mb-1 opacity-30"><span>EVENT</span> <span>{j.time}</span></div>
+                    <div className="font-bold">{j.msg}</div>
                   </div>
                 ))}
-                {journal.length === 0 && (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-700 py-20">
-                    <Activity className="size-16 mb-4 animate-pulse opacity-10" />
-                    <p className="text-sm font-black uppercase tracking-[0.3em] opacity-20">System Idle</p>
-                  </div>
-                )}
               </div>
             </TabsContent>
           </Tabs>
