@@ -439,12 +439,12 @@ export function DerivChart({
   }, [allSymbols]);
 
   return (
-    <div className={className}>
+    <div className={cn("min-w-0", className)}>
       {/* Toolbar */}
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+      <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
         {/* Symbol selector */}
         <Select value={symbol} onValueChange={(v) => onSymbolChange?.(v)}>
-          <SelectTrigger className="w-52 glass-card text-xs sm:w-64">
+          <SelectTrigger className="w-full min-w-0 glass-card text-xs sm:w-64">
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="max-h-80">
@@ -457,7 +457,7 @@ export function DerivChart({
         </Select>
 
         {/* Timeframe buttons */}
-        <div className="flex max-w-full overflow-x-auto rounded-md border border-glass-border">
+        <div className="flex max-w-full min-w-0 overflow-x-auto rounded-md border border-glass-border">
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf.value}
@@ -476,7 +476,7 @@ export function DerivChart({
         </div>
 
         {/* Chart type toggle */}
-        <div className="flex overflow-hidden rounded-md border border-glass-border">
+        <div className="flex shrink-0 overflow-hidden rounded-md border border-glass-border">
           <button
             type="button"
             onClick={() => setChartType("area")}
@@ -508,7 +508,7 @@ export function DerivChart({
           </button>
         </div>
 
-        <div className="flex overflow-hidden rounded-md border border-glass-border">
+        <div className="flex max-w-full overflow-x-auto rounded-md border border-glass-border">
           {ANALYSIS_TOOLS.map((tool) => (
             <button
               key={tool.value}
@@ -530,7 +530,7 @@ export function DerivChart({
         {/* Connection status */}
         <span
           className={cn(
-            "ml-auto rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider",
+            "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider sm:ml-auto",
             STATUS_STYLE[status],
           )}
         >
@@ -542,7 +542,7 @@ export function DerivChart({
       <div
         ref={containerRef}
         style={{ height }}
-        className="w-full overflow-hidden rounded-lg border border-glass-border bg-foreground/[0.02]"
+        className="w-full max-w-full overflow-hidden rounded-lg border border-glass-border bg-foreground/[0.02]"
       />
     </div>
   );

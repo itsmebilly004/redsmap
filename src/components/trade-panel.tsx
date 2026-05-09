@@ -466,7 +466,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   };
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       {/* Trade type pill (green border highlight matches Deriv accumulator selector) */}
       <div className="rounded-xl border-2 border-[oklch(0.7_0.17_150)] bg-white p-3 shadow-sm">
         <div className="text-[11px] text-[oklch(0.45_0.02_260)] underline underline-offset-2">
@@ -623,10 +623,10 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           </div>
         )}
         <div className="text-center text-sm text-[oklch(0.45_0.02_260)]">Stake</div>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex min-w-0 items-center gap-1.5 sm:gap-2">
           <button
             onClick={() => setStake((s) => Math.max(isAccumulator ? 1 : 0.35, +(s - 1).toFixed(2)))}
-            className="rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
+            className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
             aria-label="Decrease stake"
           >
             <Minus className="h-4 w-4" />
@@ -637,16 +637,16 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             step={1}
             value={stake}
             onChange={(e) => setStake(Number(e.target.value))}
-            className="text-center font-mono text-base"
+            className="min-w-0 text-center font-mono text-base"
           />
           <button
             onClick={() => setStake((s) => +(s + 1).toFixed(2))}
-            className="rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
+            className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
             aria-label="Increase stake"
           >
             <Plus className="h-4 w-4" />
           </button>
-          <span className="w-14 text-center text-sm font-medium text-[oklch(0.45_0.02_260)]">
+          <span className="w-10 shrink-0 truncate text-center text-xs font-medium text-[oklch(0.45_0.02_260)] sm:w-14 sm:text-sm">
             {tradeCurrency}
           </span>
         </div>
@@ -667,10 +667,10 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             </span>
           </label>
           {takeProfitEnabled && (
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex min-w-0 items-center gap-1.5 sm:gap-2">
               <button
                 onClick={() => setTakeProfit((v) => Math.max(0, +(v - 1).toFixed(2)))}
-                className="rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
+                className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
                 aria-label="Decrease take profit"
               >
                 <Minus className="h-4 w-4" />
@@ -681,17 +681,17 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                 step={1}
                 value={takeProfit}
                 onChange={(e) => setTakeProfit(Number(e.target.value))}
-                className="text-center font-mono"
+                className="min-w-0 text-center font-mono"
                 placeholder={`Amount (${tradeCurrency})`}
               />
               <button
                 onClick={() => setTakeProfit((v) => +(v + 1).toFixed(2))}
-                className="rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
+                className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
                 aria-label="Increase take profit"
               >
                 <Plus className="h-4 w-4" />
               </button>
-              <span className="w-12 text-center text-xs text-[oklch(0.45_0.02_260)]">
+              <span className="w-10 shrink-0 truncate text-center text-xs text-[oklch(0.45_0.02_260)] sm:w-12">
                 {tradeCurrency}
               </span>
             </div>
@@ -708,7 +708,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
               {lastPrice != null ? lastPrice.toFixed(4) : "-"}
             </span>
           </div>
-          <div className="flex items-center justify-between py-1">
+          <div className="flex flex-wrap items-center justify-between gap-1 py-1">
             <span className="text-[oklch(0.4_0.02_260)]">Max. payout</span>
             <span className="font-medium underline decoration-dotted">
               {accuMeta.maxPayout != null
@@ -716,20 +716,20 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                 : `6,000.00 ${tradeCurrency}`}
             </span>
           </div>
-          <div className="flex items-center justify-between py-1">
+          <div className="flex flex-wrap items-center justify-between gap-1 py-1">
             <span className="text-[oklch(0.4_0.02_260)]">Max. ticks</span>
             <span className="font-medium underline decoration-dotted">
               {accuMeta.maxTicks ?? 85} ticks
             </span>
           </div>
           {accuMeta.tickSize != null && (
-            <div className="flex items-center justify-between py-1">
+            <div className="flex flex-wrap items-center justify-between gap-1 py-1">
               <span className="text-[oklch(0.4_0.02_260)]">Tick size barrier</span>
               <span className="font-medium">±{accuMeta.tickSize.toFixed(5)}</span>
             </div>
           )}
           {(accuMeta.minStake != null || accuMeta.maxStake != null) && (
-            <div className="flex items-center justify-between py-1">
+            <div className="flex flex-wrap items-center justify-between gap-1 py-1">
               <span className="text-[oklch(0.4_0.02_260)]">Stake range</span>
               <span className="font-medium">
                 {(accuMeta.minStake ?? 1).toFixed(2)} – {(accuMeta.maxStake ?? 2000).toFixed(2)}{" "}
@@ -738,7 +738,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             </div>
           )}
           {accuMeta.high != null && accuMeta.low != null && (
-            <div className="flex items-center justify-between py-1">
+            <div className="flex flex-wrap items-center justify-between gap-1 py-1">
               <span className="text-[oklch(0.4_0.02_260)]">Barriers</span>
               <span className="font-mono text-xs">
                 {accuMeta.low.toFixed(4)} / {accuMeta.high.toFixed(4)}

@@ -107,7 +107,7 @@ function DashboardHome() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="min-w-0 space-y-6 sm:space-y-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-[oklch(0.2_0.02_260)]">
           Welcome back
@@ -119,7 +119,7 @@ function DashboardHome() {
 
       {hasDeriv === false && (
         <div className="flex flex-col items-start gap-4 rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-6 shadow-sm backdrop-blur-sm md:flex-row md:items-center md:justify-between">
-          <div>
+          <div className="min-w-0">
             <div className="font-medium text-[oklch(0.2_0.02_260)]">Connect your Deriv account</div>
             <p className="mt-1 text-sm text-[oklch(0.5_0.02_260)]">
               Authorize ArkTrader through Deriv's official OAuth — no passwords stored.
@@ -127,7 +127,7 @@ function DashboardHome() {
           </div>
           <Button
             onClick={connectDeriv}
-            className="shrink-0 bg-[oklch(0.7_0.17_150)] text-white hover:bg-[oklch(0.65_0.17_150)]"
+            className="w-full shrink-0 bg-[oklch(0.7_0.17_150)] text-white hover:bg-[oklch(0.65_0.17_150)] sm:w-auto"
           >
             <Plug className="mr-1 size-4" /> Connect Deriv
           </Button>
@@ -153,7 +153,7 @@ function DashboardHome() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Recent trades */}
-        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-5 shadow-sm backdrop-blur-sm lg:col-span-2">
+        <div className="min-w-0 rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-4 shadow-sm backdrop-blur-sm sm:p-5 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-sm font-medium text-[oklch(0.2_0.02_260)]">Recent trades</h3>
             <Link
@@ -182,8 +182,8 @@ function DashboardHome() {
                 const win = t.status === "won";
                 const loss = t.status === "lost";
                 return (
-                  <li key={t.id} className="flex items-center justify-between py-3 text-sm">
-                    <div className="flex items-center gap-3">
+                  <li key={t.id} className="flex min-w-0 items-center justify-between gap-3 py-3 text-sm">
+                    <div className="flex min-w-0 items-center gap-3">
                       {win ? (
                         <ArrowUpRight className="size-4 text-[oklch(0.55_0.17_150)]" />
                       ) : loss ? (
@@ -191,16 +191,16 @@ function DashboardHome() {
                       ) : (
                         <Activity className="size-4 text-[oklch(0.6_0.02_260)]" />
                       )}
-                      <div>
-                        <div className="font-mono text-xs text-[oklch(0.3_0.02_260)]">
+                      <div className="min-w-0">
+                        <div className="truncate font-mono text-xs text-[oklch(0.3_0.02_260)]">
                           {t.symbol}
                         </div>
-                        <div className="text-[10px] uppercase tracking-wider text-[oklch(0.55_0.02_260)]">
+                        <div className="truncate text-[10px] uppercase tracking-wider text-[oklch(0.55_0.02_260)]">
                           {t.trade_type}
                         </div>
                       </div>
                     </div>
-                    <div className="text-right font-mono">
+                    <div className="shrink-0 text-right font-mono">
                       <div
                         className={
                           win
@@ -225,7 +225,7 @@ function DashboardHome() {
         </div>
 
         {/* Markets quick-launch */}
-        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-5 shadow-sm backdrop-blur-sm">
+        <div className="min-w-0 rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-4 shadow-sm backdrop-blur-sm sm:p-5">
           <h3 className="text-sm font-medium text-[oklch(0.2_0.02_260)]">Markets</h3>
           <ul className="mt-4 space-y-2 text-sm">
             {SYNTHETIC_MARKETS.slice(0, 5).map((m) => (
@@ -233,7 +233,7 @@ function DashboardHome() {
                 key={m.symbol}
                 className="flex items-center justify-between rounded-lg border border-[oklch(0.93_0.005_240)] bg-[oklch(0.985_0.003_240)] px-3 py-2"
               >
-                <span className="text-[oklch(0.45_0.02_260)]">{m.name}</span>
+                <span className="min-w-0 truncate text-[oklch(0.45_0.02_260)]">{m.name}</span>
                 <span className="font-mono text-xs text-[oklch(0.3_0.02_260)]">{m.symbol}</span>
               </li>
             ))}

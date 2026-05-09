@@ -94,17 +94,17 @@ function TradingBots() {
         title="Trading Bot Presets"
         subtitle="Deployment-ready bot configurations from your library. Load them into the builder to start trading."
       >
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-3">
           {BOT_PRESETS.map((b) => (
             <div
               key={b.id}
-              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-card p-6 shadow-xl transition-all hover:border-primary/50"
+              className="group relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-card p-4 shadow-xl transition-all hover:border-primary/50 sm:p-6"
             >
-              <div className="flex items-start gap-4">
+              <div className="flex min-w-0 items-start gap-3 sm:gap-4">
                 <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-all">
                   <b.icon className="size-6" />
                 </div>
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <div className="text-lg font-bold tracking-tight">{b.name}</div>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground line-clamp-3">
                     {b.desc}

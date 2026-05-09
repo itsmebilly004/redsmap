@@ -103,7 +103,7 @@ function SettingsPage() {
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="w-full max-w-3xl min-w-0 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground">
@@ -112,9 +112,9 @@ function SettingsPage() {
       </div>
 
       <section className="glass-card rounded-xl p-5">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-medium">Deriv accounts</h3>
-          <Button size="sm" onClick={connectDeriv}>
+          <Button size="sm" onClick={connectDeriv} className="w-full sm:w-auto">
             <Plug className="mr-1 size-4" /> Connect / Reconnect
           </Button>
         </div>
@@ -123,10 +123,10 @@ function SettingsPage() {
         ) : (
           <ul className="divide-y divide-glass-border">
             {accounts.map((a) => (
-              <li key={a.id} className="flex items-center justify-between py-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm">{a.account_id}</span>
+              <li key={a.id} className="flex min-w-0 items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="truncate font-mono text-sm">{a.account_id}</span>
                     <span
                       className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${
                         a.is_demo
@@ -137,11 +137,11 @@ function SettingsPage() {
                       {a.is_demo ? "Demo" : "Live"}
                     </span>
                   </div>
-                  <div className="font-mono text-xs text-muted-foreground">
+                  <div className="truncate font-mono text-xs text-muted-foreground">
                     {Number(a.balance ?? 0).toFixed(2)} {a.currency}
                   </div>
                 </div>
-                <Button size="icon" variant="ghost" onClick={() => disconnect(a.id)}>
+                <Button size="icon" variant="ghost" onClick={() => disconnect(a.id)} className="shrink-0">
                   <Trash2 className="size-4" />
                 </Button>
               </li>
@@ -182,8 +182,8 @@ function SettingsPage() {
                 }
               />
             </div>
-            <div className="flex items-center justify-between rounded-lg border border-glass-border bg-foreground/[0.02] p-3">
-              <div>
+            <div className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-glass-border bg-foreground/[0.02] p-3">
+              <div className="min-w-0">
                 <Label>Default to demo</Label>
                 <p className="text-[11px] text-muted-foreground">
                   New trades & bots default to demo.
@@ -195,7 +195,7 @@ function SettingsPage() {
               />
             </div>
           </div>
-          <Button className="mt-4" onClick={saveSettings}>
+          <Button className="mt-4 w-full sm:w-auto" onClick={saveSettings}>
             Save settings
           </Button>
         </section>
@@ -206,7 +206,7 @@ function SettingsPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Permanently remove your data from ArkTrader Hub.
         </p>
-        <Button variant="destructive" className="mt-4" onClick={deleteAccount}>
+        <Button variant="destructive" className="mt-4 w-full sm:w-auto" onClick={deleteAccount}>
           Delete account & data
         </Button>
       </section>

@@ -117,14 +117,16 @@ export function TopShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-[#f2f3f4] text-[#333333]">
-      <header className="flex h-14 items-center justify-between border-b border-[#e5e5e5] bg-white px-4 md:px-6">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="size-6 rotate-45 rounded-sm bg-[#ff444f]" />
-          <span className="text-lg font-bold tracking-tight text-[#333333]">ArkTrader Hub</span>
+    <div className="flex min-h-dvh min-w-0 flex-col overflow-x-hidden bg-[#f2f3f4] text-[#333333]">
+      <header className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-[#e5e5e5] bg-white px-3 py-2 sm:flex-nowrap md:px-6">
+        <Link to="/" className="flex min-w-0 items-center gap-2">
+          <div className="size-5 shrink-0 rotate-45 rounded-sm bg-[#ff444f] sm:size-6" />
+          <span className="truncate text-base font-bold tracking-tight text-[#333333] sm:text-lg">
+            ArkTrader Hub
+          </span>
         </Link>
 
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none sm:gap-4">
           {user && account && (
             <>
               <Button className="hidden h-9 rounded-md bg-[#ff444f] px-5 text-sm font-bold text-white hover:bg-[#eb3e48] sm:inline-flex">
@@ -132,13 +134,13 @@ export function TopShell({ children }: { children: ReactNode }) {
               </Button>
               <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex min-w-0 items-center gap-2 rounded-full border border-[#d6d6d6] bg-white px-3 py-1.5 transition hover:bg-[#f2f3f4]">
+                  <button className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-[#d6d6d6] bg-white px-2 py-1.5 transition hover:bg-[#f2f3f4] sm:gap-2 sm:px-3">
                     <AccountIcon account={account} size="sm" />
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="text-sm font-bold tabular-nums text-[#333333]">
+                      <span className="truncate text-xs font-bold tabular-nums text-[#333333] sm:text-sm">
                         {formatBalance(balance ?? account.balance, "").trim()}
                       </span>
-                      <span className="text-[11px] font-bold text-[#646464]">
+                      <span className="shrink-0 text-[11px] font-bold text-[#646464]">
                         {currency || account.currency}
                       </span>
                     </div>
@@ -153,7 +155,7 @@ export function TopShell({ children }: { children: ReactNode }) {
 
                 <DropdownMenuContent
                   align="end"
-                  className="w-[calc(100vw-24px)] max-w-[380px] overflow-hidden rounded-lg border border-[#d6d6d6] bg-white p-0 shadow-xl"
+                  className="w-[min(calc(100vw-1.5rem),380px)] overflow-hidden rounded-lg border border-[#d6d6d6] bg-white p-0 shadow-xl"
                 >
                   <Tabs
                     value={activeAccountTab}
@@ -229,7 +231,7 @@ export function TopShell({ children }: { children: ReactNode }) {
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-between bg-white px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-4 py-3">
                     <Button
                       variant="outline"
                       className="h-9 rounded-md border-[#999999] px-4 text-sm font-bold text-[#333333] hover:bg-[#f2f3f4]"
@@ -251,22 +253,23 @@ export function TopShell({ children }: { children: ReactNode }) {
           {user && !account && (
             <Button
               onClick={handleConnectDeriv}
-              className="h-9 rounded-md bg-[#ff444f] px-4 text-white hover:bg-[#eb3e48]"
+              className="h-9 rounded-md bg-[#ff444f] px-3 text-sm text-white hover:bg-[#eb3e48] sm:px-4"
             >
-              <Plug className="mr-1 size-4" /> Connect Deriv
+              <Plug className="mr-1 size-4" /> <span className="hidden sm:inline">Connect</span>{" "}
+              Deriv
             </Button>
           )}
 
           {!user && (
-            <div className="flex gap-2">
-              <Button variant="ghost" asChild className="h-9 px-4 text-sm font-medium">
+            <div className="flex gap-1 sm:gap-2">
+              <Button variant="ghost" asChild className="h-9 px-3 text-sm font-medium sm:px-4">
                 <Link to="/auth" search={{ mode: "signin" }}>
                   Log in
                 </Link>
               </Button>
               <Button
                 asChild
-                className="h-9 bg-[#3e3e3e] px-4 text-sm font-medium text-white shadow-sm"
+                className="h-9 bg-[#3e3e3e] px-3 text-sm font-medium text-white shadow-sm sm:px-4"
               >
                 <Link to="/auth" search={{ mode: "signup" }}>
                   Sign up
@@ -278,7 +281,7 @@ export function TopShell({ children }: { children: ReactNode }) {
       </header>
 
       <nav className="border-b border-[#e5e5e5] bg-white">
-        <div className="flex items-center overflow-x-auto px-2">
+        <div className="flex min-w-0 items-center overflow-x-auto px-1 sm:px-2">
           {TOP_TABS.map((t) => {
             const active = t.to === "/" ? pathname === "/" : pathname.startsWith(t.to);
             const Icon = t.icon;
@@ -287,7 +290,7 @@ export function TopShell({ children }: { children: ReactNode }) {
                 key={t.to}
                 to={t.to}
                 className={cn(
-                  "flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
+                  "flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:py-3 sm:text-sm",
                   active ? "bg-[#4bb4b3] text-white" : "text-[#333333] hover:bg-[#f2f3f4]",
                 )}
               >
@@ -299,11 +302,11 @@ export function TopShell({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
-      <main className="flex flex-1 flex-col">{children}</main>
+      <main className="flex min-w-0 flex-1 flex-col">{children}</main>
 
       <button
         aria-label="AI assistant"
-        className="fixed bottom-6 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-[#8e44ad] to-[#2c3e50] text-white shadow-lg transition-transform hover:scale-105"
+        className="fixed bottom-4 right-4 z-50 flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-[#8e44ad] to-[#2c3e50] text-white shadow-lg transition-transform hover:scale-105 sm:bottom-6 sm:right-6 sm:size-14"
       >
         <Sparkles className="size-5" />
         <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-[#4bb4b3]" />
@@ -362,14 +365,18 @@ function AccountItem({
         isActive ? "bg-[#e6e9e9]" : "bg-transparent hover:bg-[#f2f3f4]",
       )}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         <AccountIcon account={account} />
         <div className="min-w-0 text-left leading-tight">
-          <div className="text-sm font-bold text-[#333333]">{demo ? "Demo" : meta.name}</div>
-          <div className="text-[11px] font-medium text-[#999999]">{account.account_id}</div>
+          <div className="truncate text-sm font-bold text-[#333333]">
+            {demo ? "Demo" : meta.name}
+          </div>
+          <div className="truncate text-[11px] font-medium text-[#999999]">
+            {account.account_id}
+          </div>
         </div>
       </div>
-      <div className="shrink-0 pl-3 text-right leading-tight">
+      <div className="shrink-0 pl-2 text-right leading-tight sm:pl-3">
         <div className="text-sm font-bold text-[#333333]">
           {formatBalance(account.balance, account.currency)}
         </div>
@@ -452,8 +459,8 @@ export function PageHero({
   children?: ReactNode;
 }) {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 md:px-8">
-      <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{title}</h1>
+    <div className="mx-auto w-full max-w-6xl min-w-0 px-3 py-6 sm:px-4 sm:py-10 md:px-8">
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">{title}</h1>
       <p className="mt-2 max-w-2xl text-[#646464]">{subtitle}</p>
       {children && <div className="mt-8">{children}</div>}
     </div>

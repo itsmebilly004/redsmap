@@ -455,8 +455,8 @@ function BotBuilder() {
 
   return (
     <TopShell>
-      <div className="flex h-[calc(100vh-104px)] min-h-[720px] overflow-hidden bg-[#f2f3f4] text-[#333333]">
-        <aside className="flex w-[312px] shrink-0 flex-col border-r border-[#dedede] bg-white">
+      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#f2f3f4] text-[#333333] lg:h-[calc(100dvh-104px)] lg:flex-row">
+        <aside className="flex max-h-[45dvh] w-full shrink-0 flex-col border-b border-[#dedede] bg-white lg:max-h-none lg:w-[280px] lg:border-b-0 lg:border-r xl:w-[312px]">
           <div className="border-b border-[#e6e6e6] p-3">
             <Button className="h-10 w-full rounded bg-[#ff444f] text-sm font-bold text-white hover:bg-[#eb3e48]">
               Quick strategy
@@ -545,9 +545,9 @@ function BotBuilder() {
           </Tabs>
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col border-r border-[#dedede]">
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#dedede] bg-white px-3">
-            <div className="flex items-center gap-1">
+        <main className="flex min-h-[520px] min-w-0 flex-1 flex-col border-b border-[#dedede] lg:min-h-0 lg:border-b-0 lg:border-r">
+          <div className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[#dedede] bg-white px-2 py-2 sm:px-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
               <ToolbarButton
                 icon={FolderOpen}
                 label="Import"
@@ -564,7 +564,7 @@ function BotBuilder() {
                 label="Download"
                 onClick={() => toast.message("Download XML is not wired yet")}
               />
-              <div className="mx-1 h-6 w-px bg-[#e1e1e1]" />
+              <div className="mx-1 hidden h-6 w-px bg-[#e1e1e1] sm:block" />
               <ToolbarButton icon={Undo2} label="Undo" />
               <ToolbarButton icon={Redo2} label="Redo" />
               <ToolbarButton icon={ZoomIn} label="Zoom in" />
@@ -572,7 +572,7 @@ function BotBuilder() {
               <ToolbarButton icon={RotateCcw} label="Reset" onClick={resetWorkspace} />
             </div>
 
-            <div className="flex items-center gap-2 rounded border border-[#e4e4e4] bg-[#fafafa] px-3 py-1.5">
+            <div className="flex shrink-0 items-center gap-2 rounded border border-[#e4e4e4] bg-[#fafafa] px-3 py-1.5">
               {saveStatus === "saving" ? (
                 <RefreshCw className="size-3.5 animate-spin text-[#377cbd]" />
               ) : (
@@ -586,13 +586,13 @@ function BotBuilder() {
 
           <div className="relative min-h-0 flex-1 overflow-auto bg-[#f7f8f9]">
             <div className="absolute inset-0 opacity-60 [background-image:linear-gradient(#e8e8e8_1px,transparent_1px),linear-gradient(90deg,#e8e8e8_1px,transparent_1px)] [background-size:24px_24px]" />
-            <div className="relative flex min-h-full flex-col items-start gap-5 p-8 pb-24">
-              <div className="flex items-center gap-3 rounded border border-[#d9d9d9] bg-white px-4 py-2 shadow-sm">
+            <div className="relative flex min-h-full w-full min-w-0 flex-col items-start gap-4 p-3 pb-20 sm:p-5 lg:gap-5 lg:p-8 lg:pb-24">
+              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded border border-[#d9d9d9] bg-white px-3 py-2 shadow-sm sm:w-auto sm:gap-3 sm:px-4">
                 <Blocks className="size-4 text-[#ff444f]" />
                 <Input
                   value={botName}
                   onChange={(event) => setBotName(event.target.value)}
-                  className="h-8 w-[320px] border-[#e4e4e4] text-sm font-bold"
+                  className="h-8 min-w-0 flex-1 border-[#e4e4e4] text-sm font-bold sm:w-[320px] sm:flex-none"
                 />
                 <span className="rounded bg-[#f2f3f4] px-2 py-1 text-[10px] font-bold uppercase text-[#646464]">
                   Editable preset
@@ -632,13 +632,13 @@ function BotBuilder() {
                       />
                     </Field>
                     <Field label="Duration">
-                      <div className="flex gap-2">
+                      <div className="flex w-full flex-col gap-2 sm:flex-row">
                         <NumberInput
                           value={duration}
                           min={1}
                           step={1}
                           onChange={setDuration}
-                          className="w-24"
+                          className="sm:w-24"
                         />
                         <InlineSelect
                           value={durationUnit}
@@ -754,14 +754,14 @@ function BotBuilder() {
                 </WorkspaceBlock>
               )}
 
-              <div className="absolute bottom-8 right-8 flex size-24 items-center justify-center rounded border-2 border-dashed border-[#d0d0d0] bg-white/80 text-[#999999]">
+              <div className="absolute bottom-8 right-8 hidden size-24 items-center justify-center rounded border-2 border-dashed border-[#d0d0d0] bg-white/80 text-[#999999] lg:flex">
                 <Trash2 className="size-9" />
               </div>
             </div>
           </div>
         </main>
 
-        <aside className="flex w-[360px] shrink-0 flex-col bg-white">
+        <aside className="flex w-full shrink-0 flex-col bg-white lg:w-[320px] xl:w-[360px]">
           <div className="border-b border-[#dedede] p-4">
             <div className="mb-3 flex items-center gap-2">
               <Wallet className="size-4 text-[#646464]" />
@@ -909,18 +909,18 @@ function WorkspaceBlock({
 }) {
   return (
     <div
-      className="relative rounded border border-[#cfcfcf] bg-white shadow-sm"
+      className="relative min-w-0 rounded border border-[#cfcfcf] bg-white shadow-sm"
       style={{ width, maxWidth: "100%" }}
     >
-      <div className="absolute -left-3 top-8 h-6 w-3 rounded-l bg-white shadow-[inset_0_0_0_1px_#cfcfcf]" />
-      <div className="absolute -right-3 top-16 h-6 w-3 rounded-r bg-white shadow-[inset_0_0_0_1px_#cfcfcf]" />
+      <div className="absolute -left-3 top-8 hidden h-6 w-3 rounded-l bg-white shadow-[inset_0_0_0_1px_#cfcfcf] sm:block" />
+      <div className="absolute -right-3 top-16 hidden h-6 w-3 rounded-r bg-white shadow-[inset_0_0_0_1px_#cfcfcf] sm:block" />
       <div
         className="flex items-center justify-between rounded-t px-3 py-2 text-white"
         style={{ backgroundColor: color }}
       >
-        <div className="flex items-center gap-2 text-sm font-bold">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-bold">
           <GripVertical className="size-4 opacity-70" />
-          {title}
+          <span className="truncate">{title}</span>
         </div>
         <button
           onClick={onRemove}
@@ -930,7 +930,7 @@ function WorkspaceBlock({
           <Trash2 className="size-4" />
         </button>
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-3 sm:p-4">{children}</div>
     </div>
   );
 }
@@ -947,20 +947,20 @@ function ToolbarButton({
   return (
     <button
       onClick={onClick}
-      className="flex h-8 items-center gap-1 rounded px-2 text-xs font-bold text-[#646464] hover:bg-[#f2f3f4] hover:text-[#333333]"
+      className="flex h-8 shrink-0 items-center gap-1 rounded px-2 text-xs font-bold text-[#646464] hover:bg-[#f2f3f4] hover:text-[#333333]"
       title={label}
     >
       <Icon className="size-4" />
-      <span>{label}</span>
+      <span className="hidden sm:inline">{label}</span>
     </button>
   );
 }
 
 function Field({ children, label }: { children: React.ReactNode; label: string }) {
   return (
-    <div className="flex min-h-10 items-center justify-between gap-4 rounded border border-[#eeeeee] bg-[#fafafa] px-3 py-2">
-      <Label className="text-xs font-bold text-[#555555]">{label}</Label>
-      <div className="min-w-0">{children}</div>
+    <div className="flex min-h-10 min-w-0 flex-col gap-2 rounded border border-[#eeeeee] bg-[#fafafa] px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <Label className="shrink-0 text-xs font-bold text-[#555555]">{label}</Label>
+      <div className="min-w-0 sm:max-w-[65%]">{children}</div>
     </div>
   );
 }
@@ -978,7 +978,7 @@ function InlineSelect({
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-8 w-[190px] rounded border-[#d6d6d6] bg-white px-3 text-xs font-bold">
+      <SelectTrigger className="h-8 w-full min-w-0 rounded border-[#d6d6d6] bg-white px-3 text-xs font-bold sm:w-[190px]">
         <SelectValue>{labels?.[value] ?? value}</SelectValue>
       </SelectTrigger>
       <SelectContent className="bg-white">
@@ -1013,7 +1013,7 @@ function NumberInput({
       value={value}
       onChange={(event) => onChange(Number(event.target.value))}
       className={cn(
-        "h-8 w-32 rounded border-[#d6d6d6] bg-white text-right font-mono text-xs font-bold",
+        "h-8 w-full rounded border-[#d6d6d6] bg-white text-right font-mono text-xs font-bold sm:w-32",
         className,
       )}
     />

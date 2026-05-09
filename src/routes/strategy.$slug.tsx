@@ -32,7 +32,7 @@ function StrategyDetail() {
 
   return (
     <TopShell>
-      <div className="mx-auto max-w-4xl px-4 py-10 md:px-8">
+      <div className="mx-auto w-full max-w-4xl min-w-0 px-3 py-6 sm:px-4 sm:py-10 md:px-8">
         <Link
           to="/strategies"
           className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
@@ -42,7 +42,9 @@ function StrategyDetail() {
 
         <header className="mt-6">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-bold text-slate-900 md:text-4xl">{s.name}</h1>
+            <h1 className="min-w-0 text-2xl font-bold text-slate-900 sm:text-3xl md:text-4xl">
+              {s.name}
+            </h1>
             <span className={`rounded-full px-3 py-1 text-xs font-semibold ${riskColor}`}>
               {s.riskLevel} risk
             </span>
@@ -50,7 +52,7 @@ function StrategyDetail() {
           <p className="mt-2 text-base text-slate-600">{s.tagline}</p>
         </header>
 
-        <section className="mt-8 rounded-xl bg-white p-6 ring-1 ring-slate-200/70">
+        <section className="mt-8 rounded-xl bg-white p-4 ring-1 ring-slate-200/70 sm:p-6">
           <h2 className="text-lg font-semibold text-slate-800">Overview</h2>
           <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.overview}</p>
 
@@ -85,15 +87,15 @@ function StrategyDetail() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-xl bg-white p-6 ring-1 ring-slate-200/70">
+        <section className="mt-6 rounded-xl bg-white p-4 ring-1 ring-slate-200/70 sm:p-6">
           <h2 className="text-lg font-semibold text-slate-800">Step-by-step execution</h2>
           <ol className="mt-4 space-y-4">
             {s.steps.map((step: StrategyStep, idx: number) => (
-              <li key={idx} className="flex gap-4">
+              <li key={idx} className="flex min-w-0 gap-3 sm:gap-4">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
                   {idx + 1}
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-sm font-semibold text-slate-800">{step.title}</h3>
                   <p className="mt-1 text-sm text-slate-600">{step.body}</p>
                 </div>
@@ -103,7 +105,7 @@ function StrategyDetail() {
         </section>
 
         <div className="mt-6 grid gap-6 md:grid-cols-2">
-          <section className="rounded-xl bg-white p-6 ring-1 ring-slate-200/70">
+          <section className="rounded-xl bg-white p-4 ring-1 ring-slate-200/70 sm:p-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-800">
               <Lightbulb className="h-5 w-5 text-amber-500" /> Tips
             </h2>
@@ -117,7 +119,7 @@ function StrategyDetail() {
             </ul>
           </section>
 
-          <section className="rounded-xl bg-white p-6 ring-1 ring-slate-200/70">
+          <section className="rounded-xl bg-white p-4 ring-1 ring-slate-200/70 sm:p-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-800">
               <AlertTriangle className="h-5 w-5 text-rose-500" /> Pitfalls to avoid
             </h2>
@@ -132,14 +134,14 @@ function StrategyDetail() {
           </section>
         </div>
 
-        <section className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white">
-          <div>
+        <section className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 p-4 text-white sm:p-6">
+          <div className="min-w-0">
             <h3 className="text-lg font-semibold">Ready to try this strategy?</h3>
             <p className="text-sm text-white/80">Open the bot builder and load the parameters.</p>
           </div>
           <Link
             to="/bot-builder"
-            className="inline-flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-blue-700 shadow hover:bg-slate-100"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-blue-700 shadow hover:bg-slate-100 sm:w-auto"
           >
             Open Bot Builder <ArrowRight className="h-4 w-4" />
           </Link>

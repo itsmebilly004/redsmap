@@ -33,9 +33,9 @@ function AuthPage() {
   }
 
   return (
-    <div className="relative grid min-h-dvh place-items-center px-4 py-12">
+    <div className="relative grid min-h-dvh overflow-hidden px-3 py-8 sm:place-items-center sm:px-4 sm:py-12">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-20 left-1/2 size-[500px] -translate-x-1/2 rounded-full bg-primary/10 blur-[140px]" />
+        <div className="absolute -top-20 left-1/2 size-80 -translate-x-1/2 rounded-full bg-primary/10 blur-[120px] sm:size-[500px] sm:blur-[140px]" />
       </div>
       <div className="relative w-full max-w-md">
         <Link to="/" className="mb-8 flex items-center justify-center gap-2.5">
@@ -43,7 +43,7 @@ function AuthPage() {
           <span className="text-lg font-semibold tracking-tight">ArkTrader Hub</span>
         </Link>
 
-        <div className="glass-card rounded-2xl p-8">
+        <div className="glass-card rounded-2xl p-5 sm:p-8">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs text-primary">
             <ShieldCheck className="size-3.5" /> Official Deriv OAuth
           </div>

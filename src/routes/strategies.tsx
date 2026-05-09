@@ -41,9 +41,9 @@ const ICONS = {
 function Strategies() {
   return (
     <TopShell>
-      <div className="mx-auto max-w-7xl px-4 py-10 md:px-8">
+      <div className="mx-auto w-full max-w-7xl min-w-0 px-3 py-6 sm:px-4 sm:py-10 md:px-8">
         <header className="text-center">
-          <h1 className="text-3xl font-bold text-slate-900 md:text-4xl">
+          <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl md:text-4xl">
             Advanced Trading Strategies
           </h1>
           <p className="mt-2 text-sm text-blue-600">
@@ -51,7 +51,7 @@ function Strategies() {
           </p>
         </header>
 
-        <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
           {STRATEGIES.map((s) => {
             const meta = ICONS[s.slug as keyof typeof ICONS] ?? {
               Icon: Target,
@@ -63,7 +63,7 @@ function Strategies() {
                 key={s.slug}
                 to="/strategy/$slug"
                 params={{ slug: s.slug }}
-                className="group relative flex h-72 flex-col items-center justify-between rounded-xl bg-slate-50 p-6 text-center shadow-sm ring-1 ring-slate-200/70 transition hover:shadow-md hover:ring-blue-300"
+                className="group relative flex min-h-64 flex-col items-center justify-between rounded-xl bg-slate-50 p-4 text-center shadow-sm ring-1 ring-slate-200/70 transition hover:shadow-md hover:ring-blue-300 sm:h-72 sm:p-6"
               >
                 <div className="mt-2">
                   <Icon className={`h-12 w-12 ${color}`} strokeWidth={2.5} />

@@ -13,10 +13,7 @@ import {
   Bot,
   Crosshair,
   Maximize2,
-  BarChart2,
-  TrendingUp,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -39,7 +36,6 @@ function Index() {
     high: null,
     low: null,
   });
-  const [mobileTab, setMobileTab] = useState<"chart" | "trade">("chart");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -55,40 +51,9 @@ function Index() {
 
   return (
     <TopShell>
-      {/* Mobile tab switcher */}
-      <div className="flex border-b border-[oklch(0.92_0.005_240)] bg-white lg:hidden">
-        <button
-          onClick={() => setMobileTab("chart")}
-          className={cn(
-            "flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-medium transition",
-            mobileTab === "chart"
-              ? "border-b-2 border-[oklch(0.7_0.17_150)] text-[oklch(0.35_0.15_150)]"
-              : "text-[oklch(0.5_0.02_260)]",
-          )}
-        >
-          <BarChart2 className="size-4" /> Chart
-        </button>
-        <button
-          onClick={() => setMobileTab("trade")}
-          className={cn(
-            "flex flex-1 items-center justify-center gap-2 py-2.5 text-sm font-medium transition",
-            mobileTab === "trade"
-              ? "border-b-2 border-[oklch(0.7_0.17_150)] text-[oklch(0.35_0.15_150)]"
-              : "text-[oklch(0.5_0.02_260)]",
-          )}
-        >
-          <TrendingUp className="size-4" /> Trade
-        </button>
-      </div>
-
       <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100dvh-9.5rem)] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
         {/* Chart section */}
-        <section
-          className={cn(
-            "relative min-h-0 border-r border-[oklch(0.92_0.005_240)] bg-white p-2 sm:p-3",
-            mobileTab !== "chart" && "hidden lg:block",
-          )}
-        >
+        <section className="relative min-h-0 min-w-0 border-r border-[oklch(0.92_0.005_240)] bg-white p-2 sm:p-3">
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-semibold">Manual Trader</div>
@@ -115,12 +80,7 @@ function Index() {
         </section>
 
         {/* Trade panel */}
-        <aside
-          className={cn(
-            "min-h-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 sm:p-3",
-            mobileTab === "trade" ? "flex" : "hidden lg:flex",
-          )}
-        >
+        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 sm:p-3">
           <TradePanel market={symbol} lastPrice={price} onAccumulatorBarriers={setBarriers} />
         </aside>
       </div>

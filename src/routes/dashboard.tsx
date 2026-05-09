@@ -50,7 +50,7 @@ function DashboardLayout() {
 
   return (
     <TopShell>
-      <div className="flex flex-1">
+      <div className="flex min-w-0 flex-1">
         {/* Sidebar */}
         <aside className="hidden w-56 shrink-0 flex-col border-r border-[oklch(0.92_0.005_240)] bg-white/70 backdrop-blur-xl md:flex">
           {/* Connected account badge */}
@@ -109,7 +109,7 @@ function DashboardLayout() {
 
         {/* Main content area */}
         <div className="flex min-w-0 flex-1 flex-col bg-[oklch(0.985_0.003_240)]">
-          <main className="flex-1 px-4 py-6 pb-20 md:px-8 md:pb-8">
+          <main className="min-w-0 flex-1 px-3 py-4 pb-20 sm:px-4 sm:py-6 md:px-8 md:pb-8">
             <Outlet />
           </main>
 

@@ -21,7 +21,10 @@ function ChartsPage() {
   const [chartHeight, setChartHeight] = useState(600);
 
   useEffect(() => {
-    const compute = () => setChartHeight(Math.max(400, window.innerHeight - 160));
+    const compute = () => {
+      const narrow = window.innerWidth < 640;
+      setChartHeight(Math.max(narrow ? 300 : 400, window.innerHeight - (narrow ? 220 : 160)));
+    };
     compute();
     window.addEventListener("resize", compute);
     return () => window.removeEventListener("resize", compute);
@@ -29,7 +32,7 @@ function ChartsPage() {
 
   return (
     <TopShell>
-      <div className="bg-white p-3">
+      <div className="min-w-0 bg-white p-2 sm:p-3">
         <DerivChart symbol={symbol} onSymbolChange={setSymbol} height={chartHeight} />
       </div>
     </TopShell>
