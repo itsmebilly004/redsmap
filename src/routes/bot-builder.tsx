@@ -13,19 +13,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { send, contractTypeFor, type TradeCategory } from "@/lib/deriv";
 import { toast } from "sonner";
 import {
-  FolderOpen,
   Play,
   Square,
   RotateCcw,
@@ -41,6 +33,7 @@ import {
   Layers,
   ChevronRight,
   Info,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BOT_PRESETS } from "./trading-bots";
@@ -58,7 +51,7 @@ const DEFAULT_BLOCKS = ["trade_parameters", "purchase_logic", "restart_condition
 type BlockId = (typeof DEFAULT_BLOCKS)[number];
 
 const BLOCK_META: Record<BlockId, { title: string; icon: any; color: string }> = {
-  trade_parameters: { title: "Trade Parameters", icon: Settings2, color: "text-blue-400" },
+  trade_parameters: { title: "Trade Parameters", icon: Settings2, color: "text-sky-400" },
   purchase_logic: { title: "Purchase Logic", icon: Target, color: "text-emerald-400" },
   restart_conditions: { title: "Restart Conditions", icon: RotateCcw, color: "text-orange-400" },
 };
@@ -94,7 +87,7 @@ function BotBuilder() {
   const [stats, setStats] = useState({ runs: 0, wins: 0, losses: 0, profit: 0 });
   const [journal, setJournal] = useState<{ time: string; msg: string; type?: 'info' | 'error' | 'success' }[]>([]);
 
-  const { account: derivAccount, currency: derivCurrency, balance } = useDerivBalanceContext();
+  const { account: derivAccount, currency: derivCurrency } = useDerivBalanceContext();
   const token = derivAccount?.deriv_token ?? null;
 
   useEffect(() => {
@@ -150,7 +143,7 @@ function BotBuilder() {
       });
 
       const buy = await send({ buy: proposal.proposal.id, price: currentStake });
-      logJournal(`Executing ${ct} for ${currentStake} ${derivCurrency}...`);
+      logJournal(`Executing ${ct}...`);
 
       const poll = setInterval(async () => {
         const res = await send({ proposal_open_contract: 1, contract_id: buy.buy.contract_id });
@@ -168,7 +161,7 @@ function BotBuilder() {
             profit: s.profit + pnl
           }));
 
-          logJournal(`${won ? '🏆 Won' : '📉 Lost'} trade: ${pnl.toFixed(2)} ${derivCurrency}`, won ? 'success' : 'error');
+          logJournal(`${won ? 'WIN' : 'LOSS'} cycle complete: ${pnl.toFixed(2)}`, won ? 'success' : 'error');
 
           if (won) setCurrentStake(initialStake);
           else setCurrentStake(prev => Number((prev * martingale).toFixed(2)));
@@ -191,264 +184,264 @@ function BotBuilder() {
 
   return (
     <TopShell>
-      <div className="flex h-[calc(100vh-64px)] flex-col lg:grid lg:grid-cols-[260px_1fr_380px]">
+      <div className="flex h-[calc(100vh-64px)] flex-col lg:grid lg:grid-cols-[260px_1fr_400px]">
         
-        {/* LEFT: LOGIC BLOCKS SIDEBAR */}
-        <aside className="hidden flex-col border-r border-white/5 bg-background/40 backdrop-blur-xl lg:flex">
-          <div className="p-4 flex items-center gap-2 text-muted-foreground">
-            <Layers className="size-4" />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Logic Workspace</span>
+        {/* LEFT SIDEBAR: BLOCK LIST */}
+        <aside className="hidden flex-col border-r border-white/10 bg-slate-900/50 backdrop-blur-md lg:flex">
+          <div className="p-4 flex items-center gap-2 border-b border-white/5">
+            <Layers className="size-4 text-sky-400" />
+            <span className="text-[11px] font-black uppercase tracking-widest text-slate-300">Logic Workspace</span>
           </div>
           
-          <div className="flex-1 space-y-2 p-3">
+          <div className="flex-1 space-y-3 p-4">
             {(Object.keys(BLOCK_META) as BlockId[]).map((id) => {
               const meta = BLOCK_META[id];
               return (
-                <div key={id} className="group flex cursor-grab items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-3 transition hover:bg-white/[0.06] active:cursor-grabbing">
-                  <div className={cn("rounded-lg bg-white/5 p-2", meta.color)}>
+                <div key={id} className="group flex cursor-grab items-center gap-3 rounded-xl border border-white/10 bg-slate-800/40 p-4 transition hover:border-sky-500/50 hover:bg-slate-800 active:cursor-grabbing shadow-sm">
+                  <div className={cn("rounded-lg bg-white/5 p-2 shadow-inner", meta.color)}>
                     <meta.icon className="size-4" />
                   </div>
-                  <span className="text-xs font-medium">{meta.title}</span>
-                  <GripVertical className="ml-auto size-3 opacity-0 group-hover:opacity-40" />
+                  <span className="text-sm font-bold text-slate-100">{meta.title}</span>
+                  <GripVertical className="ml-auto size-4 text-slate-600 opacity-0 group-hover:opacity-100" />
                 </div>
               );
             })}
             
-            <div className="mt-8 rounded-2xl border border-dashed border-white/10 p-4 text-center">
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Drag blocks from the menu to add custom analysis or purchase triggers.
+            <div className="mt-10 rounded-2xl border-2 border-dashed border-white/5 p-6 text-center">
+              <p className="text-xs font-medium leading-relaxed text-slate-400">
+                Drag blocks here to build custom triggers.
               </p>
             </div>
           </div>
         </aside>
 
-        {/* CENTER: WORKSPACE */}
-        <main className="flex flex-1 flex-col overflow-y-auto bg-gradient-to-b from-white/[0.02] to-transparent p-6">
-          <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        {/* CENTER: BOT BUILDER WORKSPACE */}
+        <main className="flex flex-1 flex-col overflow-y-auto bg-slate-950 p-6">
+          <header className="mb-10 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="size-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-glow">
-                <Activity className="size-6" />
+              <div className="size-14 rounded-2xl bg-sky-500 flex items-center justify-center text-white shadow-[0_0_30px_-5px_rgba(14,165,233,0.5)]">
+                <Activity className="size-7" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight">{botName}</h1>
-                <div className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
-                  <span className="text-emerald-400">● Live Ticks</span>
-                  <ChevronRight className="size-3" />
-                  <span>{MARKETS[symbol as keyof typeof MARKETS]}</span>
+                <h1 className="text-3xl font-black tracking-tight text-white">{botName}</h1>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-black text-emerald-400 uppercase border border-emerald-500/20">
+                    <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live Ticks
+                  </span>
+                  <ChevronRight className="size-3 text-slate-600" />
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
+                    {MARKETS[symbol as keyof typeof MARKETS] || symbol}
+                  </span>
                 </div>
               </div>
             </div>
             
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" className="rounded-lg h-9">
-                <Save className="mr-2 size-4" /> Save
+            <div className="flex gap-3">
+              <Button variant="secondary" className="rounded-xl font-bold bg-slate-800 text-white hover:bg-slate-700 h-11 px-5 border border-white/5">
+                <Save className="mr-2 size-5" /> Save Bot
               </Button>
-              <Button variant="outline" size="sm" className="rounded-lg h-9 border-white/10 bg-white/5">
-                <Download className="mr-2 size-4" /> Export XML
+              <Button variant="outline" className="rounded-xl font-bold border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 h-11 px-5">
+                <Download className="mr-2 size-5" /> XML
               </Button>
             </div>
           </header>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Market & Stake Card */}
-            <section className="glass-card rounded-3xl p-6 shadow-card">
-              <div className="mb-6 flex items-center justify-between">
-                <h3 className="text-sm font-bold flex items-center gap-2 uppercase tracking-wide text-muted-foreground">
-                  <Wallet className="size-4 text-blue-400" /> Market & Stake
+          <div className="grid gap-8 md:grid-cols-2">
+            {/* Configuration Card */}
+            <section className="rounded-[32px] border border-white/10 bg-slate-900 p-8 shadow-2xl">
+              <div className="mb-8 flex items-center justify-between">
+                <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest text-sky-400">
+                  <Wallet className="size-5" /> Market & Position
                 </h3>
-                <Info className="size-4 text-white/20" />
+                <div className="h-10 w-10 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
+                    <Info className="size-4 text-slate-500" />
+                </div>
               </div>
               
-              <div className="space-y-5">
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground ml-1">Asset Index</Label>
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <Label className="text-sm font-bold text-slate-200 ml-1">Asset Index</Label>
                   <Select value={symbol} onValueChange={setSymbol}>
-                    <SelectTrigger className="h-12 rounded-xl bg-white/[0.03] border-white/10">
+                    <SelectTrigger className="h-14 rounded-2xl bg-slate-950 border-white/10 text-white font-bold text-base focus:ring-sky-500">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(MARKETS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                    <SelectContent className="bg-slate-900 border-white/10 text-white">
+                      {Object.entries(MARKETS).map(([v, l]) => <SelectItem key={v} value={v} className="focus:bg-sky-500">{l}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground ml-1">Base Stake</Label>
+                <div className="grid grid-cols-2 gap-6 pt-2">
+                  <div className="space-y-3">
+                    <Label className="text-sm font-bold text-slate-200 ml-1">Initial Stake</Label>
                     <div className="relative">
                       <Input 
                         type="number" 
                         value={initialStake} 
                         onChange={e => setInitialStake(Number(e.target.value))}
-                        className="h-12 rounded-xl bg-white/[0.03] border-white/10 pl-10 font-mono"
+                        className="h-14 rounded-2xl bg-slate-950 border-white/20 pl-10 text-lg font-black text-white focus:border-sky-500 transition-colors"
                       />
-                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</div>
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-500 font-bold">$</div>
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground ml-1">Martingale</Label>
+                  <div className="space-y-3">
+                    <Label className="text-sm font-bold text-slate-200 ml-1">Martingale</Label>
                     <div className="relative">
                       <Input 
                         type="number" 
                         value={martingale} 
                         onChange={e => setMartingale(Number(e.target.value))}
-                        className="h-12 rounded-xl bg-white/[0.03] border-white/10 pl-10 font-mono"
+                        className="h-14 rounded-2xl bg-slate-950 border-white/20 pl-10 text-lg font-black text-white focus:border-sky-500 transition-colors"
                       />
-                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">x</div>
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-400 font-bold">x</div>
                     </div>
                   </div>
                 </div>
               </div>
             </section>
 
-            {/* Risk Management Card */}
-            <section className="glass-card rounded-3xl p-6 shadow-card">
-              <div className="mb-6 flex items-center justify-between">
-                <h3 className="text-sm font-bold flex items-center gap-2 uppercase tracking-wide text-muted-foreground">
-                  <ShieldAlert className="size-4 text-orange-400" /> Safety Rails
+            {/* Risk Control Card */}
+            <section className="rounded-[32px] border border-white/10 bg-slate-900 p-8 shadow-2xl">
+              <div className="mb-8 flex items-center justify-between">
+                <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest text-orange-400">
+                  <ShieldAlert className="size-5" /> Safety Mechanisms
                 </h3>
-                <Settings2 className="size-4 text-white/20" />
+                <Settings2 className="size-5 text-slate-600" />
               </div>
 
-              <div className="space-y-8">
-                <div className="space-y-4">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="uppercase text-muted-foreground">Take Profit</span>
-                    <span className="font-mono text-emerald-400">+{takeProfit} {derivCurrency}</span>
+              <div className="space-y-10">
+                <div className="space-y-5">
+                  <div className="flex justify-between items-end">
+                    <span className="text-xs font-black uppercase text-slate-400 tracking-wider">Take Profit Target</span>
+                    <span className="text-2xl font-black text-emerald-400">+{takeProfit} <span className="text-xs text-slate-500 ml-1">{derivCurrency || 'USD'}</span></span>
                   </div>
                   <input 
-                    type="range" min="1" max="1000" step="0.5"
-                    className="w-full accent-emerald-500 bg-white/5 h-1.5 rounded-lg appearance-none cursor-pointer"
+                    type="range" min="1" max="5000" step="1"
+                    className="w-full accent-emerald-500 bg-slate-950 h-2.5 rounded-full appearance-none cursor-pointer border border-white/5"
                     value={takeProfit} onChange={e => setTakeProfit(Number(e.target.value))} 
                   />
                 </div>
 
-                <div className="space-y-4">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="uppercase text-muted-foreground">Max. Stop Loss</span>
-                    <span className="font-mono text-rose-400">-{stopLoss} {derivCurrency}</span>
+                <div className="space-y-5">
+                  <div className="flex justify-between items-end">
+                    <span className="text-xs font-black uppercase text-slate-400 tracking-wider">Max Stop Loss</span>
+                    <span className="text-2xl font-black text-rose-500">-{stopLoss} <span className="text-xs text-slate-500 ml-1">{derivCurrency || 'USD'}</span></span>
                   </div>
                   <input 
-                    type="range" min="1" max="1000" step="0.5"
-                    className="w-full accent-rose-500 bg-white/5 h-1.5 rounded-lg appearance-none cursor-pointer"
+                    type="range" min="1" max="5000" step="1"
+                    className="w-full accent-rose-500 bg-slate-950 h-2.5 rounded-full appearance-none cursor-pointer border border-white/5"
                     value={stopLoss} onChange={e => setStopLoss(Number(e.target.value))} 
                   />
                 </div>
               </div>
               
-              <div className="mt-6 rounded-xl bg-white/[0.02] p-3 text-[10px] text-muted-foreground leading-relaxed">
-                <Info className="size-3 inline mr-1 mb-0.5" />
-                The bot will automatically halt all trading activities once either threshold is crossed within the current session.
+              <div className="mt-8 rounded-2xl bg-white/[0.03] p-4 border border-white/5 flex gap-3">
+                <Info className="size-5 text-sky-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] font-medium text-slate-400 leading-normal">
+                  Auto-Stop: Trading will immediately cease if your session profit hits <span className="text-emerald-400">+{takeProfit}</span> or if your loss exceeds <span className="text-rose-500">-{stopLoss}</span>.
+                </p>
               </div>
             </section>
           </div>
         </main>
 
-        {/* RIGHT: PERFORMANCE PANEL */}
-        <aside className="flex flex-col border-l border-white/5 bg-background/40 backdrop-blur-xl">
+        {/* RIGHT SIDEBAR: PERFORMANCE PANEL */}
+        <aside className="flex flex-col border-l border-white/10 bg-slate-900 shadow-2xl">
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
-            <TabsList className="grid grid-cols-2 h-14 bg-white/5 border-b border-white/5 rounded-none p-0">
-              <TabsTrigger value="summary" className="h-full rounded-none data-[state=active]:bg-white/5 font-bold text-xs uppercase tracking-widest">Dashboard</TabsTrigger>
-              <TabsTrigger value="journal" className="h-full rounded-none data-[state=active]:bg-white/5 font-bold text-xs uppercase tracking-widest">Live Logs</TabsTrigger>
+            <TabsList className="grid grid-cols-2 h-16 bg-slate-950/50 border-b border-white/10 rounded-none p-0">
+              <TabsTrigger value="summary" className="h-full rounded-none data-[state=active]:bg-sky-500 data-[state=active]:text-white font-black text-xs uppercase tracking-widest text-slate-400 transition-all">
+                <Activity className="size-4 mr-2" /> Performance
+              </TabsTrigger>
+              <TabsTrigger value="journal" className="h-full rounded-none data-[state=active]:bg-sky-500 data-[state=active]:text-white font-black text-xs uppercase tracking-widest text-slate-400 transition-all">
+                <History className="size-4 mr-2" /> Live Logs
+              </TabsTrigger>
             </TabsList>
             
-            <TabsContent value="summary" className="m-0 flex-1 p-6 space-y-6">
-              {/* Main Metric Cards */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="relative overflow-hidden rounded-2xl bg-white/[0.03] border border-white/5 p-4">
-                  <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-tighter">Profit / Loss</div>
-                  <div className={cn("text-3xl font-mono font-bold mt-1", stats.profit >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                    {stats.profit.toFixed(2)}
+            <TabsContent value="summary" className="m-0 flex-1 p-8 space-y-8 overflow-y-auto">
+              {/* Primary Stats */}
+              <div className="grid grid-cols-1 gap-6">
+                <div className="relative overflow-hidden rounded-3xl bg-slate-950 border-2 border-white/5 p-6 shadow-inner">
+                  <div className="text-[11px] font-black uppercase text-slate-500 tracking-[0.2em] mb-2">Total Net Profit</div>
+                  <div className={cn("text-5xl font-black tracking-tighter tabular-nums", stats.profit >= 0 ? "text-emerald-400" : "text-rose-500")}>
+                    {stats.profit >= 0 ? '+' : ''}{stats.profit.toFixed(2)}
                   </div>
-                  <div className={cn("absolute -bottom-2 -right-2 size-12 opacity-10", stats.profit >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                    <TrendingUp className="h-full w-full" />
-                  </div>
+                  <TrendingUp className={cn("absolute -bottom-4 -right-4 size-24 opacity-[0.03]", stats.profit >= 0 ? "text-emerald-400" : "text-rose-500")} />
                 </div>
                 
-                <div className="rounded-2xl bg-white/[0.03] border border-white/5 p-4">
-                  <div className="text-[10px] font-bold uppercase text-muted-foreground tracking-tighter">Win Rate</div>
-                  <div className="text-3xl font-mono font-bold mt-1 text-blue-400">
+                <div className="rounded-3xl bg-slate-950 border-2 border-white/5 p-6 shadow-inner">
+                  <div className="text-[11px] font-black uppercase text-slate-500 tracking-[0.2em] mb-2">Accuracy (Win Rate)</div>
+                  <div className="text-5xl font-black tracking-tighter tabular-nums text-sky-400">
                     {winRate}%
                   </div>
                 </div>
               </div>
 
-              {/* Detail Stats */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between rounded-xl bg-white/[0.02] px-4 py-3 text-sm">
-                  <span className="text-muted-foreground">Total Trade Cycles</span>
-                  <span className="font-mono font-bold">{stats.runs}</span>
+              {/* Counts Breakdown */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-2xl bg-white/[0.03] p-5 border border-white/5">
+                  <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Total Cycles</span>
+                  <span className="text-xl font-black text-white">{stats.runs}</span>
                 </div>
-                <div className="flex items-center justify-between rounded-xl bg-white/[0.02] px-4 py-3 text-sm">
-                  <span className="text-muted-foreground">Successful Trades</span>
-                  <span className="text-emerald-400 font-mono font-bold">{stats.wins}</span>
+                <div className="flex items-center justify-between rounded-2xl bg-emerald-400/5 p-5 border border-emerald-400/10">
+                  <span className="text-sm font-bold text-emerald-400/80 uppercase tracking-widest">Wins</span>
+                  <span className="text-xl font-black text-emerald-400">{stats.wins}</span>
                 </div>
-                <div className="flex items-center justify-between rounded-xl bg-white/[0.02] px-4 py-3 text-sm">
-                  <span className="text-muted-foreground">Failed Trades</span>
-                  <span className="text-rose-400 font-mono font-bold">{stats.losses}</span>
-                </div>
-              </div>
-
-              {/* Dynamic Progress Bar */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
-                  <span>Session Intensity</span>
-                  <span>{stats.runs}/100 Trades</span>
-                </div>
-                <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                   <div 
-                    className="h-full bg-primary shadow-glow transition-all duration-500" 
-                    style={{ width: `${Math.min(stats.runs, 100)}%` }} 
-                   />
+                <div className="flex items-center justify-between rounded-2xl bg-rose-500/5 p-5 border border-rose-500/10">
+                  <span className="text-sm font-bold text-rose-500/80 uppercase tracking-widest">Losses</span>
+                  <span className="text-xl font-black text-rose-500">{stats.losses}</span>
                 </div>
               </div>
 
-              <div className="pt-6">
+              <div className="pt-4 border-t border-white/5">
                 {!running ? (
                   <Button 
                     onClick={() => setRunning(true)} 
-                    className="w-full h-16 rounded-2xl text-lg font-bold shadow-glow-primary bg-primary text-primary-foreground hover:scale-[1.02] transition-transform" 
+                    className="w-full h-20 rounded-[28px] text-xl font-black shadow-[0_20px_40px_-10px_rgba(14,165,233,0.4)] bg-sky-500 text-white hover:bg-sky-400 hover:scale-[1.02] active:scale-[0.98] transition-all" 
                     disabled={!token}
                   >
-                    <Play className="mr-2 size-6 fill-current" /> Start Trading Bot
+                    <Play className="mr-3 size-7 fill-current" /> START TRADING BOT
                   </Button>
                 ) : (
                   <Button 
                     onClick={() => setRunning(false)} 
                     variant="destructive" 
-                    className="w-full h-16 rounded-2xl text-lg font-bold hover:scale-[1.02] transition-transform"
+                    className="w-full h-20 rounded-[28px] text-xl font-black hover:bg-rose-500 bg-rose-600 shadow-[0_20px_40px_-10px_rgba(225,29,72,0.4)] transition-all"
                   >
-                    <Square className="mr-2 size-5 fill-current" /> Stop Strategy
+                    <Square className="mr-3 size-6 fill-current" /> STOP STRATEGY
                   </Button>
                 )}
+                
                 {!token && (
-                  <p className="mt-4 text-center text-xs text-rose-400 bg-rose-400/10 p-3 rounded-lg border border-rose-400/20">
-                    <ShieldAlert className="size-3 inline mr-1" /> No Deriv session found. Please link your account.
-                  </p>
+                  <div className="mt-6 flex items-start gap-3 rounded-2xl bg-rose-500/10 p-5 border border-rose-500/20">
+                    <ShieldAlert className="size-5 text-rose-500 shrink-0 mt-0.5" /> 
+                    <p className="text-xs font-bold text-rose-300 leading-tight">
+                      Authentication Required. Please connect your Deriv account to enable trading.
+                    </p>
+                  </div>
                 )}
               </div>
             </TabsContent>
 
-            <TabsContent value="journal" className="m-0 flex-1 flex flex-col p-4">
-              <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+            <TabsContent value="journal" className="m-0 flex-1 flex flex-col p-4 bg-slate-950">
+              <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
                 {journal.map((j, i) => (
                   <div key={i} className={cn(
-                    "p-3 rounded-xl border text-[11px] font-mono leading-relaxed",
-                    j.type === 'error' ? "bg-rose-500/5 border-rose-500/20 text-rose-300" :
-                    j.type === 'success' ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-300" :
-                    "bg-white/[0.02] border-white/5 text-muted-foreground"
+                    "p-4 rounded-2xl border-l-4 text-xs font-bold leading-relaxed shadow-sm",
+                    j.type === 'error' ? "bg-rose-500/10 border-rose-600 text-rose-100" :
+                    j.type === 'success' ? "bg-emerald-500/10 border-emerald-500 text-emerald-100" :
+                    "bg-slate-900 border-sky-500 text-slate-100"
                   )}>
-                    <div className="flex justify-between opacity-50 mb-1">
-                      <span>Log Event</span>
-                      <span>{j.time}</span>
+                    <div className="flex justify-between items-center opacity-60 mb-2 border-b border-white/5 pb-1">
+                      <span className="uppercase tracking-tighter">Event Protocol</span>
+                      <span className="font-mono">{j.time}</span>
                     </div>
-                    <div className="text-foreground">{j.msg}</div>
+                    <div className="font-mono leading-tight">{j.msg}</div>
                   </div>
                 ))}
                 {journal.length === 0 && (
-                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-20 py-20">
-                    <Activity className="size-12 mb-4" />
-                    <p className="text-sm font-bold uppercase tracking-widest">Awaiting Live Feed</p>
+                  <div className="flex flex-col items-center justify-center h-full text-slate-700 py-20">
+                    <Activity className="size-16 mb-4 animate-pulse opacity-10" />
+                    <p className="text-sm font-black uppercase tracking-[0.3em] opacity-20">System Idle</p>
                   </div>
                 )}
               </div>
