@@ -1,3 +1,4 @@
+// src/components/deriv-chart.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
@@ -32,6 +33,7 @@ type ChartType = "area" | "candle";
 
 type Props = {
   symbol: string;
+  category?: string; // New: to detect if we should show digits
   onSymbolChange?: (s: string) => void;
   onPrice?: (price: number) => void;
   height?: number;
@@ -41,23 +43,14 @@ type Props = {
 };
 
 const TIMEFRAMES = [
-  { label: "1m",  value: 60 },
-  { label: "5m",  value: 300 },
-  { label: "15m", value: 900 },
-  { label: "1H",  value: 3600 },
-  { label: "4H",  value: 14400 },
-  { label: "1D",  value: 86400 },
+  { label: "1m", value: 60 },
+  { label: "5m", value: 300 },
+  { label: "1H", value: 3600 },
 ];
-
-const STATUS_STYLE: Record<ConnectionStatus, string> = {
-  connecting:    "bg-yellow-400/20 text-yellow-600",
-  connected:     "bg-green-500/20 text-green-600",
-  reconnecting:  "bg-orange-500/20 text-orange-600",
-  disconnected:  "bg-red-500/20 text-red-600",
-};
 
 export function DerivChart({
   symbol,
+  category,
   onSymbolChange,
   onPrice,
   height = 420,
@@ -65,269 +58,180 @@ export function DerivChart({
   highBarrier,
   lowBarrier,
 }: Props) {
-  const containerRef    = useRef<HTMLDivElement | null>(null);
-  const chartRef        = useRef<IChartApi | null>(null);
-  const areaSeriesRef   = useRef<ISeriesApi<"Area"> | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const areaSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const highLineRef     = useRef<IPriceLine | null>(null);
-  const lowLineRef      = useRef<IPriceLine | null>(null);
+  const highLineRef = useRef<IPriceLine | null>(null);
+  const lowLineRef = useRef<IPriceLine | null>(null);
   const candleBufferRef = useRef<Map<number, Candle>>(new Map());
 
   const [granularity, setGranularity] = useState(60);
   const [chartType, setChartType] = useState<ChartType>("area");
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const [allSymbols, setAllSymbols] =
-    useState<{ symbol: string; display_name: string; market: string }[]>([]);
+  const [allSymbols, setAllSymbols] = useState<{ symbol: string; display_name: string; market: string }[]>([]);
+  
+  // Digit analysis state
+  const [lastDigit, setLastDigit] = useState<number | null>(null);
+  const [digitHistory, setDigitHistory] = useState<number[]>([]);
+
+  const isDigitTrade = ["even_odd", "over_under", "matches_differs"].includes(category ?? "");
+  const isAccumulator = category === "accumulator";
 
   useEffect(() => {
-    getActiveSymbols()
-      .then((list) => { if (list?.length) setAllSymbols(list); })
-      .catch(() => {
-        setAllSymbols(
-          SYNTHETIC_MARKETS.map((m) => ({ symbol: m.symbol, display_name: m.name, market: "synthetic_index" })),
-        );
-      });
-  }, []);
-
-  useEffect(() => {
+    getActiveSymbols().then((list) => { if (list?.length) setAllSymbols(list); });
     const off = onStatus(setStatus);
     return () => { off(); };
   }, []);
 
-  // Build chart once; rebuild when chart type changes.
   useEffect(() => {
     if (!containerRef.current) return;
 
     const chart = createChart(containerRef.current, {
       autoSize: true,
-      layout: {
-        background: { color: "transparent" },
-        textColor: "rgba(120,120,140,0.9)",
-        fontFamily: "Inter, system-ui, sans-serif",
-      },
-      grid: {
-        vertLines: { color: "rgba(120,120,140,0.08)" },
-        horzLines: { color: "rgba(120,120,140,0.08)" },
-      },
-      rightPriceScale: { borderColor: "rgba(120,120,140,0.15)" },
-      timeScale: {
-        borderColor: "rgba(120,120,140,0.15)",
-        timeVisible: true,
-        secondsVisible: granularity < 60,
-      },
+      layout: { background: { color: "transparent" }, textColor: "#64748b", fontFamily: "Inter, sans-serif" },
+      grid: { vertLines: { color: "rgba(0,0,0,0.04)" }, horzLines: { color: "rgba(0,0,0,0.04)" } },
+      rightPriceScale: { borderColor: "rgba(0,0,0,0.08)" },
+      timeScale: { borderColor: "rgba(0,0,0,0.08)", timeVisible: true, secondsVisible: granularity < 60 },
       crosshair: { mode: 1 },
     });
 
     if (chartType === "candle") {
-      const series = chart.addSeries(CandlestickSeries, {
-        upColor:   "#22c55e",
-        downColor: "#ef4444",
-        borderUpColor:   "#22c55e",
-        borderDownColor: "#ef4444",
-        wickUpColor:   "#22c55e",
-        wickDownColor: "#ef4444",
-        priceLineVisible: true,
-        lastValueVisible: true,
-      });
-      candleSeriesRef.current = series as ISeriesApi<"Candlestick">;
-      areaSeriesRef.current   = null;
+      candleSeriesRef.current = chart.addSeries(CandlestickSeries, {
+        upColor: "#22c55e", downColor: "#ef4444", borderUpColor: "#22c55e", borderDownColor: "#ef4444",
+        wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+      }) as ISeriesApi<"Candlestick">;
     } else {
-      const series = chart.addSeries(AreaSeries, {
-        lineColor:   "#1f2937",
-        lineWidth:   2,
-        topColor:    "rgba(31,41,55,0.18)",
-        bottomColor: "rgba(31,41,55,0.0)",
-        priceLineVisible: true,
-        priceLineColor:   "#111827",
-        priceLineWidth:   1,
-        lastValueVisible: true,
-        crosshairMarkerVisible: true,
-        crosshairMarkerRadius:  4,
-      });
-      areaSeriesRef.current   = series as ISeriesApi<"Area">;
-      candleSeriesRef.current = null;
+      areaSeriesRef.current = chart.addSeries(AreaSeries, {
+        lineColor: "#334155", lineWidth: 2, topColor: "rgba(51,65,85,0.1)", bottomColor: "rgba(51,65,85,0)",
+      }) as ISeriesApi<"Area">;
     }
 
     chartRef.current = chart;
-    return () => {
-      chart.remove();
-      chartRef.current        = null;
-      areaSeriesRef.current   = null;
-      candleSeriesRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => chart.remove();
   }, [chartType]);
 
-  // Load history + tick subscription on symbol/granularity/chartType change.
   useEffect(() => {
     let cancelled = false;
     let unsubTicks: (() => void) | undefined;
     candleBufferRef.current.clear();
 
     async function init() {
-      try {
-        const candles = await fetchCandles(symbol, granularity, 300);
-        if (cancelled) return;
+      const candles = await fetchCandles(symbol, granularity, 300);
+      if (cancelled) return;
 
-        if (chartType === "candle" && candleSeriesRef.current) {
-          const data: CandlestickData[] = candles.map((c) => ({
-            time:  c.time as UTCTimestamp,
-            open:  c.open,
-            high:  c.high,
-            low:   c.low,
-            close: c.close,
-          }));
-          candleSeriesRef.current.setData(data);
-          // Seed buffer with last candles for tick aggregation
-          candles.forEach((c) => candleBufferRef.current.set(c.time, c));
-        } else if (chartType === "area" && areaSeriesRef.current) {
-          const data: LineData[] = candles.map((c) => ({
-            time:  c.time as UTCTimestamp,
-            value: c.close,
-          }));
-          areaSeriesRef.current.setData(data);
-        }
-        chartRef.current?.timeScale().fitContent();
-      } catch {
-        /* network/timeout handled by status badge */
+      if (chartType === "candle" && candleSeriesRef.current) {
+        candleSeriesRef.current.setData(candles.map(c => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })));
+      } else if (chartType === "area" && areaSeriesRef.current) {
+        areaSeriesRef.current.setData(candles.map(c => ({ time: c.time as UTCTimestamp, value: c.close })));
       }
 
       unsubTicks = await subscribeTicks(symbol, (price, t) => {
         if (cancelled) return;
         onPrice?.(price);
+        
+        // Update Digit Logic
+        const digit = Number(price.toFixed(2).split('').pop());
+        setLastDigit(digit);
+        setDigitHistory(prev => [...prev.slice(-99), digit]);
 
         if (chartType === "area" && areaSeriesRef.current) {
           areaSeriesRef.current.update({ time: t as UTCTimestamp, value: price });
         } else if (chartType === "candle" && candleSeriesRef.current) {
-          // Aggregate ticks into candles using the current granularity
           const barTime = Math.floor(t / granularity) * granularity;
-          const buf = candleBufferRef.current;
-          const existing = buf.get(barTime);
-          const bar: Candle = existing
+          const existing = candleBufferRef.current.get(barTime);
+          const bar = existing 
             ? { ...existing, high: Math.max(existing.high, price), low: Math.min(existing.low, price), close: price }
             : { time: barTime, open: price, high: price, low: price, close: price };
-          buf.set(barTime, bar);
-          candleSeriesRef.current.update({
-            time:  barTime as UTCTimestamp,
-            open:  bar.open,
-            high:  bar.high,
-            low:   bar.low,
-            close: bar.close,
-          });
+          candleBufferRef.current.set(barTime, bar);
+          candleSeriesRef.current.update({ time: barTime as UTCTimestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
         }
       });
     }
 
     init();
-    return () => {
-      cancelled = true;
-      unsubTicks?.();
-    };
-  }, [symbol, granularity, chartType, onPrice]);
+    return () => { cancelled = true; unsubTicks?.(); };
+  }, [symbol, granularity, chartType]);
 
-  // Barrier lines.
+  // Barrier Rendering (Accumulators)
   useEffect(() => {
     const series = areaSeriesRef.current ?? candleSeriesRef.current;
     if (!series) return;
-    if (highLineRef.current) { series.removePriceLine(highLineRef.current); highLineRef.current = null; }
-    if (lowLineRef.current)  { series.removePriceLine(lowLineRef.current);  lowLineRef.current  = null; }
-    if (highBarrier != null && Number.isFinite(highBarrier)) {
+    if (highLineRef.current) series.removePriceLine(highLineRef.current);
+    if (lowLineRef.current) series.removePriceLine(lowLineRef.current);
+
+    if (highBarrier) {
       highLineRef.current = series.createPriceLine({
-        price: highBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "+",
+        price: highBarrier, color: "#2196f3", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `+${(highBarrier - (highBarrier + lowBarrier!)/2).toFixed(3)}`
       });
     }
-    if (lowBarrier != null && Number.isFinite(lowBarrier)) {
+    if (lowBarrier) {
       lowLineRef.current = series.createPriceLine({
-        price: lowBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "−",
+        price: lowBarrier, color: "#2196f3", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `-${((highBarrier! + lowBarrier)/2 - lowBarrier).toFixed(3)}`
       });
     }
   }, [highBarrier, lowBarrier]);
 
-  const symbolOptions = useMemo(() => {
-    if (allSymbols.length === 0)
-      return SYNTHETIC_MARKETS.map((m) => ({ symbol: m.symbol, display_name: m.name }));
-    const syn  = allSymbols.filter((s) => s.market === "synthetic_index");
-    const rest = allSymbols.filter((s) => s.market !== "synthetic_index");
-    return [...syn, ...rest];
-  }, [allSymbols]);
+  const digitStats = useMemo(() => {
+    const counts = new Array(10).fill(0);
+    digitHistory.forEach(d => counts[d]++);
+    const total = digitHistory.length || 1;
+    return counts.map(c => ((c / total) * 100).toFixed(1));
+  }, [digitHistory]);
 
   return (
-    <div className={className}>
-      {/* Toolbar */}
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        {/* Symbol selector */}
-        <Select value={symbol} onValueChange={(v) => onSymbolChange?.(v)}>
-          <SelectTrigger className="w-52 glass-card text-xs sm:w-64">
+    <div className={cn("relative group", className)}>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Select value={symbol} onValueChange={onSymbolChange}>
+          <SelectTrigger className="w-56 h-10 bg-white border-[#e5e5e5] rounded-xl font-bold text-[#333]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="max-h-80">
-            {symbolOptions.map((m) => (
-              <SelectItem key={m.symbol} value={m.symbol}>{m.display_name}</SelectItem>
+            {SYNTHETIC_MARKETS.map((m) => (
+              <SelectItem key={m.symbol} value={m.symbol}>{m.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        {/* Timeframe buttons */}
-        <div className="flex overflow-hidden rounded-md border border-glass-border">
+        <div className="flex bg-[#f2f3f4] p-1 rounded-xl border border-[#e5e5e5]">
           {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf.value}
-              type="button"
-              onClick={() => setGranularity(tf.value)}
-              className={cn(
-                "px-2.5 py-1.5 text-xs font-medium transition-colors",
-                granularity === tf.value
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-transparent text-muted-foreground hover:bg-foreground/5",
-              )}
-            >
+            <button key={tf.value} onClick={() => setGranularity(tf.value)} className={cn("px-3 py-1.5 text-xs font-bold rounded-lg transition", granularity === tf.value ? "bg-white text-[#333] shadow-sm" : "text-slate-500 hover:text-[#333]")}>
               {tf.label}
             </button>
           ))}
         </div>
-
-        {/* Chart type toggle */}
-        <div className="flex overflow-hidden rounded-md border border-glass-border">
-          <button
-            type="button"
-            onClick={() => setChartType("area")}
-            title="Line / Area"
-            className={cn(
-              "px-2.5 py-1.5 text-xs font-medium transition-colors",
-              chartType === "area"
-                ? "bg-primary text-primary-foreground"
-                : "bg-transparent text-muted-foreground hover:bg-foreground/5",
-            )}
-          >
-            Area
-          </button>
-          <button
-            type="button"
-            onClick={() => setChartType("candle")}
-            title="Candlestick"
-            className={cn(
-              "px-2.5 py-1.5 text-xs font-medium transition-colors",
-              chartType === "candle"
-                ? "bg-primary text-primary-foreground"
-                : "bg-transparent text-muted-foreground hover:bg-foreground/5",
-            )}
-          >
-            Candle
-          </button>
-        </div>
-
-        {/* Connection status */}
-        <span className={cn("ml-auto rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider", STATUS_STYLE[status])}>
-          ● {status}
-        </span>
       </div>
 
-      {/* Chart canvas */}
-      <div
-        ref={containerRef}
-        style={{ height }}
-        className="w-full overflow-hidden rounded-lg border border-glass-border bg-foreground/[0.02]"
-      />
+      <div ref={containerRef} style={{ height }} className="w-full bg-white border border-[#e5e5e5] rounded-[32px] overflow-hidden shadow-inner" />
+
+      {/* DERIV DIGIT OVERLAY */}
+      {isDigitTrade && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-white/90 backdrop-blur border border-[#e5e5e5] p-2 rounded-2xl shadow-xl z-10 scale-90 sm:scale-100">
+          {digitStats.map((pct, i) => (
+            <div key={i} className="flex flex-col items-center w-10">
+              <div className={cn(
+                "size-8 flex items-center justify-center rounded-full border-2 text-xs font-black transition-all",
+                lastDigit === i ? "bg-[oklch(0.7_0.17_150)] border-[oklch(0.45_0.17_150)] text-white scale-110 shadow-lg" : "bg-[#f8f9fa] border-[#e5e5e5] text-slate-400"
+              )}>
+                {i}
+              </div>
+              <span className="text-[9px] font-bold text-slate-500 mt-1">{pct}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ACCUMULATOR STATS OVERLAY */}
+      {isAccumulator && (
+        <div className="absolute top-20 right-6 flex flex-col gap-2 z-10 animate-in fade-in slide-in-from-right-4">
+           <div className="bg-white/90 backdrop-blur border border-blue-100 p-3 rounded-2xl shadow-lg">
+              <div className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">Safety Range</div>
+              <div className="text-sm font-mono font-bold text-slate-700">
+                {lowBarrier?.toFixed(2)} - {highBarrier?.toFixed(2)}
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 }
