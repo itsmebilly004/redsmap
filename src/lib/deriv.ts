@@ -2,12 +2,14 @@
 
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
 const DERIV_CLIENT_ID = import.meta.env.VITE_DERIV_CLIENT_ID ?? DERIV_APP_ID;
+const DERIV_LEGACY_APP_ID = import.meta.env.VITE_DERIV_LEGACY_APP_ID;
 const DERIV_REDIRECT_URI =
   import.meta.env.VITE_DERIV_REDIRECT_URI ?? "https://www.arktradershub.com/deriv-callback";
 const PUBLIC_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
+export const DERIV_LEGACY_APP_ID_VALUE = DERIV_LEGACY_APP_ID;
 export const DERIV_REDIRECT_URI_VALUE = DERIV_REDIRECT_URI;
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
@@ -373,11 +375,10 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
-  // Deriv only documents `prompt=registration` for sign-up. Login must use
-  // the standard authorization request so Deriv can show either login or the
-  // account-access consent screen for users who already have an active session.
-  const prompt = options.mode === "signup" ? "registration" : undefined;
-  if (prompt) params.set("prompt", prompt);
+  // Force explicit account-access approval on login/reconnect. Signup keeps
+  // Deriv's documented registration prompt.
+  const prompt = options.mode === "signup" ? "registration" : "consent";
+  params.set("prompt", prompt);
 
   const requiredParams = [
     "response_type",
@@ -392,8 +393,11 @@ export async function buildOAuthUrl(
   if (missingParam) {
     throw new Error(`Missing required OAuth parameter: ${missingParam}`);
   }
-  if (DERIV_APP_ID && DERIV_APP_ID !== DERIV_CLIENT_ID) {
-    params.set("app_id", DERIV_APP_ID);
+  if (DERIV_LEGACY_APP_ID) {
+    if (!/^\d+$/.test(DERIV_LEGACY_APP_ID)) {
+      throw new Error("VITE_DERIV_LEGACY_APP_ID must be numeric when provided.");
+    }
+    params.set("app_id", DERIV_LEGACY_APP_ID);
   }
   const url = `https://auth.deriv.com/oauth2/auth?${params.toString()}`;
   console.log("Deriv OAuth diagnostics", {
@@ -401,7 +405,8 @@ export async function buildOAuthUrl(
     client_id: DERIV_CLIENT_ID,
     redirect_uri: DERIV_REDIRECT_URI,
     scope: "trade account_manage",
-    prompt: prompt ?? "standard-login",
+    prompt,
+    legacy_app_id: DERIV_LEGACY_APP_ID ?? null,
     stateExists: Boolean(state),
     codeChallengeExists: Boolean(codeChallenge),
     codeVerifierStored: sessionStorage.getItem("deriv_code_verifier") === codeVerifier,
