@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { getAuthenticatedWsUrl, setWsUrl, subscribeBalance } from "@/lib/deriv";
+import { setAuthenticatedAccount, subscribeBalance } from "@/lib/deriv";
 import { toast } from "sonner";
 
 export type DerivAccount = {
@@ -75,18 +75,22 @@ export function useDerivBalance(): LiveBalance {
   useEffect(() => {
     if (!isBrowser || !active || !user) return;
     let unsub: (() => void) | undefined;
+    let cancelled = false;
 
     (async () => {
       try {
-        const wsUrl = await getAuthenticatedWsUrl(active.deriv_token, active.account_id);
-        setWsUrl(wsUrl);
+        setAuthenticatedAccount(
+          active.deriv_token,
+          active.account_id,
+          active.is_virtual ?? active.is_demo,
+        );
         console.log("Deriv authenticated WebSocket initialized", {
           account_id: active.account_id,
           loginid: active.loginid,
           is_virtual: active.is_virtual ?? active.is_demo,
-          wsUrlExists: Boolean(wsUrl),
         });
-        unsub = await subscribeBalance(active.deriv_token, async (b) => {
+        const nextUnsub = await subscribeBalance(active.deriv_token, async (b) => {
+          if (cancelled) return;
           setBalance(b.balance);
           if (b.currency) setCurrency(b.currency);
 
@@ -97,7 +101,13 @@ export function useDerivBalance(): LiveBalance {
             .eq("user_id", user.id)
             .eq("account_id", active.account_id);
         });
+        if (cancelled) {
+          nextUnsub();
+          return;
+        }
+        unsub = nextUnsub;
       } catch (err) {
+        if (cancelled) return;
         console.error("Deriv WebSocket auth failure", {
           account_id: active.account_id,
           loginid: active.loginid,
@@ -108,6 +118,7 @@ export function useDerivBalance(): LiveBalance {
     })();
 
     return () => {
+      cancelled = true;
       if (unsub) unsub();
     };
   }, [active, user, isBrowser]);

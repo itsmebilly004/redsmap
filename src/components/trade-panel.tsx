@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
   send,
+  setAuthenticatedAccount,
   TRADE_CATEGORIES,
   SIDES_BY_CATEGORY,
   contractTypeFor,
@@ -138,6 +139,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       setPayouts({});
       return;
     }
+    if (account) {
+      setAuthenticatedAccount(token, account.account_id, account.is_virtual ?? account.is_demo);
+    }
 
     let cancelled = false;
     const run = async () => {
@@ -219,6 +223,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     market,
     payoutMode,
     tradeCurrency,
+    account,
   ]);
 
   // Deriv accumulator barriers are recomputed on every tick from the current
@@ -266,6 +271,10 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       toast.error("Connect your Deriv account first.");
       return;
     }
+    if (!account) {
+      toast.error("Select a Deriv account first.");
+      return;
+    }
     if (!tradeCurrency) {
       toast.error("Account currency is missing. Reconnect your Deriv account.");
       return;
@@ -274,6 +283,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       toast.error("Enter a valid stake.");
       return;
     }
+    setAuthenticatedAccount(token, account.account_id, account.is_virtual ?? account.is_demo);
     if (accountBalance !== null && accountBalance < stake) {
       toast.error(
         `Insufficient balance: ${accountBalance.toFixed(2)} ${tradeCurrency} available, need ${stake.toFixed(2)} ${tradeCurrency}.`,

@@ -62,13 +62,27 @@ let reqId = 1;
 let connecting: Promise<WebSocket> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
 let reconnectAttempts = 0;
-let wsUrl: string | null = null;
+let authenticatedAccount:
+  | {
+      accessToken: string;
+      accountId: string;
+      isDemo?: boolean | null;
+    }
+  | null = null;
 
 const isBrowser = typeof window !== "undefined";
 
 // Active subscriptions to replay after a reconnect.
 type Sub = { send: DerivRecord; key: string };
 const activeSubs = new Map<string, Sub>();
+
+function isCurrentAuthenticatedAccount(account: NonNullable<typeof authenticatedAccount>) {
+  return (
+    authenticatedAccount?.accessToken === account.accessToken &&
+    authenticatedAccount.accountId === account.accountId &&
+    authenticatedAccount.isDemo === account.isDemo
+  );
+}
 
 function setStatus(s: ConnectionStatus) {
   if (status === s) return;
@@ -86,12 +100,26 @@ export function getStatus() {
   return status;
 }
 
-export function setWsUrl(url: string) {
-  if (wsUrl === url) return;
-  wsUrl = url;
+export function setAuthenticatedAccount(
+  accessToken: string,
+  accountId: string,
+  isDemo?: boolean | null,
+) {
+  const sameAccount =
+    authenticatedAccount?.accessToken === accessToken &&
+    authenticatedAccount.accountId === accountId &&
+    authenticatedAccount.isDemo === isDemo;
+  if (sameAccount) return;
+
+  authenticatedAccount = { accessToken, accountId, isDemo };
+  console.info("[Deriv WS] Active account configured", {
+    accountId,
+    accountType: isDemo ? "demo" : "real",
+    socketReadyState: socket?.readyState ?? null,
+  });
   if (socket) {
     try {
-      socket.close();
+      socket.close(1000, "Switching Deriv account");
     } catch {
       /* ignore */
     }
@@ -126,22 +154,111 @@ function connect(): Promise<WebSocket> {
   if (!isBrowser) {
     return new Promise((_, reject) => reject(new Error("WebSocket unavailable on server")));
   }
-  if (!wsUrl) {
-    return Promise.reject(new Error("Authenticated Deriv WebSocket URL has not been set."));
+  if (!authenticatedAccount) {
+    return Promise.reject(new Error("Authenticated Deriv account has not been set."));
   }
-  const authenticatedWsUrl = wsUrl;
-  if (socket && socket.readyState === 1) return Promise.resolve(socket);
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    console.info("[Deriv WS] Reusing open socket", {
+      accountId: authenticatedAccount.accountId,
+      readyState: socket.readyState,
+    });
+    return Promise.resolve(socket);
+  }
   if (connecting) return connecting;
 
   setStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
-  connecting = new Promise((resolve, reject) => {
+  connecting = openAuthenticatedSocket(authenticatedAccount, false);
+  return connecting;
+}
+
+function openAuthenticatedSocket(
+  account: NonNullable<typeof authenticatedAccount>,
+  retried: boolean,
+): Promise<WebSocket> {
+  return new Promise(async (resolve, reject) => {
+    let ws: WebSocket | null = null;
+    let settled = false;
+    const fail = async (error: Error) => {
+      if (settled) return;
+      settled = true;
+      if (ws === socket) socket = null;
+      connecting = null;
+      stopKeepalive();
+      setStatus("disconnected");
+      if (!retried) {
+        console.warn("[Deriv WS] Socket failed. Requesting fresh OTP and retrying once.", {
+          accountId: account.accountId,
+          accountType: account.isDemo ? "demo" : "real",
+          error: error.message,
+        });
+        setStatus("reconnecting");
+        connecting = openAuthenticatedSocket(account, true);
+        try {
+          resolve(await connecting);
+        } catch (retryError) {
+          reject(retryError);
+        }
+        return;
+      }
+      reject(error);
+    };
+
     try {
-      const ws = new WebSocket(authenticatedWsUrl);
+      if (socket) {
+        console.info("[Deriv WS] Closing old socket before opening fresh trading socket", {
+          accountId: account.accountId,
+          readyState: socket.readyState,
+        });
+        try {
+          socket.close(1000, "Opening fresh Deriv trading socket");
+        } catch {
+          /* ignore */
+        }
+        socket = null;
+      }
+
+      const authenticatedWsUrl = await getAuthenticatedWsUrl(account.accessToken, account.accountId);
+      if (!isCurrentAuthenticatedAccount(account)) {
+        connecting = null;
+        reject(new Error("Deriv account changed while opening WebSocket."));
+        return;
+      }
+      console.info("[Deriv WS] OTP wsUrl received", {
+        accountId: account.accountId,
+        accountType: account.isDemo ? "demo" : "real",
+        wsUrl: authenticatedWsUrl,
+        retried,
+      });
+
+      ws = new WebSocket(authenticatedWsUrl);
+      console.info("[Deriv WS] Socket created", {
+        accountId: account.accountId,
+        readyState: ws.readyState,
+      });
       ws.onopen = () => {
+        if (!isCurrentAuthenticatedAccount(account)) {
+          try {
+            ws?.close(1000, "Deriv account changed while connecting");
+          } catch {
+            /* ignore */
+          }
+          if (!settled) {
+            settled = true;
+            connecting = null;
+            reject(new Error("Deriv account changed while opening WebSocket."));
+          }
+          return;
+        }
+        if (settled) return;
+        settled = true;
         socket = ws;
         connecting = null;
         reconnectAttempts = 0;
         setStatus("connected");
+        console.info("[Deriv WS] onopen", {
+          accountId: account.accountId,
+          readyState: ws.readyState,
+        });
         startKeepalive();
         for (const sub of activeSubs.values()) {
           try {
@@ -152,17 +269,35 @@ function connect(): Promise<WebSocket> {
         }
         resolve(ws);
       };
-      ws.onclose = () => {
-        socket = null;
-        connecting = null;
-        stopKeepalive();
-        setStatus("disconnected");
-        const delay = Math.min(10000, 500 * Math.pow(2, reconnectAttempts));
+      ws.onerror = (event) => {
+        console.error("[Deriv WS] onerror", {
+          accountId: account.accountId,
+          readyState: ws?.readyState ?? null,
+          event,
+        });
+        void fail(new Error("Deriv WebSocket connection failed"));
+      };
+      ws.onclose = (event) => {
+        console.warn("[Deriv WS] onclose", {
+          accountId: account.accountId,
+          readyState: ws?.readyState ?? null,
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+        });
+        if (socket === ws) {
+          socket = null;
+          stopKeepalive();
+          setStatus("disconnected");
+        }
         reconnectAttempts++;
-        setTimeout(() => {
-          if (activeSubs.size > 0 || statusListeners.size > 0) connect().catch(() => {});
-        }, delay);
-        reject(new Error("WebSocket closed"));
+        void fail(
+          new Error(
+            event.reason
+              ? `Deriv WebSocket closed: ${event.reason}`
+              : `Deriv WebSocket closed with code ${event.code}`,
+          ),
+        );
       };
       ws.onmessage = (event) => {
         try {
@@ -172,12 +307,10 @@ function connect(): Promise<WebSocket> {
           /* ignore */
         }
       };
-      ws.onerror = () => {};
     } catch (e) {
-      reject(e);
+      void fail(e instanceof Error ? e : new Error("Deriv WebSocket connection failed"));
     }
   });
-  return connecting;
 }
 
 export function onMessage(fn: Listener) {
@@ -319,6 +452,7 @@ let symbolsCache: ActiveSymbol[] | null = null;
 export function disconnectAll(): void {
   if (!isBrowser) return;
   activeSubs.clear();
+  authenticatedAccount = null;
   stopKeepalive();
   if (socket) {
     try {
