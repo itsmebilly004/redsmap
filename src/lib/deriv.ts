@@ -375,10 +375,11 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
-  // Force explicit account-access approval on login/reconnect. Signup keeps
-  // Deriv's documented registration prompt.
-  const prompt = options.mode === "signup" ? "registration" : "consent";
-  params.set("prompt", prompt);
+  // Deriv's OAuth2 login flow must use the standard PKCE parameters only.
+  // The provider handles the login and consent screens. `prompt` is only
+  // documented for signup, where it must be `registration`.
+  const prompt = options.mode === "signup" ? "registration" : undefined;
+  if (prompt) params.set("prompt", prompt);
 
   const requiredParams = [
     "response_type",
@@ -405,7 +406,7 @@ export async function buildOAuthUrl(
     client_id: DERIV_CLIENT_ID,
     redirect_uri: DERIV_REDIRECT_URI,
     scope: "trade account_manage",
-    prompt,
+    prompt: prompt ?? "standard-login",
     legacy_app_id: DERIV_LEGACY_APP_ID ?? null,
     stateExists: Boolean(state),
     codeChallengeExists: Boolean(codeChallenge),
