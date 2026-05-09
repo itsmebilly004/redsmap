@@ -76,8 +76,9 @@ function BotBuilder() {
   const [martingale, setMartingale] = useState(2.0);
   const [duration, setDuration] = useState(1);
   const [durationUnit, setDurationUnit] = useState("t");
+  const [cooldown, setCooldown] = useState(1); // Added missing cooldown state
   
-  // New Manual Limits
+  // Manual Limits
   const [stopLoss, setStopLoss] = useState(10);
   const [takeProfit, setTakeProfit] = useState(10);
 
@@ -89,7 +90,7 @@ function BotBuilder() {
   const [stats, setStats] = useState({ runs: 0, wins: 0, losses: 0, profit: 0, stake: 0, payout: 0 });
   const [journal, setJournal] = useState<{ time: string; msg: string; type?: string }[]>([]);
 
-  // SYNC FIX: When user manually changes initialStake, update the currentStake immediately
+  // SYNC FIX: Update currentStake when initialStake changes while bot is idle
   useEffect(() => {
     if (!running) {
       setCurrentStake(initialStake);
@@ -108,32 +109,38 @@ function BotBuilder() {
         setStopLoss(config.sl);
         setMartingale(config.martingale);
         setBotName(config.name);
-        setTradeType(config.tradeType as TradeCategory);
+        if (config.tradeType) setTradeType(config.tradeType as TradeCategory);
       }
     }
   }, [preset]);
 
-  // 2. Real-time Auto-Save
+  // 2. Real-time Auto-Save (Fixed Infinite Loop)
   useEffect(() => {
     if (!user) return;
+    
     const performSave = async () => {
       setSaveStatus("saving");
       const { data, error } = await supabase.from("bots").upsert({
-        id: botId || undefined,
+        id: botId || undefined, // Use existing ID if available
         user_id: user.id,
         name: botName,
-        strategy: { symbol, tradeType, contractType, initialStake, martingale, duration, durationUnit, stopLoss, takeProfit },
+        strategy: { symbol, tradeType, contractType, initialStake, martingale, duration, durationUnit, stopLoss, takeProfit, cooldown },
         status: running ? "running" : "stopped"
       }).select("id").single();
 
       if (!error && data) {
-        setBotId(data.id);
-        setTimeout(() => setSaveStatus("saved"), 600);
-      } else setSaveStatus("idle");
+        // Only update botId if it was previously null to prevent re-triggering this effect
+        if (!botId) setBotId(data.id);
+        setSaveStatus("saved");
+      } else {
+        setSaveStatus("idle");
+      }
     };
-    const timeoutId = setTimeout(performSave, 1500);
+
+    const timeoutId = setTimeout(performSave, 2000);
     return () => clearTimeout(timeoutId);
-  }, [botName, symbol, tradeType, contractType, initialStake, martingale, duration, durationUnit, stopLoss, takeProfit, user, running, botId]);
+    // Removed botId from dependencies to prevent loop
+  }, [botName, symbol, tradeType, contractType, initialStake, martingale, duration, durationUnit, stopLoss, takeProfit, user, running, cooldown]);
 
   // 3. Execution Logic
   const logJournal = (msg: string, type = 'info') => {
@@ -156,15 +163,14 @@ function BotBuilder() {
   async function runCycle() {
     if (!token || !runningRef.current) return;
 
-    // LIMIT CHECK: Stop if profit or loss thresholds are crossed
     if (stats.profit >= takeProfit) {
-      logJournal(`🎯 Take Profit reached! Target: ${takeProfit}`, "success");
+      logJournal(`🎯 Take Profit reached!`, "success");
       setRunning(false);
       runningRef.current = false;
       return;
     }
     if (stats.profit <= -stopLoss) {
-      logJournal(`🛑 Stop Loss reached! Limit: -${stopLoss}`, "error");
+      logJournal(`🛑 Stop Loss reached!`, "error");
       setRunning(false);
       runningRef.current = false;
       return;
@@ -174,7 +180,6 @@ function BotBuilder() {
       await send({ authorize: token });
       const ct = contractTypeFor(tradeType, contractType === 'both' ? 'up' : contractType);
       
-      // Use the CURRENT calculated stake (which accounts for martingale)
       const proposal = await send({
         proposal: 1, amount: currentStake, basis: "stake", contract_type: ct,
         currency: derivCurrency, symbol: symbol, duration: duration, duration_unit: durationUnit
@@ -193,24 +198,16 @@ function BotBuilder() {
           const won = pnl > 0;
 
           setStats(s => ({ 
-            runs: s.runs + 1, 
-            wins: s.wins + (won ? 1 : 0), 
-            losses: s.losses + (won ? 0 : 1), 
-            profit: s.profit + pnl,
-            stake: s.stake + currentStake,
-            payout: s.payout + Number(c.payout)
+            runs: s.runs + 1, wins: s.wins + (won ? 1 : 0), losses: s.losses + (won ? 0 : 1), 
+            profit: s.profit + pnl, stake: s.stake + currentStake, payout: s.payout + Number(c.payout)
           }));
 
-          logJournal(`${won ? 'WIN' : 'LOSS'}: ${pnl.toFixed(2)} ${derivCurrency}`, won ? 'success' : 'error');
+          logJournal(`${won ? 'WIN' : 'LOSS'}: ${pnl.toFixed(2)}`, won ? 'success' : 'error');
 
-          // Reset to initialStake on win, or apply Martingale on loss
-          if (won) {
-            setCurrentStake(initialStake);
-          } else {
-            setCurrentStake(prev => Number((prev * martingale).toFixed(2)));
-          }
+          if (won) setCurrentStake(initialStake);
+          else setCurrentStake(prev => Number((prev * martingale).toFixed(2)));
 
-          if (runningRef.current) setTimeout(runCycle, 1000);
+          if (runningRef.current) setTimeout(runCycle, cooldown * 1000);
         }
       }, 1500);
 
@@ -223,9 +220,8 @@ function BotBuilder() {
 
   return (
     <TopShell>
-      <div className="flex h-[calc(100vh-56px)] flex-col lg:flex-row bg-[#f2f3f4] overflow-hidden text-[#333]">
+      <div className="flex h-[calc(100vh-64px)] flex-col lg:flex-row bg-[#f2f3f4] overflow-hidden text-[#333]">
         
-        {/* --- LEFT SIDEBAR (Blocks Menu) --- */}
         <aside className="w-full lg:w-[280px] bg-white border-r border-[#e5e5e5] flex flex-col shrink-0">
           <div className="p-3">
             <Button className="w-full bg-[#ff444f] hover:bg-[#eb3e48] text-white font-bold h-11 rounded-md text-sm">
@@ -246,7 +242,6 @@ function BotBuilder() {
                   {["Trade parameters", "Purchase conditions", "Sell conditions (optional)", "Restart trading conditions", "Analysis", "Utility"].map((item) => (
                     <div key={item} className="px-3 py-2.5 text-sm font-medium hover:bg-[#f2f3f4] rounded-md cursor-pointer flex justify-between items-center group transition-colors">
                       {item}
-                      {["Analysis", "Utility"].includes(item) && <ChevronDown className="size-3.5 text-slate-400" />}
                     </div>
                   ))}
                 </div>
@@ -254,7 +249,6 @@ function BotBuilder() {
           </div>
         </aside>
 
-        {/* --- CENTER WORKSPACE (Visual Canvas) --- */}
         <main className="flex-1 flex flex-col min-w-0 relative">
           <div className="h-14 bg-white border-b border-[#e5e5e5] flex items-center px-4 justify-between">
             <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
@@ -264,27 +258,20 @@ function BotBuilder() {
               <div className="w-px h-6 bg-[#e5e5e5] mx-1" />
               <ToolbarBtn icon={LayoutGrid} />
               <ToolbarBtn icon={TrendingUp} />
-              <div className="w-px h-6 bg-[#e5e5e5] mx-1" />
-              <ToolbarBtn icon={Undo2} />
-              <ToolbarBtn icon={Redo2} />
-              <div className="w-px h-6 bg-[#e5e5e5] mx-1" />
-              <ToolbarBtn icon={ZoomIn} />
-              <ToolbarBtn icon={ZoomOut} />
             </div>
 
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
                {saveStatus === "saving" ? (
                  <><RefreshCw className="size-3 text-blue-500 animate-spin" /><span className="text-[10px] font-black uppercase text-blue-600">Syncing</span></>
                ) : (
-                 <><CloudCheck className="size-3.5 text-emerald-500" /><span className="text-[10px] font-black uppercase text-emerald-600">Saved to Cloud</span></>
+                 <><CloudCheck className="size-3.5 text-emerald-500" /><span className="text-[10px] font-black uppercase text-emerald-600">Saved</span></>
                )}
             </div>
           </div>
 
-          <div className="flex-1 p-8 overflow-auto custom-scrollbar relative bg-[#f2f3f4]">
+          <div className="flex-1 p-8 overflow-auto bg-[#f2f3f4]">
             <div className="flex flex-col gap-8 items-start pb-32">
               
-              {/* Block 1: Trade Parameters */}
               <div className="w-full max-w-2xl bg-white border border-[#e5e5e5] rounded shadow-md overflow-hidden">
                 <div className="bg-[#064e6e] px-4 py-2.5 flex items-center justify-between text-white text-[13px] font-bold">
                   <div className="flex items-center gap-2"><Plus className="size-3" /> 1. Trade parameters</div>
@@ -292,59 +279,42 @@ function BotBuilder() {
                 <div className="p-5 space-y-5 text-[12px]">
                    <div className="flex flex-wrap items-center gap-3">
                       <span className="text-slate-500">Market:</span>
-                      <InlineSelect value="Derived" options={["Derived"]} />
-                      <ChevronRight className="size-3 text-slate-300" />
-                      <InlineSelect value="Continuous Indices" options={["Continuous Indices"]} />
-                      <ChevronRight className="size-3 text-slate-300" />
                       <InlineSelect value={symbol} options={Object.keys(MARKETS)} labels={MARKETS} onChange={setSymbol} />
-                   </div>
-                   <div className="flex flex-wrap items-center gap-3">
-                      <span className="text-slate-500">Trade Type:</span>
-                      <InlineSelect value="Up/Down" options={["Up/Down"]} />
-                      <ChevronRight className="size-3 text-slate-300" />
-                      <InlineSelect value="Rise/Fall" options={["Rise/Fall"]} />
                    </div>
                    
                    <div className="pt-4 border-t border-[#f2f3f4] grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
                           <Label className="text-slate-500 font-bold">Duration:</Label>
-                          <div className="flex gap-1 items-center">
+                          <div className="flex gap-1.5 items-center">
                             <InlineSelect value={durationUnit} options={["t", "s", "m"]} labels={{t: "Ticks", s: "Sec", m: "Min"}} onChange={setDurationUnit} />
-                            <Input type="number" value={duration} onChange={e=>setDuration(Number(e.target.value))} className="w-16 h-8 text-center font-bold" />
+                            <Input type="number" value={duration} onChange={e=>setDuration(Number(e.target.value))} className="w-16 h-8 text-center" />
                           </div>
                         </div>
                         <div className="flex items-center justify-between">
                           <Label className="text-slate-500 font-bold">Stake (USD):</Label>
-                          <Input type="number" value={initialStake} onChange={e=>setInitialStake(Number(e.target.value))} className="w-24 h-8 font-bold border-[#e5e5e5]" />
+                          <Input type="number" value={initialStake} onChange={e=>setInitialStake(Number(e.target.value))} className="w-24 h-8" />
                         </div>
                         <div className="flex items-center justify-between">
-                          <Label className="text-slate-500 font-bold">Martingale (x):</Label>
-                          <Input type="number" value={martingale} onChange={e=>setMartingale(Number(e.target.value))} className="w-24 h-8 font-bold border-[#e5e5e5]" />
+                          <Label className="text-slate-500 font-bold">Martingale:</Label>
+                          <Input type="number" value={martingale} onChange={e=>setMartingale(Number(e.target.value))} className="w-24 h-8" />
                         </div>
                       </div>
 
                       <div className="space-y-4 border-l border-slate-100 pl-8">
                         <div className="flex items-center justify-between">
                           <Label className="text-emerald-600 font-bold uppercase text-[10px]">Take Profit:</Label>
-                          <div className="flex items-center gap-2">
-                             <span className="text-[10px] text-slate-400 font-bold">+$</span>
-                             <Input type="number" value={takeProfit} onChange={e=>setTakeProfit(Number(e.target.value))} className="w-24 h-8 font-bold border-[#e5e5e5] text-emerald-600" />
-                          </div>
+                          <Input type="number" value={takeProfit} onChange={e=>setTakeProfit(Number(e.target.value))} className="w-24 h-8 text-emerald-600" />
                         </div>
                         <div className="flex items-center justify-between">
                           <Label className="text-red-600 font-bold uppercase text-[10px]">Stop Loss:</Label>
-                          <div className="flex items-center gap-2">
-                             <span className="text-[10px] text-slate-400 font-bold">-$</span>
-                             <Input type="number" value={stopLoss} onChange={e=>setStopLoss(Number(e.target.value))} className="w-24 h-8 font-bold border-[#e5e5e5] text-red-600" />
-                          </div>
+                          <Input type="number" value={stopLoss} onChange={e=>setStopLoss(Number(e.target.value))} className="w-24 h-8 text-red-600" />
                         </div>
                       </div>
                    </div>
                 </div>
               </div>
 
-              {/* Block 2: Purchase Conditions */}
               <div className="w-[320px] bg-white border border-[#e5e5e5] rounded shadow-md overflow-hidden">
                 <div className="bg-[#064e6e] px-4 py-2.5 text-white text-[13px] font-bold flex gap-2 items-center">
                    <Target className="size-3" /> 2. Purchase conditions
@@ -357,19 +327,11 @@ function BotBuilder() {
                 </div>
               </div>
             </div>
-
-            <div className="absolute bottom-12 right-12 opacity-40 hover:opacity-100 transition-opacity">
-               <div className="size-20 bg-slate-200 rounded-2xl flex items-center justify-center text-slate-500">
-                  <Trash2 className="size-10" />
-               </div>
-            </div>
           </div>
         </main>
 
-        {/* --- RIGHT SIDEBAR (The Run Panel) --- */}
-        <aside className="w-full lg:w-[380px] bg-white border-l border-[#e5e5e5] flex flex-col shrink-0 shadow-[-10px_0_30px_rgba(0,0,0,0.02)]">
-          {/* Action Header */}
-          <div className="p-5 border-b border-[#e5e5e5] bg-white flex items-center justify-between gap-4">
+        <aside className="w-full lg:w-[380px] bg-white border-l border-[#e5e5e5] flex flex-col shrink-0">
+          <div className="p-5 border-b border-[#e5e5e5] flex items-center justify-between gap-4">
             <button 
               onClick={toggleBot} 
               className={cn(
@@ -402,19 +364,18 @@ function BotBuilder() {
               {stats.runs === 0 ? (
                 <div className="flex-1 flex items-center justify-center text-center">
                   <p className="text-sm text-slate-400 leading-relaxed font-medium">
-                    When you're ready to trade, hit <span className="text-[#333] font-bold">Run</span>.<br />
-                    You'll be able to track your bot's performance here.
+                    Hit Run to start tracking.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-10">
                    <div className="grid grid-cols-3 gap-x-4 gap-y-10 text-center">
-                      <StatItem label="Total stake" value={`${stats.stake.toFixed(2)} USD`} />
-                      <StatItem label="Total payout" value={`${stats.payout.toFixed(2)} USD`} />
+                      <StatItem label="Total stake" value={`${stats.stake.toFixed(2)}`} />
+                      <StatItem label="Total payout" value={`${stats.payout.toFixed(2)}`} />
                       <StatItem label="No. of runs" value={String(stats.runs)} />
-                      <StatItem label="Contracts lost" value={String(stats.losses)} color="text-[#ff444f]" />
-                      <StatItem label="Contracts won" value={String(stats.wins)} color="text-[#4bb4b3]" />
-                      <StatItem label="Total profit/loss" value={`${stats.profit.toFixed(2)} USD`} color={stats.profit >= 0 ? "text-[#4bb4b3]" : "text-[#ff444f]"} />
+                      <StatItem label="Losses" value={String(stats.losses)} color="text-red-500" />
+                      <StatItem label="Wins" value={String(stats.wins)} color="text-[#4bb4b3]" />
+                      <StatItem label="Profit/loss" value={`${stats.profit.toFixed(2)}`} color={stats.profit >= 0 ? "text-[#4bb4b3]" : "text-red-500"} />
                    </div>
                 </div>
               )}
@@ -423,16 +384,16 @@ function BotBuilder() {
                 <Button 
                   variant="outline" 
                   onClick={() => setStats({runs:0, wins:0, losses:0, profit:0, stake:0, payout:0})} 
-                  className="w-full border-[#e5e5e5] font-bold text-[#333] h-12 rounded bg-white hover:bg-slate-50"
+                  className="w-full border-[#e5e5e5] font-bold text-[#333] h-12 rounded"
                 >
                   Reset Performance
                 </Button>
               </div>
             </TabsContent>
 
-            <TabsContent value="journal" className="m-0 flex-1 overflow-y-auto p-5 space-y-3 bg-[#f8f9fa] custom-scrollbar">
+            <TabsContent value="journal" className="m-0 flex-1 overflow-y-auto p-5 space-y-3 bg-[#f8f9fa]">
               {journal.map((j, i) => (
-                <div key={i} className="text-[11px] font-semibold text-slate-600 flex gap-3 leading-relaxed border-b border-black/5 pb-2">
+                <div key={i} className="text-[11px] font-semibold text-slate-600 flex gap-3 border-b border-black/5 pb-2">
                    <span className="shrink-0 text-slate-400 font-mono">{j.time}</span>
                    <span className={cn(j.type === 'success' ? "text-teal-600" : j.type === 'error' ? "text-rose-600" : "")}>
                      {j.msg}
@@ -446,8 +407,6 @@ function BotBuilder() {
     </TopShell>
   );
 }
-
-// --- HELPER COMPONENTS ---
 
 function ToolbarBtn({ icon: Icon, onClick }: { icon: any; onClick?: () => void }) {
   return (
@@ -477,8 +436,4 @@ function StatItem({ label, value, color = "text-[#333]" }: { label: string; valu
       <span className={cn("text-[14px] font-black tabular-nums", color)}>{value}</span>
     </div>
   );
-}
-
-function RefreshCw(props: any) {
-  return <RotateCcw {...props} />;
 }
