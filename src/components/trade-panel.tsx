@@ -20,9 +20,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Info, Minus, Plus, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Info,
+  Minus,
+  Plus,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+type TradeProposalPayload = Record<string, unknown> & {
+  proposal: 1;
+  amount: number;
+  basis: string;
+  contract_type: string;
+  currency: string;
+  symbol: string;
+  duration?: number;
+  duration_unit?: "t" | "s" | "m";
+  barrier?: string;
+  growth_rate?: number;
+  multiplier?: number;
+  limit_order?: { take_profit: number };
+};
 
 interface TradePanelProps {
   market: string;
@@ -60,8 +83,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const activePollsRef = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
 
   useEffect(() => {
+    const activePolls = activePollsRef.current;
     return () => {
-      activePollsRef.current.forEach(clearInterval);
+      activePolls.forEach(clearInterval);
     };
   }, []);
 
@@ -74,7 +98,16 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     tickFreq: number | null;
     minStake: number | null;
     maxStake: number | null;
-  }>({ maxPayout: null, maxTicks: null, high: null, low: null, tickSize: null, tickFreq: null, minStake: null, maxStake: null });
+  }>({
+    maxPayout: null,
+    maxTicks: null,
+    high: null,
+    low: null,
+    tickSize: null,
+    tickFreq: null,
+    minStake: null,
+    maxStake: null,
+  });
 
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
@@ -88,9 +121,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const showDuration = !isAccumulator && !isMultiplier;
   const sides = SIDES_BY_CATEGORY[category];
   const catIdx = TRADE_CATEGORIES.findIndex((c) => c.value === category);
-  const currentDigit = lastPrice != null && Number.isFinite(lastPrice)
-    ? Number(lastPrice.toFixed(2).slice(-1))
-    : null;
+  const currentDigit =
+    lastPrice != null && Number.isFinite(lastPrice) ? Number(lastPrice.toFixed(2).slice(-1)) : null;
   const cycleCategory = useCallback(
     (dir: -1 | 1) => {
       const next = (catIdx + dir + TRADE_CATEGORIES.length) % TRADE_CATEGORIES.length;
@@ -108,7 +140,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         let accuInfo: typeof accuMeta | null = null;
         for (const s of sides) {
           const ct = contractTypeFor(category, s.value);
-          const proposal: any = {
+          const proposal: TradeProposalPayload = {
             proposal: 1,
             amount: stake,
             basis: payoutMode,
@@ -167,7 +199,21 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       clearTimeout(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, category, side, stake, duration, durationUnit, barrierDigit, barrierOffset, growthRate, multiplier, market, payoutMode, currency]);
+  }, [
+    token,
+    category,
+    side,
+    stake,
+    duration,
+    durationUnit,
+    barrierDigit,
+    barrierOffset,
+    growthRate,
+    multiplier,
+    market,
+    payoutMode,
+    currency,
+  ]);
 
   // Deriv accumulator barriers are recomputed on every tick from the current
   // spot using `tick_size_barrier` (fractional distance from spot). Mirror that
@@ -194,7 +240,15 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       // returned by the most recent proposal.
       onAccumulatorBarriers?.({ high: accuMeta.high, low: accuMeta.low });
     }
-  }, [isAccumulator, lastPrice, accuMeta.tickSize, accuMeta.high, accuMeta.low, growthRate, onAccumulatorBarriers]);
+  }, [
+    isAccumulator,
+    lastPrice,
+    accuMeta.tickSize,
+    accuMeta.high,
+    accuMeta.low,
+    growthRate,
+    onAccumulatorBarriers,
+  ]);
 
   async function handleBuy(sideOverride?: string) {
     const activeSide = sideOverride ?? side;
@@ -215,7 +269,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     setBusy(true);
     try {
       const contract_type = contractTypeFor(category, activeSide);
-      const proposal: any = {
+      const proposal: TradeProposalPayload = {
         proposal: 1,
         amount: stake,
         basis: "stake",
@@ -242,17 +296,19 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       if (!proposalId) throw new Error("No proposal returned");
       const buyResp = await send({ buy: proposalId, price: stake });
       const contract = buyResp.buy;
-      toast.success(`Bought contract ${contract.contract_id}`);
+      const contractId = String(contract?.contract_id ?? "");
+      if (!contract || !contractId) throw new Error("No contract returned");
+      toast.success(`Bought contract ${contractId}`);
 
       const { data: trade } = await supabase
         .from("trades")
         .insert({
           user_id: user.id,
-          deriv_contract_id: String(contract.contract_id),
+          deriv_contract_id: contractId,
           symbol: market,
           trade_type: contract_type,
           stake,
-          payout: contract.payout,
+          payout: Number(contract.payout ?? 0),
           status: "open",
         })
         .select()
@@ -260,7 +316,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
 
       if (isAccumulator) {
         setOpenAccumulator({
-          contractId: String(contract.contract_id),
+          contractId,
           tradeId: trade?.id,
           buyPrice: Number(contract.buy_price ?? stake),
           bidPrice: null,
@@ -270,11 +326,11 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
 
       const poll = setInterval(async () => {
         try {
-          const res = await send({ proposal_open_contract: 1, contract_id: contract.contract_id });
+          const res = await send({ proposal_open_contract: 1, contract_id: contractId });
           const c = res.proposal_open_contract;
           if (isAccumulator && !c?.is_sold) {
             setOpenAccumulator((current) =>
-              current?.contractId === String(contract.contract_id)
+              current?.contractId === contractId
                 ? {
                     ...current,
                     bidPrice: c?.bid_price != null ? Number(c.bid_price) : current.bidPrice,
@@ -291,7 +347,11 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             if (trade?.id) {
               await supabase
                 .from("trades")
-                .update({ profit_loss: profit, status: profit >= 0 ? "won" : "lost", closed_at: new Date().toISOString() })
+                .update({
+                  profit_loss: profit,
+                  status: profit >= 0 ? "won" : "lost",
+                  closed_at: new Date().toISOString(),
+                })
                 .eq("id", trade.id);
             }
             toast[profit >= 0 ? "success" : "error"](
@@ -307,8 +367,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         clearInterval(poll);
         activePollsRef.current.delete(poll);
       }, 120000);
-    } catch (e: any) {
-      toast.error(e.message ?? "Trade failed");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Trade failed");
     } finally {
       setBusy(false);
     }
@@ -335,8 +395,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         `Sold accumulator ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${currency}`,
       );
       setOpenAccumulator(null);
-    } catch (error: any) {
-      toast.error(error?.message ?? "Could not sell accumulator");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Could not sell accumulator");
     } finally {
       setBusy(false);
     }
@@ -344,12 +404,18 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
 
   const accentBuy = "bg-[oklch(0.7_0.17_150)] hover:bg-[oklch(0.65_0.17_150)]";
   const sideAccent: Record<string, string> = {
-    up: "bg-emerald-500", down: "bg-rose-500",
-    higher: "bg-emerald-500", lower: "bg-rose-500",
-    over: "bg-emerald-500", under: "bg-rose-500",
-    even: "bg-emerald-500", odd: "bg-rose-500",
-    touch: "bg-emerald-500", no_touch: "bg-rose-500",
-    matches: "bg-emerald-500", differs: "bg-rose-500",
+    up: "bg-emerald-500",
+    down: "bg-rose-500",
+    higher: "bg-emerald-500",
+    lower: "bg-rose-500",
+    over: "bg-emerald-500",
+    under: "bg-rose-500",
+    even: "bg-emerald-500",
+    odd: "bg-rose-500",
+    touch: "bg-emerald-500",
+    no_touch: "bg-rose-500",
+    matches: "bg-emerald-500",
+    differs: "bg-rose-500",
     buy: "bg-emerald-500",
   };
 
@@ -361,7 +427,11 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           Learn about this trade type
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <button onClick={() => cycleCategory(-1)} className="rounded-md p-1 hover:bg-[oklch(0.96_0.005_240)]" aria-label="Previous trade type">
+          <button
+            onClick={() => cycleCategory(-1)}
+            className="rounded-md p-1 hover:bg-[oklch(0.96_0.005_240)]"
+            aria-label="Previous trade type"
+          >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <div className="flex flex-1 items-center justify-center gap-2 px-3 py-1">
@@ -375,7 +445,11 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             )}
             <span className="font-semibold">{currentCategory?.label}</span>
           </div>
-          <button onClick={() => cycleCategory(1)} className="rounded-md p-1 hover:bg-[oklch(0.96_0.005_240)]" aria-label="Next trade type">
+          <button
+            onClick={() => cycleCategory(1)}
+            className="rounded-md p-1 hover:bg-[oklch(0.96_0.005_240)]"
+            aria-label="Next trade type"
+          >
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
@@ -386,7 +460,14 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           <div className="text-center text-sm text-[oklch(0.45_0.02_260)]">
             {durationUnit === "t" ? "Ticks" : durationUnit === "s" ? "Seconds" : "Minutes"}
           </div>
-          <Slider className="mt-3" min={1} max={10} step={1} value={[duration]} onValueChange={(v) => setDuration(v[0])} />
+          <Slider
+            className="mt-3"
+            min={1}
+            max={10}
+            step={1}
+            value={[duration]}
+            onValueChange={(v) => setDuration(v[0])}
+          />
           <div className="mt-2 text-center font-semibold">
             {duration} {durationUnit === "t" ? `Tick${duration > 1 ? "s" : ""}` : durationUnit}
           </div>
@@ -398,7 +479,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                   onClick={() => setDurationUnit(u)}
                   className={cn(
                     "rounded px-2 py-0.5 text-[11px]",
-                    durationUnit === u ? "bg-[oklch(0.7_0.17_150)] text-white" : "bg-[oklch(0.96_0.005_240)] text-[oklch(0.45_0.02_260)]",
+                    durationUnit === u
+                      ? "bg-[oklch(0.7_0.17_150)] text-white"
+                      : "bg-[oklch(0.96_0.005_240)] text-[oklch(0.45_0.02_260)]",
                   )}
                 >
                   {u === "t" ? "ticks" : u === "s" ? "sec" : "min"}
@@ -455,10 +538,14 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
           <div className="mb-2 text-sm">Multiplier</div>
           <Select value={String(multiplier)} onValueChange={(v) => setMultiplier(Number(v))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               {[10, 20, 30, 50, 100, 200, 300, 500].map((m) => (
-                <SelectItem key={m} value={String(m)}>×{m}</SelectItem>
+                <SelectItem key={m} value={String(m)}>
+                  ×{m}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -513,7 +600,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           >
             <Plus className="h-4 w-4" />
           </button>
-          <span className="w-14 text-center text-sm font-medium text-[oklch(0.45_0.02_260)]">{currency}</span>
+          <span className="w-14 text-center text-sm font-medium text-[oklch(0.45_0.02_260)]">
+            {currency}
+          </span>
         </div>
       </div>
 
@@ -556,7 +645,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
               >
                 <Plus className="h-4 w-4" />
               </button>
-              <span className="w-12 text-center text-xs text-[oklch(0.45_0.02_260)]">{currency}</span>
+              <span className="w-12 text-center text-xs text-[oklch(0.45_0.02_260)]">
+                {currency}
+              </span>
             </div>
           )}
         </div>
@@ -567,12 +658,16 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         <div className="rounded-xl border border-[#d8edf7] bg-[#f7fcff] p-3 text-sm">
           <div className="mb-2 flex items-center justify-between rounded-md bg-white px-3 py-2 text-xs">
             <span className="font-semibold text-[#147a78]">Accumulator barrier corridor</span>
-            <span className="font-mono text-[#555555]">{lastPrice != null ? lastPrice.toFixed(4) : "-"}</span>
+            <span className="font-mono text-[#555555]">
+              {lastPrice != null ? lastPrice.toFixed(4) : "-"}
+            </span>
           </div>
           <div className="flex items-center justify-between py-1">
             <span className="text-[oklch(0.4_0.02_260)]">Max. payout</span>
             <span className="font-medium underline decoration-dotted">
-              {accuMeta.maxPayout != null ? `${accuMeta.maxPayout.toFixed(2)} ${currency}` : `6,000.00 ${currency}`}
+              {accuMeta.maxPayout != null
+                ? `${accuMeta.maxPayout.toFixed(2)} ${currency}`
+                : `6,000.00 ${currency}`}
             </span>
           </div>
           <div className="flex items-center justify-between py-1">
@@ -591,7 +686,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             <div className="flex items-center justify-between py-1">
               <span className="text-[oklch(0.4_0.02_260)]">Stake range</span>
               <span className="font-medium">
-                {(accuMeta.minStake ?? 1).toFixed(2)} – {(accuMeta.maxStake ?? 2000).toFixed(2)} {currency}
+                {(accuMeta.minStake ?? 1).toFixed(2)} – {(accuMeta.maxStake ?? 2000).toFixed(2)}{" "}
+                {currency}
               </span>
             </div>
           )}
@@ -607,7 +703,12 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             <div className="mt-2 rounded-md border border-[#cce9e7] bg-white p-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-[#147a78]">Open accumulator</span>
-                <span className={cn("font-mono font-bold", (openAccumulator.profit ?? 0) >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                <span
+                  className={cn(
+                    "font-mono font-bold",
+                    (openAccumulator.profit ?? 0) >= 0 ? "text-emerald-600" : "text-rose-600",
+                  )}
+                >
                   {(openAccumulator.profit ?? 0) >= 0 ? "+" : ""}
                   {(openAccumulator.profit ?? 0).toFixed(2)} {currency}
                 </span>
@@ -615,7 +716,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
               <div className="mt-1 flex items-center justify-between text-[11px] text-[#666666]">
                 <span>Sell price</span>
                 <span className="font-mono">
-                  {openAccumulator.bidPrice != null ? `${openAccumulator.bidPrice.toFixed(2)} ${currency}` : "Pending"}
+                  {openAccumulator.bidPrice != null
+                    ? `${openAccumulator.bidPrice.toFixed(2)} ${currency}`
+                    : "Pending"}
                 </span>
               </div>
             </div>
@@ -651,13 +754,22 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                 disabled={busy}
                 className={cn(
                   "w-full overflow-hidden rounded-xl text-left transition disabled:opacity-60",
-                  isSelected ? "ring-2 ring-[oklch(0.55_0.22_265)]/60" : "opacity-90 hover:opacity-100",
+                  isSelected
+                    ? "ring-2 ring-[oklch(0.55_0.22_265)]/60"
+                    : "opacity-90 hover:opacity-100",
                 )}
               >
                 <div className="flex items-center justify-between bg-[oklch(0.96_0.005_240)] px-3 py-1.5 text-xs text-[oklch(0.45_0.02_260)]">
-                  <span>Payout {live ? live.payout.toFixed(2) : "—"} {currency}</span>
+                  <span>
+                    Payout {live ? live.payout.toFixed(2) : "—"} {currency}
+                  </span>
                 </div>
-                <div className={cn("flex items-center justify-between px-4 py-3 text-white", sideAccent[s.value] ?? "bg-muted")}>
+                <div
+                  className={cn(
+                    "flex items-center justify-between px-4 py-3 text-white",
+                    sideAccent[s.value] ?? "bg-muted",
+                  )}
+                >
                   <span className="font-semibold">
                     {busy && side === s.value ? "Submitting…" : s.label}
                   </span>
@@ -707,7 +819,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       )}
 
       <p className="text-[11px] text-[oklch(0.5_0.02_260)]">
-        Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "—"}</span>. You can lose money rapidly.
+        Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "—"}</span>. You can lose
+        money rapidly.
       </p>
     </div>
   );
@@ -740,7 +853,9 @@ function DigitWheel({
               ? `${selectedSide === "over" ? "Over" : "Under"} ${selectedDigit}`
               : category === "matches_differs"
                 ? `${selectedSide === "matches" ? "Matches" : "Differs"} ${selectedDigit}`
-                : selectedSide === "even" ? "Even digits" : "Odd digits"}
+                : selectedSide === "even"
+                  ? "Even digits"
+                  : "Odd digits"}
           </div>
         </div>
         <div className="rounded-md bg-[#ff444f] px-2.5 py-1 text-xs font-bold text-white">
@@ -762,7 +877,10 @@ function DigitWheel({
           const y = Math.sin(angle) * radius;
           const selected = !isReadOnly && selectedDigit === digit;
           const live = currentDigit === digit;
-          const evenOddMatch = category === "even_odd" && ((selectedSide === "even" && digit % 2 === 0) || (selectedSide === "odd" && digit % 2 === 1));
+          const evenOddMatch =
+            category === "even_odd" &&
+            ((selectedSide === "even" && digit % 2 === 0) ||
+              (selectedSide === "odd" && digit % 2 === 1));
           return (
             <button
               key={digit}

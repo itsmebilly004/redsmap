@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
   AreaSeries,
@@ -67,10 +67,10 @@ const ANALYSIS_TOOLS: { label: string; value: AnalysisTool }[] = [
 ];
 
 const STATUS_STYLE: Record<ConnectionStatus, string> = {
-  connecting:    "bg-yellow-400/20 text-yellow-600",
-  connected:     "bg-green-500/20 text-green-600",
-  reconnecting:  "bg-orange-500/20 text-orange-600",
-  disconnected:  "bg-red-500/20 text-red-600",
+  connecting: "bg-yellow-400/20 text-yellow-600",
+  connected: "bg-green-500/20 text-green-600",
+  reconnecting: "bg-orange-500/20 text-orange-600",
+  disconnected: "bg-red-500/20 text-red-600",
 };
 
 export function DerivChart({
@@ -82,14 +82,14 @@ export function DerivChart({
   highBarrier,
   lowBarrier,
 }: Props) {
-  const containerRef    = useRef<HTMLDivElement | null>(null);
-  const chartRef        = useRef<IChartApi | null>(null);
-  const areaSeriesRef   = useRef<ISeriesApi<"Area"> | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const areaSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const indicatorSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const highLowLineRefs = useRef<IPriceLine[]>([]);
-  const highLineRef     = useRef<IPriceLine | null>(null);
-  const lowLineRef      = useRef<IPriceLine | null>(null);
+  const highLineRef = useRef<IPriceLine | null>(null);
+  const lowLineRef = useRef<IPriceLine | null>(null);
   const candleBufferRef = useRef<Map<number, Candle>>(new Map());
   const historyRef = useRef<LineData[]>([]);
 
@@ -97,22 +97,129 @@ export function DerivChart({
   const [chartType, setChartType] = useState<ChartType>("area");
   const [analysisTools, setAnalysisTools] = useState<Set<AnalysisTool>>(new Set());
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const [allSymbols, setAllSymbols] =
-    useState<{ symbol: string; display_name: string; market: string }[]>([]);
+  const [allSymbols, setAllSymbols] = useState<
+    { symbol: string; display_name: string; market: string }[]
+  >([]);
+  const analysisToolsRef = useRef(analysisTools);
+
+  useEffect(() => {
+    analysisToolsRef.current = analysisTools;
+  }, [analysisTools]);
+
+  const clearAnalysisOverlays = useCallback(() => {
+    const chart = chartRef.current;
+    indicatorSeriesRef.current.forEach((series) => {
+      try {
+        chart?.removeSeries(series);
+      } catch {
+        /* ignore */
+      }
+    });
+    indicatorSeriesRef.current = [];
+    const baseSeries = areaSeriesRef.current ?? candleSeriesRef.current;
+    highLowLineRefs.current.forEach((line) => {
+      try {
+        baseSeries?.removePriceLine(line);
+      } catch {
+        /* ignore */
+      }
+    });
+    highLowLineRefs.current = [];
+  }, []);
+
+  const updateAnalysisOverlays = useCallback(() => {
+    const chart = chartRef.current;
+    const data = historyRef.current;
+    const baseSeries = areaSeriesRef.current ?? candleSeriesRef.current;
+    const tools = analysisToolsRef.current;
+    if (!chart || !baseSeries) return;
+    clearAnalysisOverlays();
+    if (!data.length || tools.size === 0) return;
+
+    if (tools.has("sma")) {
+      const series = chart.addSeries(LineSeries, {
+        color: "#2563eb",
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      series.setData(movingAverage(data, 20));
+      indicatorSeriesRef.current.push(series);
+    }
+    if (tools.has("ema")) {
+      const series = chart.addSeries(LineSeries, {
+        color: "#9333ea",
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      series.setData(exponentialAverage(data, 20));
+      indicatorSeriesRef.current.push(series);
+    }
+    if (tools.has("bollinger")) {
+      const [upper, lower] = bollingerBands(data, 20);
+      const upperSeries = chart.addSeries(LineSeries, {
+        color: "#f59e0b",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      const lowerSeries = chart.addSeries(LineSeries, {
+        color: "#f59e0b",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      upperSeries.setData(upper);
+      lowerSeries.setData(lower);
+      indicatorSeriesRef.current.push(upperSeries, lowerSeries);
+    }
+    if (tools.has("highlow")) {
+      const values = data.map((point) => point.value);
+      const high = Math.max(...values);
+      const low = Math.min(...values);
+      highLowLineRefs.current = [
+        baseSeries.createPriceLine({
+          price: high,
+          color: "#ef4444",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: "High",
+        }),
+        baseSeries.createPriceLine({
+          price: low,
+          color: "#22c55e",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: "Low",
+        }),
+      ];
+    }
+  }, [clearAnalysisOverlays]);
 
   useEffect(() => {
     getActiveSymbols()
-      .then((list) => { if (list?.length) setAllSymbols(list); })
+      .then((list) => {
+        if (list?.length) setAllSymbols(list);
+      })
       .catch(() => {
         setAllSymbols(
-          SYNTHETIC_MARKETS.map((m) => ({ symbol: m.symbol, display_name: m.name, market: "synthetic_index" })),
+          SYNTHETIC_MARKETS.map((m) => ({
+            symbol: m.symbol,
+            display_name: m.name,
+            market: "synthetic_index",
+          })),
         );
       });
   }, []);
 
   useEffect(() => {
     const off = onStatus(setStatus);
-    return () => { off(); };
+    return () => {
+      off();
+    };
   }, []);
 
   // Build chart once; rebuild when chart type changes.
@@ -141,39 +248,39 @@ export function DerivChart({
 
     if (chartType === "candle") {
       const series = chart.addSeries(CandlestickSeries, {
-        upColor:   "#22c55e",
+        upColor: "#22c55e",
         downColor: "#ef4444",
-        borderUpColor:   "#22c55e",
+        borderUpColor: "#22c55e",
         borderDownColor: "#ef4444",
-        wickUpColor:   "#22c55e",
+        wickUpColor: "#22c55e",
         wickDownColor: "#ef4444",
         priceLineVisible: true,
         lastValueVisible: true,
       });
       candleSeriesRef.current = series as ISeriesApi<"Candlestick">;
-      areaSeriesRef.current   = null;
+      areaSeriesRef.current = null;
     } else {
       const series = chart.addSeries(AreaSeries, {
-        lineColor:   "#1f2937",
-        lineWidth:   2,
-        topColor:    "rgba(31,41,55,0.18)",
+        lineColor: "#1f2937",
+        lineWidth: 2,
+        topColor: "rgba(31,41,55,0.18)",
         bottomColor: "rgba(31,41,55,0.0)",
         priceLineVisible: true,
-        priceLineColor:   "#111827",
-        priceLineWidth:   1,
+        priceLineColor: "#111827",
+        priceLineWidth: 1,
         lastValueVisible: true,
         crosshairMarkerVisible: true,
-        crosshairMarkerRadius:  4,
+        crosshairMarkerRadius: 4,
       });
-      areaSeriesRef.current   = series as ISeriesApi<"Area">;
+      areaSeriesRef.current = series as ISeriesApi<"Area">;
       candleSeriesRef.current = null;
     }
 
     chartRef.current = chart;
     return () => {
       chart.remove();
-      chartRef.current        = null;
-      areaSeriesRef.current   = null;
+      chartRef.current = null;
+      areaSeriesRef.current = null;
       candleSeriesRef.current = null;
       indicatorSeriesRef.current = [];
       highLowLineRefs.current = [];
@@ -191,9 +298,13 @@ export function DerivChart({
     async function init() {
       try {
         if (chartType === "area") {
-          const ticks = granularity === 0
-            ? await fetchTicks(symbol, 500)
-            : (await fetchCandles(symbol, granularity, 300)).map((c) => ({ time: c.time, value: c.close }));
+          const ticks =
+            granularity === 0
+              ? await fetchTicks(symbol, 500)
+              : (await fetchCandles(symbol, granularity, 300)).map((c) => ({
+                  time: c.time,
+                  value: c.close,
+                }));
           if (cancelled) return;
           const data: LineData[] = ticks.map((point) => ({
             time: point.time as UTCTimestamp,
@@ -206,15 +317,18 @@ export function DerivChart({
           const candles = await fetchCandles(symbol, candleGranularity, 300);
           if (cancelled) return;
           const data: CandlestickData[] = candles.map((c) => ({
-            time:  c.time as UTCTimestamp,
-            open:  c.open,
-            high:  c.high,
-            low:   c.low,
+            time: c.time as UTCTimestamp,
+            open: c.open,
+            high: c.high,
+            low: c.low,
             close: c.close,
           }));
           candleSeriesRef.current.setData(data);
           candles.forEach((c) => candleBufferRef.current.set(c.time, c));
-          historyRef.current = candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close }));
+          historyRef.current = candles.map((c) => ({
+            time: c.time as UTCTimestamp,
+            value: c.close,
+          }));
         }
         updateAnalysisOverlays();
         chartRef.current?.timeScale().fitContent();
@@ -236,18 +350,25 @@ export function DerivChart({
           const buf = candleBufferRef.current;
           const existing = buf.get(barTime);
           const bar: Candle = existing
-            ? { ...existing, high: Math.max(existing.high, price), low: Math.min(existing.low, price), close: price }
+            ? {
+                ...existing,
+                high: Math.max(existing.high, price),
+                low: Math.min(existing.low, price),
+                close: price,
+              }
             : { time: barTime, open: price, high: price, low: price, close: price };
           buf.set(barTime, bar);
           candleSeriesRef.current.update({
-            time:  barTime as UTCTimestamp,
-            open:  bar.open,
-            high:  bar.high,
-            low:   bar.low,
+            time: barTime as UTCTimestamp,
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
             close: bar.close,
           });
           historyRef.current = [
-            ...historyRef.current.filter((point) => point.time !== (barTime as UTCTimestamp)).slice(-499),
+            ...historyRef.current
+              .filter((point) => point.time !== (barTime as UTCTimestamp))
+              .slice(-499),
             { time: barTime as UTCTimestamp, value: bar.close },
           ];
         }
@@ -260,80 +381,45 @@ export function DerivChart({
       cancelled = true;
       unsubTicks?.();
     };
-  }, [symbol, granularity, chartType, onPrice]);
+  }, [symbol, granularity, chartType, onPrice, updateAnalysisOverlays]);
 
   useEffect(() => {
     updateAnalysisOverlays();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analysisTools, chartType]);
+  }, [analysisTools, chartType, updateAnalysisOverlays]);
 
   // Barrier lines.
   useEffect(() => {
     const series = areaSeriesRef.current ?? candleSeriesRef.current;
     if (!series) return;
-    if (highLineRef.current) { series.removePriceLine(highLineRef.current); highLineRef.current = null; }
-    if (lowLineRef.current)  { series.removePriceLine(lowLineRef.current);  lowLineRef.current  = null; }
+    if (highLineRef.current) {
+      series.removePriceLine(highLineRef.current);
+      highLineRef.current = null;
+    }
+    if (lowLineRef.current) {
+      series.removePriceLine(lowLineRef.current);
+      lowLineRef.current = null;
+    }
     if (highBarrier != null && Number.isFinite(highBarrier)) {
       highLineRef.current = series.createPriceLine({
-        price: highBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "Upper barrier",
+        price: highBarrier,
+        color: "#2196f3",
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "Upper barrier",
       });
     }
     if (lowBarrier != null && Number.isFinite(lowBarrier)) {
       lowLineRef.current = series.createPriceLine({
-        price: lowBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "Lower barrier",
+        price: lowBarrier,
+        color: "#2196f3",
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "Lower barrier",
       });
     }
   }, [highBarrier, lowBarrier]);
-
-  function clearAnalysisOverlays() {
-    const chart = chartRef.current;
-    indicatorSeriesRef.current.forEach((series) => {
-      try { chart?.removeSeries(series); } catch { /* ignore */ }
-    });
-    indicatorSeriesRef.current = [];
-    const baseSeries = areaSeriesRef.current ?? candleSeriesRef.current;
-    highLowLineRefs.current.forEach((line) => {
-      try { baseSeries?.removePriceLine(line); } catch { /* ignore */ }
-    });
-    highLowLineRefs.current = [];
-  }
-
-  function updateAnalysisOverlays() {
-    const chart = chartRef.current;
-    const data = historyRef.current;
-    const baseSeries = areaSeriesRef.current ?? candleSeriesRef.current;
-    if (!chart || !baseSeries) return;
-    clearAnalysisOverlays();
-    if (!data.length || analysisTools.size === 0) return;
-
-    if (analysisTools.has("sma")) {
-      const series = chart.addSeries(LineSeries, { color: "#2563eb", lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-      series.setData(movingAverage(data, 20));
-      indicatorSeriesRef.current.push(series);
-    }
-    if (analysisTools.has("ema")) {
-      const series = chart.addSeries(LineSeries, { color: "#9333ea", lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-      series.setData(exponentialAverage(data, 20));
-      indicatorSeriesRef.current.push(series);
-    }
-    if (analysisTools.has("bollinger")) {
-      const [upper, lower] = bollingerBands(data, 20);
-      const upperSeries = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-      const lowerSeries = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-      upperSeries.setData(upper);
-      lowerSeries.setData(lower);
-      indicatorSeriesRef.current.push(upperSeries, lowerSeries);
-    }
-    if (analysisTools.has("highlow")) {
-      const values = data.map((point) => point.value);
-      const high = Math.max(...values);
-      const low = Math.min(...values);
-      highLowLineRefs.current = [
-        baseSeries.createPriceLine({ price: high, color: "#ef4444", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "High" }),
-        baseSeries.createPriceLine({ price: low, color: "#22c55e", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Low" }),
-      ];
-    }
-  }
 
   function toggleAnalysisTool(tool: AnalysisTool) {
     setAnalysisTools((current) => {
@@ -347,7 +433,7 @@ export function DerivChart({
   const symbolOptions = useMemo(() => {
     if (allSymbols.length === 0)
       return SYNTHETIC_MARKETS.map((m) => ({ symbol: m.symbol, display_name: m.name }));
-    const syn  = allSymbols.filter((s) => s.market === "synthetic_index");
+    const syn = allSymbols.filter((s) => s.market === "synthetic_index");
     const rest = allSymbols.filter((s) => s.market !== "synthetic_index");
     return [...syn, ...rest];
   }, [allSymbols]);
@@ -363,7 +449,9 @@ export function DerivChart({
           </SelectTrigger>
           <SelectContent className="max-h-80">
             {symbolOptions.map((m) => (
-              <SelectItem key={m.symbol} value={m.symbol}>{m.display_name}</SelectItem>
+              <SelectItem key={m.symbol} value={m.symbol}>
+                {m.display_name}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -440,7 +528,12 @@ export function DerivChart({
         </div>
 
         {/* Connection status */}
-        <span className={cn("ml-auto rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider", STATUS_STYLE[status])}>
+        <span
+          className={cn(
+            "ml-auto rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider",
+            STATUS_STYLE[status],
+          )}
+        >
           ● {status}
         </span>
       </div>
@@ -479,7 +572,8 @@ function bollingerBands(data: LineData[], period: number): [LineData[], LineData
   data.forEach((point, index) => {
     const window = data.slice(Math.max(0, index - period + 1), index + 1);
     const mean = window.reduce((sum, item) => sum + item.value, 0) / window.length;
-    const variance = window.reduce((sum, item) => sum + Math.pow(item.value - mean, 2), 0) / window.length;
+    const variance =
+      window.reduce((sum, item) => sum + Math.pow(item.value - mean, 2), 0) / window.length;
     const deviation = Math.sqrt(variance);
     upper.push({ time: point.time, value: mean + deviation * 2 });
     lower.push({ time: point.time, value: mean - deviation * 2 });

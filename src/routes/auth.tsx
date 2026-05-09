@@ -101,8 +101,8 @@ function AuthPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          By continuing you agree to trade at your own risk. ArkTrader Hub is an independent third-party
-          interface for the Deriv API.
+          By continuing you agree to trade at your own risk. ArkTrader Hub is an independent
+          third-party interface for the Deriv API.
         </p>
       </div>
     </div>

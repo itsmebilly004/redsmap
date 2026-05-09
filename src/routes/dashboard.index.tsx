@@ -3,23 +3,45 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
-import { Wallet, TrendingUp, Activity, Bot, ArrowUpRight, ArrowDownRight, Plug } from "lucide-react";
+import {
+  Wallet,
+  TrendingUp,
+  Activity,
+  Bot,
+  ArrowUpRight,
+  ArrowDownRight,
+  Plug,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { buildOAuthUrl, subscribeTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
 import { Link } from "@tanstack/react-router";
+import type { Tables } from "@/integrations/supabase/types";
 
 export const Route = createFileRoute("/dashboard/")({
   component: DashboardHome,
 });
 
-function StatCard({ icon: Icon, label, value, accent }: any) {
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  accent,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string | number;
+  accent?: string;
+}) {
   return (
     <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-5 shadow-sm backdrop-blur-sm">
       <div className="flex items-center justify-between">
         <span className="text-xs uppercase tracking-wider text-[oklch(0.5_0.02_260)]">{label}</span>
         <Icon className="size-4 text-[oklch(0.6_0.02_260)]" />
       </div>
-      <div className={`mt-3 font-mono text-2xl ${accent ?? "text-[oklch(0.2_0.02_260)]"}`}>{value}</div>
+      <div className={`mt-3 font-mono text-2xl ${accent ?? "text-[oklch(0.2_0.02_260)]"}`}>
+        {value}
+      </div>
     </div>
   );
 }
@@ -28,7 +50,7 @@ function DashboardHome() {
   const { user } = useAuth();
   const { balance, currency } = useDerivBalanceContext();
   const [hasDeriv, setHasDeriv] = useState<boolean | null>(null);
-  const [trades, setTrades] = useState<any[]>([]);
+  const [trades, setTrades] = useState<Tables<"trades">[]>([]);
   const [tick, setTick] = useState<number | null>(null);
 
   useEffect(() => {
@@ -39,24 +61,39 @@ function DashboardHome() {
       .select("id")
       .eq("user_id", user.id)
       .limit(1)
-      .then(({ data, error }) => { if (!cancelled && !error) setHasDeriv((data?.length ?? 0) > 0); });
+      .then(({ data, error }) => {
+        if (!cancelled && !error) setHasDeriv((data?.length ?? 0) > 0);
+      });
     supabase
       .from("trades")
       .select("*")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(10)
-      .then(({ data, error }) => { if (!cancelled && !error) setTrades(data ?? []); });
-    return () => { cancelled = true; };
+      .then(({ data, error }) => {
+        if (!cancelled && !error) setTrades(data ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   useEffect(() => {
     let mounted = true;
     let off: (() => void) | undefined;
-    subscribeTicks("R_100", (price) => { if (mounted) setTick(price); }).then((unsub) => {
-      if (mounted) { off = unsub; } else { unsub(); }
+    subscribeTicks("R_100", (price) => {
+      if (mounted) setTick(price);
+    }).then((unsub) => {
+      if (mounted) {
+        off = unsub;
+      } else {
+        unsub();
+      }
     });
-    return () => { mounted = false; off?.(); };
+    return () => {
+      mounted = false;
+      off?.();
+    };
   }, []);
 
   const totalPL = trades.reduce((a, t) => a + Number(t.profit_loss ?? 0), 0);
@@ -128,7 +165,9 @@ function DashboardHome() {
           </div>
           {trades.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
-              <p className="text-sm text-[oklch(0.5_0.02_260)]">No trades yet — head to the Trade desk.</p>
+              <p className="text-sm text-[oklch(0.5_0.02_260)]">
+                No trades yet — head to the Trade desk.
+              </p>
               <Button
                 asChild
                 size="sm"
@@ -153,7 +192,9 @@ function DashboardHome() {
                         <Activity className="size-4 text-[oklch(0.6_0.02_260)]" />
                       )}
                       <div>
-                        <div className="font-mono text-xs text-[oklch(0.3_0.02_260)]">{t.symbol}</div>
+                        <div className="font-mono text-xs text-[oklch(0.3_0.02_260)]">
+                          {t.symbol}
+                        </div>
                         <div className="text-[10px] uppercase tracking-wider text-[oklch(0.55_0.02_260)]">
                           {t.trade_type}
                         </div>

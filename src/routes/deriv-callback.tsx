@@ -6,6 +6,25 @@ import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
+type DerivTokenResponse = {
+  access_token?: string;
+  expires_in?: string | number;
+  error?: string;
+  error_description?: string;
+};
+
+type DerivAccount = {
+  account_id: string;
+  currency?: string;
+  balance?: string | number;
+};
+
+type DerivAccountsResponse = {
+  data?: DerivAccount[];
+  message?: string;
+  error?: { message?: string };
+};
+
 export const Route = createFileRoute("/deriv-callback")({
   component: DerivCallback,
 });
@@ -72,9 +91,11 @@ function DerivCallback() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ code, codeVerifier }),
         });
-        const tokenData = await tokenResponse.json();
+        const tokenData = (await tokenResponse.json()) as DerivTokenResponse;
         if (!tokenResponse.ok) {
-          throw new Error(tokenData?.error_description ?? tokenData?.error ?? "Deriv token exchange failed");
+          throw new Error(
+            tokenData?.error_description ?? tokenData?.error ?? "Deriv token exchange failed",
+          );
         }
 
         const accessToken = tokenData.access_token;
@@ -82,21 +103,29 @@ function DerivCallback() {
         if (!accessToken) throw new Error("No access token returned");
 
         setStatus("Loading Deriv accounts...");
-        const accountsResponse = await fetch("https://api.derivws.com/trading/v1/options/accounts", {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Deriv-App-ID": DERIV_APP_ID_VALUE,
+        const accountsResponse = await fetch(
+          "https://api.derivws.com/trading/v1/options/accounts",
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Deriv-App-ID": DERIV_APP_ID_VALUE,
+            },
           },
-        });
-        const accountsData = await accountsResponse.json();
+        );
+        const accountsData = (await accountsResponse.json()) as DerivAccountsResponse;
         if (!accountsResponse.ok) {
-          throw new Error(accountsData?.message ?? accountsData?.error?.message ?? "Could not load Deriv accounts");
+          throw new Error(
+            accountsData?.message ??
+              accountsData?.error?.message ??
+              "Could not load Deriv accounts",
+          );
         }
 
         const accounts = accountsData?.data ?? [];
         if (!accounts.length) throw new Error("No Deriv accounts returned");
 
-        const primary = accounts.find((account: any) => !String(account.account_id).startsWith("VR")) ?? accounts[0];
+        const primary =
+          accounts.find((account) => !String(account.account_id).startsWith("VR")) ?? accounts[0];
 
         setStatus("Creating your ArkTrader session...");
         const sessionUser = await ensureSupabaseSession(primary.account_id);
@@ -120,11 +149,13 @@ function DerivCallback() {
           );
           if (upsertErr) throw upsertErr;
         }
-        toast.success(`Welcome - ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`);
+        toast.success(
+          `Welcome - ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`,
+        );
         navigate({ to: "/" });
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error(e);
-        toast.error(e.message ?? "Connection failed");
+        toast.error(e instanceof Error ? e.message : "Connection failed");
         navigate({ to: "/auth", search: { mode: "signin" } });
       }
     })();

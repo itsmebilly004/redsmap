@@ -7,7 +7,10 @@ export const Route = createFileRoute("/charts")({
   head: () => ({
     meta: [
       { title: "Live Charts — ArkTrader Hub" },
-      { name: "description", content: "Real-time candlestick charts for all Deriv synthetic indices and forex pairs." },
+      {
+        name: "description",
+        content: "Real-time candlestick charts for all Deriv synthetic indices and forex pairs.",
+      },
     ],
   }),
   component: ChartsPage,
@@ -27,11 +30,7 @@ function ChartsPage() {
   return (
     <TopShell>
       <div className="bg-white p-3">
-        <DerivChart
-          symbol={symbol}
-          onSymbolChange={setSymbol}
-          height={chartHeight}
-        />
+        <DerivChart symbol={symbol} onSymbolChange={setSymbol} height={chartHeight} />
       </div>
     </TopShell>
   );

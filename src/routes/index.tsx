@@ -4,14 +4,29 @@ import { TopShell } from "@/components/top-shell";
 import { DerivChart } from "@/components/deriv-chart";
 import { TradePanel } from "@/components/trade-panel";
 import { SignalsPanel } from "@/components/signals-panel";
-import { Shield, Sun, HelpCircle, Settings, Globe, Bot, Crosshair, Maximize2, BarChart2, TrendingUp } from "lucide-react";
+import {
+  Shield,
+  Sun,
+  HelpCircle,
+  Settings,
+  Globe,
+  Bot,
+  Crosshair,
+  Maximize2,
+  BarChart2,
+  TrendingUp,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "ArkTrader Hub — Real-time Deriv Trading Platform" },
-      { name: "description", content: "Trade synthetic indices in real time with live Deriv charts, bots, analytics, and copy trading." },
+      {
+        name: "description",
+        content:
+          "Trade synthetic indices in real time with live Deriv charts, bots, analytics, and copy trading.",
+      },
     ],
   }),
   component: Index,
@@ -20,14 +35,20 @@ export const Route = createFileRoute("/")({
 function Index() {
   const [symbol, setSymbol] = useState("1HZ100V");
   const [price, setPrice] = useState<number | null>(null);
-  const [barriers, setBarriers] = useState<{ high: number | null; low: number | null }>({ high: null, low: null });
+  const [barriers, setBarriers] = useState<{ high: number | null; low: number | null }>({
+    high: null,
+    low: null,
+  });
   const [mobileTab, setMobileTab] = useState<"chart" | "trade">("chart");
   const navigate = useNavigate();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if ((params.get("code") && params.get("state")) || (params.get("acct1") && params.get("token1"))) {
+    if (
+      (params.get("code") && params.get("state")) ||
+      (params.get("acct1") && params.get("token1"))
+    ) {
       window.location.replace(`/deriv-callback${window.location.search}`);
     }
     if (params.get("error")) {

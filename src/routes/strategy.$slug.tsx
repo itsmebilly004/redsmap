@@ -14,9 +14,7 @@ export const Route = createFileRoute("/strategy/$slug")({
       { title: `${loaderData?.name ?? "Strategy"} — ArkTrader Hub` },
       {
         name: "description",
-        content:
-          loaderData?.tagline ??
-          "Detailed beginner-friendly trading strategy guide.",
+        content: loaderData?.tagline ?? "Detailed beginner-friendly trading strategy guide.",
       },
     ],
   }),
@@ -44,9 +42,7 @@ function StrategyDetail() {
 
         <header className="mt-6">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-bold text-slate-900 md:text-4xl">
-              {s.name}
-            </h1>
+            <h1 className="text-3xl font-bold text-slate-900 md:text-4xl">{s.name}</h1>
             <span className={`rounded-full px-3 py-1 text-xs font-semibold ${riskColor}`}>
               {s.riskLevel} risk
             </span>
@@ -60,17 +56,24 @@ function StrategyDetail() {
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Best for</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Best for
+              </h3>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {s.bestFor.map((b: string) => (
-                  <li key={b} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
+                  <li
+                    key={b}
+                    className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
+                  >
                     {b}
                   </li>
                 ))}
               </ul>
             </div>
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recommended markets</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Recommended markets
+              </h3>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {s.recommendedMarkets.map((m: string) => (
                   <li key={m} className="rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-700">
@@ -143,7 +146,9 @@ function StrategyDetail() {
         </section>
 
         <section className="mt-10">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">More strategies</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            More strategies
+          </h2>
           <div className="mt-3 flex flex-wrap gap-2">
             {STRATEGIES.filter((x) => x.slug !== s.slug).map((other) => (
               <Link

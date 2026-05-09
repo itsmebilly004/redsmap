@@ -70,9 +70,7 @@ function Strategies() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-slate-800">{s.name}</h2>
-                  <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                    {s.tagline}
-                  </p>
+                  <p className="mt-2 text-xs leading-relaxed text-slate-500">{s.tagline}</p>
                 </div>
                 <span className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition group-hover:border-blue-400 group-hover:text-blue-600">
                   Explore Strategy <ArrowRight className="h-3.5 w-3.5" />

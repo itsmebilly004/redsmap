@@ -77,9 +77,7 @@ function DashboardLayout() {
 
           <nav className="flex-1 space-y-0.5 p-3">
             {items.map((item) => {
-              const active = item.exact
-                ? pathname === item.to
-                : pathname.startsWith(item.to);
+              const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
               const Icon = item.icon;
               return (
                 <Link
@@ -118,9 +116,7 @@ function DashboardLayout() {
           {/* Mobile bottom nav */}
           <nav className="sticky bottom-0 z-20 grid grid-cols-5 border-t border-[oklch(0.92_0.005_240)] bg-white/90 backdrop-blur md:hidden">
             {items.map((item) => {
-              const active = item.exact
-                ? pathname === item.to
-                : pathname.startsWith(item.to);
+              const active = item.exact ? pathname === item.to : pathname.startsWith(item.to);
               const Icon = item.icon;
               return (
                 <Link
@@ -128,9 +124,7 @@ function DashboardLayout() {
                   to={item.to}
                   className={[
                     "flex flex-col items-center gap-0.5 py-2 text-[10px]",
-                    active
-                      ? "text-[oklch(0.7_0.17_150)]"
-                      : "text-[oklch(0.5_0.02_260)]",
+                    active ? "text-[oklch(0.7_0.17_150)]" : "text-[oklch(0.5_0.02_260)]",
                   ].join(" ")}
                 >
                   <Icon className="size-4" />

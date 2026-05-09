@@ -12,9 +12,15 @@ export function SiteHeader() {
           <span className="text-lg font-semibold tracking-tight">ArkTrader Hub</span>
         </Link>
         <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
-          <a href="/#features" className="hover:text-foreground">Features</a>
-          <a href="/#how" className="hover:text-foreground">How it works</a>
-          <a href="/#disclaimer" className="hover:text-foreground">Risk</a>
+          <a href="/#features" className="hover:text-foreground">
+            Features
+          </a>
+          <a href="/#how" className="hover:text-foreground">
+            How it works
+          </a>
+          <a href="/#disclaimer" className="hover:text-foreground">
+            Risk
+          </a>
         </nav>
         <div className="flex items-center gap-2">
           {user ? (
@@ -24,10 +30,14 @@ export function SiteHeader() {
           ) : (
             <>
               <Button variant="ghost" asChild>
-                <Link to="/auth" search={{ mode: "signin" }}>Sign in</Link>
+                <Link to="/auth" search={{ mode: "signin" }}>
+                  Sign in
+                </Link>
               </Button>
               <Button asChild className="shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]">
-                <Link to="/auth" search={{ mode: "signup" }}>Sign up</Link>
+                <Link to="/auth" search={{ mode: "signup" }}>
+                  Sign up
+                </Link>
               </Button>
             </>
           )}

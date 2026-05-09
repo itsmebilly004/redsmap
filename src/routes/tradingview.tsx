@@ -7,7 +7,10 @@ export const Route = createFileRoute("/tradingview")({
   head: () => ({
     meta: [
       { title: "TradingView — ArkTrader Hub" },
-      { name: "description", content: "Pro-grade TradingView-style charts powered by live Deriv ticks." },
+      {
+        name: "description",
+        content: "Pro-grade TradingView-style charts powered by live Deriv ticks.",
+      },
     ],
   }),
   component: TradingViewPage,

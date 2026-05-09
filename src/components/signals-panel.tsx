@@ -63,7 +63,9 @@ export function SignalsPanel({ compact = false, symbol }: { compact?: boolean; s
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="text-sm font-bold text-[#333333]">Signals</div>
-          <div className="text-[11px] text-[#777777]">Live digit observations from the current market</div>
+          <div className="text-[11px] text-[#777777]">
+            Live digit observations from the current market
+          </div>
         </div>
         <div className="flex items-center gap-2 rounded bg-[#f2f3f4] px-3 py-1.5">
           <span className="text-[10px] font-bold uppercase text-[#777777]">Current digit</span>
@@ -71,7 +73,12 @@ export function SignalsPanel({ compact = false, symbol }: { compact?: boolean; s
         </div>
       </div>
 
-      <div className={cn("grid gap-3", compact ? "lg:grid-cols-[1.2fr_1fr]" : "lg:grid-cols-[1fr_1fr]")}>
+      <div
+        className={cn(
+          "grid gap-3",
+          compact ? "lg:grid-cols-[1.2fr_1fr]" : "lg:grid-cols-[1fr_1fr]",
+        )}
+      >
         <div className="rounded border border-[#e5e5e5] bg-[#fafafa] p-3">
           <div className="grid grid-cols-10 gap-1.5">
             {counts.map((count, digit) => {
@@ -89,7 +96,12 @@ export function SignalsPanel({ compact = false, symbol }: { compact?: boolean; s
                     {digit}
                   </div>
                   <div className="mt-1 font-mono text-[10px] font-bold text-[#555555]">{count}</div>
-                  <div className={cn("text-[9px]", isHot ? "font-bold text-[#ff444f]" : "text-[#999999]")}>
+                  <div
+                    className={cn(
+                      "text-[9px]",
+                      isHot ? "font-bold text-[#ff444f]" : "text-[#999999]",
+                    )}
+                  >
                     {pcts[digit].toFixed(1)}%
                   </div>
                 </div>
@@ -178,7 +190,10 @@ function SignalCard({
       <div className="text-[9px] font-bold uppercase opacity-70">{title}</div>
       <div className="mt-1 text-xs font-bold">{label}</div>
       <div className="mt-2 h-1.5 rounded-full bg-current/10">
-        <div className={cn("h-1.5 rounded-full", barClass[tone])} style={{ width: `${confidence}%` }} />
+        <div
+          className={cn("h-1.5 rounded-full", barClass[tone])}
+          style={{ width: `${confidence}%` }}
+        />
       </div>
       <div className="mt-1 text-[10px] font-semibold">{confidence}% confidence</div>
       <div className="mt-1 text-[10px] opacity-70">{detail}</div>

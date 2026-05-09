@@ -7,19 +7,51 @@ const PUBLIC_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 
-export type ConnectionStatus =
-  | "connecting"
-  | "connected"
-  | "reconnecting"
-  | "disconnected";
+export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
 
-type Listener = (msg: any) => void;
+type DerivRecord = Record<string, unknown>;
+type DerivError = { message?: string };
+type DerivMessage = DerivRecord & {
+  req_id?: number;
+  msg_type?: string;
+  error?: DerivError;
+  tick?: { symbol?: string; quote?: string | number; epoch?: string | number };
+  balance?: {
+    balance?: string | number;
+    currency?: string;
+    loginid?: string;
+  };
+  proposal?: DerivRecord;
+  buy?: DerivRecord;
+  sell?: DerivRecord;
+  proposal_open_contract?: DerivRecord & { is_sold?: boolean };
+  candles?: Array<{
+    epoch?: string | number;
+    open?: string | number;
+    high?: string | number;
+    low?: string | number;
+    close?: string | number;
+  }>;
+  history?: {
+    prices?: Array<string | number>;
+    times?: Array<string | number>;
+  };
+  active_symbols?: Array<{
+    symbol?: string;
+    display_name?: string;
+    market?: string;
+  }>;
+};
+export type DerivBalance = { balance: number; currency: string; loginid: string };
+export type ActiveSymbol = { symbol: string; display_name: string; market: string };
+
+type Listener = (msg: DerivMessage) => void;
 type StatusListener = (s: ConnectionStatus) => void;
 
 // Singleton state
 let socket: WebSocket | null = null;
-let listeners = new Set<Listener>();
-let statusListeners = new Set<StatusListener>();
+const listeners = new Set<Listener>();
+const statusListeners = new Set<StatusListener>();
 let status: ConnectionStatus = "disconnected";
 let reqId = 1;
 let connecting: Promise<WebSocket> | null = null;
@@ -30,7 +62,7 @@ let wsUrl: string | null = null;
 const isBrowser = typeof window !== "undefined";
 
 // Active subscriptions to replay after a reconnect.
-type Sub = { send: Record<string, any>; key: string };
+type Sub = { send: DerivRecord; key: string };
 const activeSubs = new Map<string, Sub>();
 
 function setStatus(s: ConnectionStatus) {
@@ -55,7 +87,9 @@ export function setWsUrl(url: string) {
   if (socket) {
     try {
       socket.close();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     socket = null;
   }
   connecting = null;
@@ -65,10 +99,13 @@ function startKeepalive() {
   stopKeepalive();
   if (!isBrowser) return;
   pingTimer = setInterval(() => {
-    if (socket?.readyState === 1) { // 1 = OPEN
+    if (socket?.readyState === 1) {
+      // 1 = OPEN
       try {
         socket.send(JSON.stringify({ ping: 1, req_id: reqId++ }));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }, 30000);
 }
@@ -87,13 +124,14 @@ function connect(): Promise<WebSocket> {
   if (!wsUrl) {
     return Promise.reject(new Error("Authenticated Deriv WebSocket URL has not been set."));
   }
+  const authenticatedWsUrl = wsUrl;
   if (socket && socket.readyState === 1) return Promise.resolve(socket);
   if (connecting) return connecting;
 
   setStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
   connecting = new Promise((resolve, reject) => {
     try {
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(authenticatedWsUrl);
       ws.onopen = () => {
         socket = ws;
         connecting = null;
@@ -101,7 +139,11 @@ function connect(): Promise<WebSocket> {
         setStatus("connected");
         startKeepalive();
         for (const sub of activeSubs.values()) {
-          try { ws.send(JSON.stringify(sub.send)); } catch { /* ignore */ }
+          try {
+            ws.send(JSON.stringify(sub.send));
+          } catch {
+            /* ignore */
+          }
         }
         resolve(ws);
       };
@@ -121,10 +163,14 @@ function connect(): Promise<WebSocket> {
         try {
           const data = JSON.parse(event.data);
           listeners.forEach((l) => l(data));
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       };
       ws.onerror = () => {};
-    } catch (e) { reject(e); }
+    } catch (e) {
+      reject(e);
+    }
   });
   return connecting;
 }
@@ -134,12 +180,15 @@ export function onMessage(fn: Listener) {
   return () => listeners.delete(fn);
 }
 
-export async function send(payload: Record<string, any>): Promise<any> {
-  if (!isBrowser) return null;
+export async function send(payload: DerivRecord): Promise<DerivMessage> {
+  if (!isBrowser) return {};
   const ws = await connect();
   const id = reqId++;
   return new Promise((resolve, reject) => {
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutId = setTimeout(() => {
+      off();
+      reject(new Error("Deriv request timed out"));
+    }, 15000);
     const off = onMessage((msg) => {
       if (msg.req_id === id) {
         clearTimeout(timeoutId);
@@ -149,14 +198,13 @@ export async function send(payload: Record<string, any>): Promise<any> {
       }
     });
     ws.send(JSON.stringify({ ...payload, req_id: id }));
-    timeoutId = setTimeout(() => {
-      off();
-      reject(new Error("Deriv request timed out"));
-    }, 15000);
   });
 }
 
-export async function subscribeTicks(symbol: string, onTick: (price: number, time: number) => void) {
+export async function subscribeTicks(
+  symbol: string,
+  onTick: (price: number, time: number) => void,
+) {
   if (!isBrowser) return () => {};
   const ws = await connectPublic();
   const sub = { send: { ticks: symbol, subscribe: 1 } };
@@ -181,7 +229,7 @@ export async function subscribeTicks(symbol: string, onTick: (price: number, tim
   };
 }
 
-export async function subscribeBalance(token: string, onBalance: (b: any) => void) {
+export async function subscribeBalance(token: string, onBalance: (b: DerivBalance) => void) {
   if (!isBrowser) return () => {};
   await connect();
   const key = `balance:${token.slice(-6)}`;
@@ -207,42 +255,74 @@ export async function subscribeBalance(token: string, onBalance: (b: any) => voi
 export type Candle = { time: number; open: number; high: number; low: number; close: number };
 export type TickPoint = { time: number; value: number };
 
-export async function fetchCandles(symbol: string, granularity: number, count = 500): Promise<Candle[]> {
+export async function fetchCandles(
+  symbol: string,
+  granularity: number,
+  count = 500,
+): Promise<Candle[]> {
   if (!isBrowser) return [];
-  const res = await publicSend({ ticks_history: symbol, style: "candles", granularity, count, end: "latest", adjust_start_time: 1 });
-  return (res?.candles ?? []).map((c: any) => ({
-    time: Number(c.epoch), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close),
+  const res = await publicSend({
+    ticks_history: symbol,
+    style: "candles",
+    granularity,
+    count,
+    end: "latest",
+    adjust_start_time: 1,
+  });
+  return (res?.candles ?? []).map((c) => ({
+    time: Number(c.epoch),
+    open: Number(c.open),
+    high: Number(c.high),
+    low: Number(c.low),
+    close: Number(c.close),
   }));
 }
 
 export async function fetchTicks(symbol: string, count = 500): Promise<TickPoint[]> {
   if (!isBrowser) return [];
-  const res = await publicSend({ ticks_history: symbol, style: "ticks", count, end: "latest", adjust_start_time: 1 });
+  const res = await publicSend({
+    ticks_history: symbol,
+    style: "ticks",
+    count,
+    end: "latest",
+    adjust_start_time: 1,
+  });
   const prices = res?.history?.prices ?? [];
   const times = res?.history?.times ?? [];
-  return prices.map((price: any, index: number) => ({
-    time: Number(times[index]),
-    value: Number(price),
-  })).filter((point: TickPoint) => Number.isFinite(point.time) && Number.isFinite(point.value));
+  return prices
+    .map((price, index: number) => ({
+      time: Number(times[index]),
+      value: Number(price),
+    }))
+    .filter((point: TickPoint) => Number.isFinite(point.time) && Number.isFinite(point.value));
 }
 
-export async function getActiveSymbols() {
+export async function getActiveSymbols(): Promise<ActiveSymbol[]> {
   if (!isBrowser) return [];
   if (symbolsCache) return symbolsCache;
   const res = await publicSend({ active_symbols: "brief", product_type: "basic" });
-  symbolsCache = (res?.active_symbols ?? []).map((s: any) => ({
-    symbol: s.symbol, display_name: s.display_name, market: s.market,
+  symbolsCache = (res?.active_symbols ?? []).map((s) => ({
+    symbol: String(s.symbol ?? ""),
+    display_name: String(s.display_name ?? ""),
+    market: String(s.market ?? ""),
   }));
   return symbolsCache!;
 }
 
-let symbolsCache: any[] | null = null;
+let symbolsCache: ActiveSymbol[] | null = null;
 
 export function disconnectAll(): void {
   if (!isBrowser) return;
   activeSubs.clear();
   stopKeepalive();
-  if (socket) { try { socket.close(); } catch { } socket = null; }
+  if (socket) {
+    try {
+      socket.close();
+    } catch {
+      /* ignore */
+    }
+    socket = null;
+  }
   connecting = null;
   setStatus("disconnected");
 }
@@ -305,17 +385,27 @@ export async function buildOAuthUrl(options: { mode?: "signin" | "signup" } = {}
   return `https://auth.deriv.com/oauth2/auth?${params.toString()}`;
 }
 
-export async function getAuthenticatedWsUrl(accessToken: string, accountId: string): Promise<string> {
-  const response = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Deriv-App-ID": DERIV_APP_ID,
+export async function getAuthenticatedWsUrl(
+  accessToken: string,
+  accountId: string,
+): Promise<string> {
+  const response = await fetch(
+    `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Deriv-App-ID": DERIV_APP_ID,
+      },
     },
-  });
+  );
   const otpData = await response.json();
   if (!response.ok) {
-    throw new Error(otpData?.message ?? otpData?.error?.message ?? "Failed to get authenticated Deriv WebSocket URL");
+    throw new Error(
+      otpData?.message ??
+        otpData?.error?.message ??
+        "Failed to get authenticated Deriv WebSocket URL",
+    );
   }
   const url = otpData?.data?.url;
   if (!url) throw new Error("Deriv OTP response did not include a WebSocket URL");
@@ -334,12 +424,16 @@ function connectPublic(): Promise<WebSocket> {
   });
 }
 
-async function publicSend(payload: Record<string, any>): Promise<any> {
+async function publicSend(payload: DerivRecord): Promise<DerivMessage> {
   const ws = await connectPublic();
   const id = reqId++;
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
-      try { ws.close(); } catch { /* ignore */ }
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
       reject(new Error("Deriv public request timed out"));
     }, 15000);
     ws.onmessage = (event) => {
@@ -347,7 +441,11 @@ async function publicSend(payload: Record<string, any>): Promise<any> {
         const msg = JSON.parse(event.data);
         if (msg.req_id === id) {
           clearTimeout(timeoutId);
-          try { ws.close(); } catch { /* ignore */ }
+          try {
+            ws.close();
+          } catch {
+            /* ignore */
+          }
           if (msg.error) reject(new Error(msg.error.message));
           else resolve(msg);
         }
@@ -357,7 +455,11 @@ async function publicSend(payload: Record<string, any>): Promise<any> {
     };
     ws.onerror = () => {
       clearTimeout(timeoutId);
-      try { ws.close(); } catch { /* ignore */ }
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
       reject(new Error("Deriv public request failed"));
     };
     ws.send(JSON.stringify({ ...payload, req_id: id }));
@@ -384,37 +486,104 @@ export const SYNTHETIC_MARKETS = [
   { symbol: "RDBULL", name: "Bull Market Index" },
 ];
 
-export type TradeCategory = "rise_fall" | "higher_lower" | "touch_no_touch" | "even_odd" | "over_under" | "matches_differs" | "accumulator" | "multiplier";
+export type TradeCategory =
+  | "rise_fall"
+  | "higher_lower"
+  | "touch_no_touch"
+  | "even_odd"
+  | "over_under"
+  | "matches_differs"
+  | "accumulator"
+  | "multiplier";
 
 export const TRADE_CATEGORIES: { value: TradeCategory; label: string; description: string }[] = [
-  { value: "rise_fall", label: "Rise / Fall", description: "Predict if the market goes up or down." },
+  {
+    value: "rise_fall",
+    label: "Rise / Fall",
+    description: "Predict if the market goes up or down.",
+  },
   { value: "higher_lower", label: "Higher / Lower", description: "Predict vs. a barrier price." },
-  { value: "touch_no_touch", label: "Touch / No Touch", description: "Will the price touch a barrier?" },
-  { value: "even_odd", label: "Even / Odd", description: "Last digit of the exit spot is even or odd." },
-  { value: "over_under", label: "Over / Under", description: "Last digit over/under a chosen number." },
-  { value: "matches_differs", label: "Matches / Differs", description: "Last digit matches your prediction." },
-  { value: "accumulator", label: "Accumulators", description: "Compound profit while price stays in range." },
-  { value: "multiplier", label: "Multipliers", description: "Amplify profit and loss with a multiplier." },
+  {
+    value: "touch_no_touch",
+    label: "Touch / No Touch",
+    description: "Will the price touch a barrier?",
+  },
+  {
+    value: "even_odd",
+    label: "Even / Odd",
+    description: "Last digit of the exit spot is even or odd.",
+  },
+  {
+    value: "over_under",
+    label: "Over / Under",
+    description: "Last digit over/under a chosen number.",
+  },
+  {
+    value: "matches_differs",
+    label: "Matches / Differs",
+    description: "Last digit matches your prediction.",
+  },
+  {
+    value: "accumulator",
+    label: "Accumulators",
+    description: "Compound profit while price stays in range.",
+  },
+  {
+    value: "multiplier",
+    label: "Multipliers",
+    description: "Amplify profit and loss with a multiplier.",
+  },
 ];
 
 export function contractTypeFor(category: TradeCategory, side: string): string {
   const map: Record<string, string> = {
-    "rise_fall:up": "CALL", "rise_fall:down": "PUT", "higher_lower:higher": "CALL", "higher_lower:lower": "PUT",
-    "touch_no_touch:touch": "ONETOUCH", "touch_no_touch:no_touch": "NOTOUCH", "even_odd:even": "DIGITEVEN",
-    "even_odd:odd": "DIGITODD", "over_under:over": "DIGITOVER", "over_under:under": "DIGITUNDER",
-    "matches_differs:matches": "DIGITMATCH", "matches_differs:differs": "DIGITDIFF", "accumulator:buy": "ACCU",
-    "multiplier:up": "MULTUP", "multiplier:down": "MULTDOWN",
+    "rise_fall:up": "CALL",
+    "rise_fall:down": "PUT",
+    "higher_lower:higher": "CALL",
+    "higher_lower:lower": "PUT",
+    "touch_no_touch:touch": "ONETOUCH",
+    "touch_no_touch:no_touch": "NOTOUCH",
+    "even_odd:even": "DIGITEVEN",
+    "even_odd:odd": "DIGITODD",
+    "over_under:over": "DIGITOVER",
+    "over_under:under": "DIGITUNDER",
+    "matches_differs:matches": "DIGITMATCH",
+    "matches_differs:differs": "DIGITDIFF",
+    "accumulator:buy": "ACCU",
+    "multiplier:up": "MULTUP",
+    "multiplier:down": "MULTDOWN",
   };
   return map[`${category}:${side}`] ?? "CALL";
 }
 
 export const SIDES_BY_CATEGORY: Record<TradeCategory, { value: string; label: string }[]> = {
-  rise_fall: [{ value: "up", label: "Rise" }, { value: "down", label: "Fall" }],
-  higher_lower: [{ value: "higher", label: "Higher" }, { value: "lower", label: "Lower" }],
-  touch_no_touch: [{ value: "touch", label: "Touch" }, { value: "no_touch", label: "No Touch" }],
-  even_odd: [{ value: "even", label: "Even" }, { value: "odd", label: "Odd" }],
-  over_under: [{ value: "over", label: "Over" }, { value: "under", label: "Under" }],
-  matches_differs: [{ value: "matches", label: "Matches" }, { value: "differs", label: "Differs" }],
+  rise_fall: [
+    { value: "up", label: "Rise" },
+    { value: "down", label: "Fall" },
+  ],
+  higher_lower: [
+    { value: "higher", label: "Higher" },
+    { value: "lower", label: "Lower" },
+  ],
+  touch_no_touch: [
+    { value: "touch", label: "Touch" },
+    { value: "no_touch", label: "No Touch" },
+  ],
+  even_odd: [
+    { value: "even", label: "Even" },
+    { value: "odd", label: "Odd" },
+  ],
+  over_under: [
+    { value: "over", label: "Over" },
+    { value: "under", label: "Under" },
+  ],
+  matches_differs: [
+    { value: "matches", label: "Matches" },
+    { value: "differs", label: "Differs" },
+  ],
   accumulator: [{ value: "buy", label: "Buy Accumulator" }],
-  multiplier: [{ value: "up", label: "Multiplier Up" }, { value: "down", label: "Multiplier Down" }],
+  multiplier: [
+    { value: "up", label: "Multiplier Up" },
+    { value: "down", label: "Multiplier Down" },
+  ],
 };

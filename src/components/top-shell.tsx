@@ -28,28 +28,29 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type ReactNode, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
+import type { DerivAccount } from "@/hooks/use-deriv-balance";
 
 // Metadata with specific image URLs to match the screenshot logos
 const CURRENCY_META: Record<string, { img: string; name: string }> = {
-  USD: { 
-    img: "https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg", 
-    name: "US Dollar" 
+  USD: {
+    img: "https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg",
+    name: "US Dollar",
   },
-  tUSDT: { 
-    img: "https://static.cdnlogo.com/logos/t/58/tether.svg", 
-    name: "Tether TRC20" 
+  tUSDT: {
+    img: "https://static.cdnlogo.com/logos/t/58/tether.svg",
+    name: "Tether TRC20",
   },
-  USDT: { 
-    img: "https://static.cdnlogo.com/logos/t/58/tether.svg", 
-    name: "Tether" 
+  USDT: {
+    img: "https://static.cdnlogo.com/logos/t/58/tether.svg",
+    name: "Tether",
   },
-  BTC: { 
-    img: "https://upload.wikimedia.org/wikipedia/commons/4/46/Bitcoin.svg", 
-    name: "Bitcoin" 
+  BTC: {
+    img: "https://upload.wikimedia.org/wikipedia/commons/4/46/Bitcoin.svg",
+    name: "Bitcoin",
   },
-  ETH: { 
-    img: "https://upload.wikimedia.org/wikipedia/commons/0/05/Ethereum_logo_2014.svg", 
-    name: "Ethereum" 
+  ETH: {
+    img: "https://upload.wikimedia.org/wikipedia/commons/0/05/Ethereum_logo_2014.svg",
+    name: "Ethereum",
   },
 };
 
@@ -103,9 +104,7 @@ export function TopShell({ children }: { children: ReactNode }) {
       <header className="flex h-14 items-center justify-between border-b border-[#e5e5e5] bg-white px-4 md:px-6">
         <Link to="/" className="flex items-center gap-2">
           <div className="size-6 rotate-45 rounded-sm bg-[#ff444f]" />
-          <span className="text-lg font-bold tracking-tight text-[#333333]">
-            ArkTrader Hub
-          </span>
+          <span className="text-lg font-bold tracking-tight text-[#333333]">ArkTrader Hub</span>
         </Link>
 
         <div className="flex items-center gap-4">
@@ -127,9 +126,7 @@ export function TopShell({ children }: { children: ReactNode }) {
                         maximumFractionDigits: 2,
                       })}
                     </span>
-                    <span className="text-[11px] font-bold text-[#646464]">
-                      {currency}
-                    </span>
+                    <span className="text-[11px] font-bold text-[#646464]">{currency}</span>
                   </div>
                   <ChevronDown
                     className={cn(
@@ -209,8 +206,8 @@ export function TopShell({ children }: { children: ReactNode }) {
                 </div>
 
                 <div className="flex items-center justify-between bg-white px-4 py-3">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="h-9 rounded-md border-[#999999] px-4 text-sm font-bold text-[#333333] hover:bg-[#f2f3f4]"
                   >
                     Manage accounts
@@ -238,10 +235,17 @@ export function TopShell({ children }: { children: ReactNode }) {
           {!user && (
             <div className="flex gap-2">
               <Button variant="ghost" asChild className="h-9 px-4 text-sm font-medium">
-                <Link to="/auth" search={{ mode: "signin" }}>Log in</Link>
+                <Link to="/auth" search={{ mode: "signin" }}>
+                  Log in
+                </Link>
               </Button>
-              <Button asChild className="h-9 bg-[#3e3e3e] px-4 text-sm font-medium text-white shadow-sm">
-                <Link to="/auth" search={{ mode: "signup" }}>Sign up</Link>
+              <Button
+                asChild
+                className="h-9 bg-[#3e3e3e] px-4 text-sm font-medium text-white shadow-sm"
+              >
+                <Link to="/auth" search={{ mode: "signup" }}>
+                  Sign up
+                </Link>
               </Button>
             </div>
           )}
@@ -259,9 +263,7 @@ export function TopShell({ children }: { children: ReactNode }) {
                 to={t.to}
                 className={cn(
                   "flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-[#4bb4b3] text-white"
-                    : "text-[#333333] hover:bg-[#f2f3f4]",
+                  active ? "bg-[#4bb4b3] text-white" : "text-[#333333] hover:bg-[#f2f3f4]",
                 )}
               >
                 <Icon className="size-4" />
@@ -291,7 +293,7 @@ function AccountItem({
   isActive,
   onSelect,
 }: {
-  account: any;
+  account: DerivAccount;
   isActive: boolean;
   onSelect: () => void;
 }) {
@@ -307,17 +309,11 @@ function AccountItem({
     >
       <div className="flex items-center gap-3">
         <div className="flex size-8 items-center justify-center overflow-hidden rounded-full border border-[#f2f3f4] bg-white">
-          {meta.img ? (
-            <img src={meta.img} alt="" className="h-full w-full object-cover" />
-          ) : (
-            "💰"
-          )}
+          {meta.img ? <img src={meta.img} alt="" className="h-full w-full object-cover" /> : "💰"}
         </div>
         <div className="text-left leading-tight">
           <div className="text-sm font-bold text-[#333333]">{meta.name}</div>
-          <div className="text-[11px] font-medium text-[#999999]">
-            {account.account_id}
-          </div>
+          <div className="text-[11px] font-medium text-[#999999]">{account.account_id}</div>
         </div>
       </div>
       <div className="text-right leading-tight">

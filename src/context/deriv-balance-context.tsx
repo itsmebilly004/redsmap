@@ -5,11 +5,7 @@ const DerivBalanceContext = createContext<LiveBalance | null>(null);
 
 export function DerivBalanceProvider({ children }: { children: ReactNode }) {
   const balance = useDerivBalance();
-  return (
-    <DerivBalanceContext.Provider value={balance}>
-      {children}
-    </DerivBalanceContext.Provider>
-  );
+  return <DerivBalanceContext.Provider value={balance}>{children}</DerivBalanceContext.Provider>;
 }
 
 export function useDerivBalanceContext(): LiveBalance {

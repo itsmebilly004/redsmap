@@ -2,7 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { subscribeTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,7 +17,10 @@ export const Route = createFileRoute("/analysis")({
   head: () => ({
     meta: [
       { title: "Analysis Tool — ArkTrader Hub" },
-      { name: "description", content: "Live last-digit and tick analysis for Deriv synthetic indices." },
+      {
+        name: "description",
+        content: "Live last-digit and tick analysis for Deriv synthetic indices.",
+      },
     ],
   }),
   component: Analysis,
@@ -61,18 +70,18 @@ function Analysis() {
     () => Array.from({ length: 10 }, (_, i) => digits.filter((d) => d === i).length),
     [digits],
   );
-  const total     = Math.max(digits.length, 1);
-  const pcts      = counts.map((c) => (c / total) * 100);
-  const maxPct    = Math.max(...pcts);
-  const minPct    = Math.min(...pcts);
+  const total = Math.max(digits.length, 1);
+  const pcts = counts.map((c) => (c / total) * 100);
+  const maxPct = Math.max(...pcts);
+  const minPct = Math.min(...pcts);
   const currentDigit = digits.length ? digits[digits.length - 1] : null;
-  const marketName   = SYNTHETIC_MARKETS.find((m) => m.symbol === symbol)?.name ?? symbol;
+  const marketName = SYNTHETIC_MARKETS.find((m) => m.symbol === symbol)?.name ?? symbol;
 
   // Signals: last-N streak analysis
   const streakLen = 10;
   const recentDigits = digits.slice(-streakLen);
   const evenCount = recentDigits.filter((d) => d % 2 === 0).length;
-  const oddCount  = streakLen - evenCount;
+  const oddCount = streakLen - evenCount;
   const overCount = recentDigits.filter((d) => d > 4).length;
   const underCount = streakLen - overCount;
   const lastStreakDigit = recentDigits.length ? recentDigits[recentDigits.length - 1] : null;
@@ -125,7 +134,9 @@ function Analysis() {
               </SelectTrigger>
               <SelectContent>
                 {SYNTHETIC_MARKETS.map((m) => (
-                  <SelectItem key={m.symbol} value={m.symbol}>{m.name}</SelectItem>
+                  <SelectItem key={m.symbol} value={m.symbol}>
+                    {m.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -162,14 +173,16 @@ function Analysis() {
             </div>
             <div className="mt-6 grid grid-cols-5 gap-y-8 sm:grid-cols-10">
               {counts.map((_c, i) => {
-                const pct      = pcts[i];
-                const isMax    = pct === maxPct && total > 1;
-                const isMin    = pct === minPct && total > 1 && !isMax;
+                const pct = pcts[i];
+                const isMax = pct === maxPct && total > 1;
+                const isMin = pct === minPct && total > 1 && !isMax;
                 const isCurrent = currentDigit === i;
                 return (
                   <div key={i} className="relative flex flex-col items-center">
                     {isCurrent && (
-                      <div className="absolute -top-6 rounded-md bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white shadow">▾</div>
+                      <div className="absolute -top-6 rounded-md bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white shadow">
+                        ▾
+                      </div>
                     )}
                     <div
                       className={cn(
@@ -182,8 +195,12 @@ function Analysis() {
                     </div>
                     <div className="mt-1 text-xs font-semibold">{counts[i]}</div>
                     <div className="text-xs text-slate-500">{pct.toFixed(1)}%</div>
-                    {isMax && <div className="mt-0.5 text-[9px] font-semibold text-blue-600">↑ most</div>}
-                    {isMin && <div className="mt-0.5 text-[9px] font-semibold text-slate-400">↓ least</div>}
+                    {isMax && (
+                      <div className="mt-0.5 text-[9px] font-semibold text-blue-600">↑ most</div>
+                    )}
+                    {isMin && (
+                      <div className="mt-0.5 text-[9px] font-semibold text-slate-400">↓ least</div>
+                    )}
                   </div>
                 );
               })}
@@ -240,8 +257,8 @@ function Analysis() {
 
             <div className="mt-4 rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
               <Info className="inline h-3.5 w-3.5 mr-1" />
-              Signals are statistical observations only — not financial advice. Deriv markets are random-walk
-              processes; past frequency does not predict future outcomes.
+              Signals are statistical observations only — not financial advice. Deriv markets are
+              random-walk processes; past frequency does not predict future outcomes.
             </div>
           </div>
         )}
@@ -259,33 +276,55 @@ function Analysis() {
                     <th className="px-3 py-2 text-left font-semibold text-slate-700">Digit</th>
                     <th className="px-3 py-2 text-right font-semibold text-blue-700">Over %</th>
                     <th className="px-3 py-2 text-right font-semibold text-rose-700">Under %</th>
-                    <th className="px-3 py-2 text-right font-semibold text-emerald-700">Matches %</th>
+                    <th className="px-3 py-2 text-right font-semibold text-emerald-700">
+                      Matches %
+                    </th>
                     <th className="px-3 py-2 text-right font-semibold text-slate-600">Differs %</th>
-                    <th className="px-3 py-2 text-right font-semibold text-violet-700">Observed %</th>
+                    <th className="px-3 py-2 text-right font-semibold text-violet-700">
+                      Observed %
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {overUnderProbs.map(({ digit, overProb, underProb, matchProb, diffProb }) => (
-                    <tr key={digit} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                    <tr
+                      key={digit}
+                      className="border-b border-slate-100 hover:bg-slate-50 transition"
+                    >
                       <td className="px-3 py-2">
-                        <span className={cn(
-                          "inline-flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-bold",
-                          DIGIT_COLORS[digit],
-                          currentDigit === digit && "ring-2 ring-blue-400",
-                        )}>{digit}</span>
+                        <span
+                          className={cn(
+                            "inline-flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-bold",
+                            DIGIT_COLORS[digit],
+                            currentDigit === digit && "ring-2 ring-blue-400",
+                          )}
+                        >
+                          {digit}
+                        </span>
                       </td>
-                      <td className="px-3 py-2 text-right font-mono text-blue-700">{overProb.toFixed(0)}%</td>
-                      <td className="px-3 py-2 text-right font-mono text-rose-700">{underProb.toFixed(0)}%</td>
-                      <td className="px-3 py-2 text-right font-mono text-emerald-700">{matchProb.toFixed(0)}%</td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-600">{diffProb.toFixed(0)}%</td>
-                      <td className="px-3 py-2 text-right font-mono text-violet-700">{pcts[digit].toFixed(1)}%</td>
+                      <td className="px-3 py-2 text-right font-mono text-blue-700">
+                        {overProb.toFixed(0)}%
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-rose-700">
+                        {underProb.toFixed(0)}%
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-emerald-700">
+                        {matchProb.toFixed(0)}%
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-600">
+                        {diffProb.toFixed(0)}%
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-violet-700">
+                        {pcts[digit].toFixed(1)}%
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <p className="mt-3 text-[11px] text-slate-400">
-              Theoretical probabilities assume a uniform random distribution. Observed % is from your current ticks window.
+              Theoretical probabilities assume a uniform random distribution. Observed % is from
+              your current ticks window.
             </p>
           </div>
         )}
@@ -319,8 +358,16 @@ function Analysis() {
 
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {Array.from({ length: 10 }, (_, i) => (
-                <div key={i} className="rounded-md border border-slate-200 bg-white p-2 text-center text-xs">
-                  <div className={cn("mb-1 inline-flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-bold", DIGIT_COLORS[i])}>
+                <div
+                  key={i}
+                  className="rounded-md border border-slate-200 bg-white p-2 text-center text-xs"
+                >
+                  <div
+                    className={cn(
+                      "mb-1 inline-flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-bold",
+                      DIGIT_COLORS[i],
+                    )}
+                  >
                     {i}
                   </div>
                   <div className="font-mono font-semibold">{counts[i]}</div>
@@ -349,20 +396,20 @@ function SignalCard({
   detail: string;
 }) {
   const colorMap = {
-    green:  "bg-emerald-50 border-emerald-200 text-emerald-800",
-    blue:   "bg-sky-50 border-sky-200 text-sky-800",
+    green: "bg-emerald-50 border-emerald-200 text-emerald-800",
+    blue: "bg-sky-50 border-sky-200 text-sky-800",
     orange: "bg-orange-50 border-orange-200 text-orange-800",
-    rose:   "bg-rose-50 border-rose-200 text-rose-800",
-    slate:  "bg-slate-50 border-slate-200 text-slate-700",
-    amber:  "bg-amber-50 border-amber-200 text-amber-800",
+    rose: "bg-rose-50 border-rose-200 text-rose-800",
+    slate: "bg-slate-50 border-slate-200 text-slate-700",
+    amber: "bg-amber-50 border-amber-200 text-amber-800",
   };
   const barMap = {
-    green:  "bg-emerald-400",
-    blue:   "bg-sky-400",
+    green: "bg-emerald-400",
+    blue: "bg-sky-400",
     orange: "bg-orange-400",
-    rose:   "bg-rose-400",
-    slate:  "bg-slate-400",
-    amber:  "bg-amber-400",
+    rose: "bg-rose-400",
+    slate: "bg-slate-400",
+    amber: "bg-amber-400",
   };
   return (
     <div className={cn("rounded-xl border p-4", colorMap[color])}>

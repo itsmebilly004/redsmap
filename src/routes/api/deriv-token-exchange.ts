@@ -38,8 +38,11 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
           }
 
           return Response.json(tokenData);
-        } catch (error: any) {
-          return Response.json({ error: error?.message ?? "Token exchange failed" }, { status: 400 });
+        } catch (error: unknown) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Token exchange failed" },
+            { status: 400 },
+          );
         }
       },
     },

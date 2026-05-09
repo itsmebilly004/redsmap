@@ -9,7 +9,10 @@ export const Route = createFileRoute("/trading-bots")({
   head: () => ({
     meta: [
       { title: "Trading Bot Presets — ArkTrader Hub" },
-      { name: "description", content: "Launch professional-grade Deriv trading bot presets instantly." },
+      {
+        name: "description",
+        content: "Launch professional-grade Deriv trading bot presets instantly.",
+      },
     ],
   }),
   component: TradingBots,
@@ -87,32 +90,38 @@ function TradingBots() {
   const { user } = useAuth();
   return (
     <TopShell>
-      <PageHero 
-        title="Trading Bot Presets" 
+      <PageHero
+        title="Trading Bot Presets"
         subtitle="Deployment-ready bot configurations from your library. Load them into the builder to start trading."
       >
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {BOT_PRESETS.map((b) => (
-            <div key={b.id} className="group relative overflow-hidden rounded-2xl border border-white/10 bg-card p-6 shadow-xl transition-all hover:border-primary/50">
+            <div
+              key={b.id}
+              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-card p-6 shadow-xl transition-all hover:border-primary/50"
+            >
               <div className="flex items-start gap-4">
                 <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-all">
                   <b.icon className="size-6" />
                 </div>
                 <div className="flex-1">
                   <div className="text-lg font-bold tracking-tight">{b.name}</div>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground line-clamp-3">{b.desc}</p>
-                  
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground line-clamp-3">
+                    {b.desc}
+                  </p>
+
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <span className="rounded-md bg-white/5 border border-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{b.market}</span>
-                    <span className="rounded-md bg-white/5 border border-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{b.tradeType.replace('_', ' ')}</span>
+                    <span className="rounded-md bg-white/5 border border-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      {b.market}
+                    </span>
+                    <span className="rounded-md bg-white/5 border border-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      {b.tradeType.replace("_", " ")}
+                    </span>
                   </div>
 
                   <div className="mt-6">
                     <Button asChild size="lg" className="w-full rounded-xl font-bold shadow-glow">
-                      <Link 
-                        to="/bot-builder" 
-                        search={{ preset: b.id }}
-                      >
+                      <Link to="/bot-builder" search={{ preset: b.id }}>
                         {user ? "Deploy Bot" : "Sign in to deploy"}
                       </Link>
                     </Button>

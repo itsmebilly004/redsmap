@@ -45,13 +45,13 @@ export function useDerivBalance(): LiveBalance {
         .eq("user_id", user.id)
         .eq("is_active", true)
         .order("is_demo", { ascending: true });
-      
+
       if (cancelled) return;
       if (error) {
         setLoading(false);
         return;
       }
-      
+
       const list = (data ?? []) as DerivAccount[];
       setAccounts(list);
       if (list.length) {
@@ -72,7 +72,7 @@ export function useDerivBalance(): LiveBalance {
   useEffect(() => {
     if (!isBrowser || !active || !user) return;
     let unsub: (() => void) | undefined;
-    
+
     (async () => {
       try {
         const wsUrl = await getAuthenticatedWsUrl(active.deriv_token, active.account_id);
@@ -80,7 +80,7 @@ export function useDerivBalance(): LiveBalance {
         unsub = await subscribeBalance(active.deriv_token, async (b) => {
           setBalance(b.balance);
           if (b.currency) setCurrency(b.currency);
-          
+
           // Background update to DB
           await supabase
             .from("sessions")
@@ -92,11 +92,11 @@ export function useDerivBalance(): LiveBalance {
         console.error("Balance subscription error:", err);
       }
     })();
-    
+
     return () => {
       if (unsub) unsub();
     };
-  }, [active?.account_id, active?.deriv_token, user, isBrowser]);
+  }, [active, user, isBrowser]);
 
   function switchAccount(accountId: string) {
     setActiveId(accountId);

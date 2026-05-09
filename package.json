@@ -1,7 +1,10 @@
 {
   "name": "tanstack_start_ts",
   "private": true,
-  "sideEffects": ["src/polyfill.ts", "src/styles.css"],
+  "sideEffects": [
+    "src/polyfill.ts",
+    "src/styles.css"
+  ],
   "type": "module",
   "engines": {
     "node": "22.x"

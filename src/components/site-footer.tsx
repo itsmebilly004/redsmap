@@ -10,13 +10,25 @@ export function SiteFooter() {
             <span className="font-semibold">ArkTrader Hub</span>
           </div>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Independent third-party platform built on top of the Deriv API. Not affiliated with Deriv.
+            Independent third-party platform built on top of the Deriv API. Not affiliated with
+            Deriv.
           </p>
         </div>
         <div className="flex gap-6 text-sm text-muted-foreground">
-          <Link to="/" className="hover:text-foreground">Terms</Link>
-          <Link to="/" className="hover:text-foreground">Privacy</Link>
-          <a href="https://deriv.com" target="_blank" rel="noreferrer" className="hover:text-foreground">Deriv</a>
+          <Link to="/" className="hover:text-foreground">
+            Terms
+          </Link>
+          <Link to="/" className="hover:text-foreground">
+            Privacy
+          </Link>
+          <a
+            href="https://deriv.com"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-foreground"
+          >
+            Deriv
+          </a>
         </div>
       </div>
     </footer>
