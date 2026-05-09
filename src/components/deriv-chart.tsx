@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react";
 import {
   createChart,
   AreaSeries,
@@ -47,6 +56,7 @@ type Props = {
   highBarrier?: number | null;
   lowBarrier?: number | null;
   barrierBreached?: boolean;
+  showDigitStats?: boolean;
 };
 
 const TIMEFRAMES = [
@@ -89,6 +99,7 @@ export function DerivChart({
   highBarrier,
   lowBarrier,
   barrierBreached,
+  showDigitStats,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -99,6 +110,7 @@ export function DerivChart({
   const barrierLineRefs = useRef<BarrierLineRefs>({ entry: null, lower: null, upper: null });
   const candleBufferRef = useRef<Map<number, Candle>>(new Map());
   const historyRef = useRef<LineData[]>([]);
+  const digitHistoryRef = useRef<number[]>([]);
 
   const [granularity, setGranularity] = useState(0);
   const [chartType, setChartType] = useState<ChartType>("area");
@@ -107,6 +119,10 @@ export function DerivChart({
   const [allSymbols, setAllSymbols] = useState<
     { symbol: string; display_name: string; market: string }[]
   >([]);
+  const [digitStats, setDigitStats] = useState<{
+    latest: number | null;
+    percentages: number[];
+  }>({ latest: null, percentages: Array.from({ length: 10 }, () => 0) });
   const analysisToolsRef = useRef(analysisTools);
 
   useEffect(() => {
@@ -302,6 +318,7 @@ export function DerivChart({
     let unsubTicks: (() => void) | undefined;
     candleBufferRef.current.clear();
     historyRef.current = [];
+    digitHistoryRef.current = [];
 
     async function init() {
       try {
@@ -319,6 +336,7 @@ export function DerivChart({
             value: point.value,
           }));
           historyRef.current = data;
+          updateDigitStatsFromPrices(data.map((point) => point.value), digitHistoryRef, setDigitStats);
           areaSeriesRef.current?.setData(data);
         } else if (candleSeriesRef.current) {
           const candleGranularity = granularity || 60;
@@ -337,6 +355,11 @@ export function DerivChart({
             time: c.time as UTCTimestamp,
             value: c.close,
           }));
+          updateDigitStatsFromPrices(
+            candles.map((c) => c.close),
+            digitHistoryRef,
+            setDigitStats,
+          );
         }
         updateAnalysisOverlays();
         chartRef.current?.timeScale().fitContent();
@@ -380,6 +403,7 @@ export function DerivChart({
             { time: barTime as UTCTimestamp, value: bar.close },
           ];
         }
+        pushDigit(price, digitHistoryRef, setDigitStats);
         updateAnalysisOverlays();
       });
     }
@@ -526,13 +550,110 @@ export function DerivChart({
       </div>
 
       {/* Chart canvas */}
-      <div
-        ref={containerRef}
-        style={{ height }}
-        className="w-full max-w-full overflow-hidden rounded-lg border border-glass-border bg-foreground/[0.02]"
-      />
+      <div className="relative w-full max-w-full overflow-hidden rounded-lg border border-glass-border bg-foreground/[0.02]">
+        <div ref={containerRef} style={{ height }} className="w-full" />
+        {showDigitStats && (
+          <DigitStatsOverlay
+            latest={digitStats.latest}
+            percentages={digitStats.percentages}
+          />
+        )}
+      </div>
     </div>
   );
+}
+
+function DigitStatsOverlay({
+  latest,
+  percentages,
+}: {
+  latest: number | null;
+  percentages: number[];
+}) {
+  const max = Math.max(...percentages);
+  return (
+    <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-10 overflow-x-auto rounded-md border border-[#e6e6e6] bg-white/95 px-2 py-2 shadow-sm backdrop-blur">
+      <div className="flex min-w-max items-end justify-center gap-2">
+        {percentages.map((pct, digit) => {
+          const highlighted = pct === max && max > 0;
+          const current = latest === digit;
+          return (
+            <div key={digit} className="flex w-11 flex-col items-center">
+              <div
+                className={cn(
+                  "relative flex size-8 items-center justify-center rounded-full border-2 bg-white text-sm font-bold text-[#333333]",
+                  highlighted ? "border-[#4bb4b3] shadow-[0_0_0_3px_#e5f7f6]" : "border-[#d6d6d6]",
+                  current && "border-[#ff444f]",
+                )}
+              >
+                {digit}
+                <span
+                  className="absolute inset-0 rounded-full"
+                  style={{
+                    background: `conic-gradient(${highlighted ? "#4bb4b3" : "#d6d6d6"} ${Math.min(100, pct) * 3.6}deg, transparent 0deg)`,
+                    mask: "radial-gradient(circle, transparent 58%, black 60%)",
+                    WebkitMask: "radial-gradient(circle, transparent 58%, black 60%)",
+                  }}
+                />
+              </div>
+              <div className="mt-0.5 text-[10px] font-semibold text-[#646464]">
+                {pct.toFixed(1)}%
+              </div>
+              <div
+                className={cn(
+                  "mt-0.5 h-0 w-0 border-x-[5px] border-t-[6px] border-x-transparent",
+                  current
+                    ? highlighted
+                      ? "border-t-[#4bb4b3]"
+                      : "border-t-[#ff444f]"
+                    : "border-t-transparent",
+                )}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function updateDigitStatsFromPrices(
+  prices: number[],
+  ref: MutableRefObject<number[]>,
+  setStats: Dispatch<SetStateAction<{ latest: number | null; percentages: number[] }>>,
+) {
+  const digits = prices
+    .map(lastDigitFromPrice)
+    .filter((digit): digit is number => digit != null)
+    .slice(-500);
+  ref.current = digits;
+  setStats(calculateDigitStats(digits));
+}
+
+function pushDigit(
+  price: number,
+  ref: MutableRefObject<number[]>,
+  setStats: Dispatch<SetStateAction<{ latest: number | null; percentages: number[] }>>,
+) {
+  const digit = lastDigitFromPrice(price);
+  if (digit == null) return;
+  ref.current = [...ref.current.slice(-499), digit];
+  setStats(calculateDigitStats(ref.current));
+}
+
+function calculateDigitStats(digits: number[]) {
+  const total = Math.max(digits.length, 1);
+  const counts = Array.from({ length: 10 }, (_, digit) => digits.filter((item) => item === digit).length);
+  return {
+    latest: digits.at(-1) ?? null,
+    percentages: counts.map((count) => (count / total) * 100),
+  };
+}
+
+function lastDigitFromPrice(price: number) {
+  if (!Number.isFinite(price)) return null;
+  const text = price.toFixed(2);
+  return Number(text.slice(-1));
 }
 
 function movingAverage(data: LineData[], period: number): LineData[] {

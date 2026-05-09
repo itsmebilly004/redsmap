@@ -1,20 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/use-auth";
-import { useDerivBalanceContext } from "@/context/deriv-balance-context";
-import {
-  send,
-  setAuthenticatedAccount,
-  getTradingSocketAccountId,
-  TRADE_CATEGORIES,
-  SIDES_BY_CATEGORY,
-  contractTypeFor,
-  buildOAuthUrl,
-  type TradeCategory,
-} from "@/lib/deriv";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -22,662 +10,632 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Minus,
-  Plus,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 import { AccumulatorTradePanel } from "@/components/accumulator-trade-panel";
+import {
+  DigitSelector,
+  ProposalButton,
+  ProposalSummary,
+  StakePayoutToggle,
+  TickDurationSelector,
+  TradeTypeCard,
+} from "@/components/trade-option-components";
+import { useAuth } from "@/hooks/use-auth";
+import { useDerivBalanceContext } from "@/context/deriv-balance-context";
+import { isDerivDemoAccount } from "@/hooks/use-deriv-balance";
+import { SYNTHETIC_MARKETS, buildOAuthUrl, getTradingSocketAccountId, setAuthenticatedAccount, type TradeCategory } from "@/lib/deriv";
+import { normalizeOpenContract, EMPTY_CONTRACT_STATE, type ActiveContractState } from "@/lib/contract-state";
+import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
+import { isDigitTrade, tradeTypeConfig, TRADE_TYPE_CONFIGS, type TradeSide } from "@/lib/trade-types";
+import { buyProposal, requestProposal, sellContract, subscribeOpenContract } from "@/lib/deriv-trading-service";
+import { supabase } from "@/integrations/supabase/client";
 
-type TradeProposalPayload = Record<string, unknown> & {
-  proposal: 1;
-  amount: number;
-  basis: string;
-  contract_type: string;
-  currency: string;
-  underlying_symbol: string;
-  duration?: number;
-  duration_unit?: "t" | "s" | "m";
-  barrier?: string;
-  multiplier?: number;
+type ChartOverlay = {
+  entry: number | null;
+  high: number | null;
+  low: number | null;
+  breached?: boolean;
+};
+
+type ProposalQuote = {
+  askPrice: number | null;
+  error: string | null;
+  id: string | null;
+  payout: number | null;
+  pct: number | null;
 };
 
 interface TradePanelProps {
   market: string;
   lastPrice?: number | null;
-  onAccumulatorBarriers?: (b: {
-    entry: number | null;
-    high: number | null;
-    low: number | null;
-    breached?: boolean;
-  }) => void;
+  onAccumulatorBarriers?: (b: ChartOverlay) => void;
   onMarketChange?: (market: string) => void;
+  onTradeTypeChange?: (tradeType: TradeCategory) => void;
 }
+
+const EMPTY_QUOTE: ProposalQuote = {
+  askPrice: null,
+  error: null,
+  id: null,
+  payout: null,
+  pct: null,
+};
 
 export function TradePanel({
   market,
   lastPrice,
   onAccumulatorBarriers,
   onMarketChange,
+  onTradeTypeChange,
 }: TradePanelProps) {
   const { user } = useAuth();
   const { account, balance: accountBalance, currency } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
-  const isDemo = account?.is_demo ?? true;
   const tradeCurrency = currency || account?.currency || "";
+  const accountLoginId = account?.loginid || account?.account_id || "";
 
-  const [category, setCategory] = useState<TradeCategory>("accumulator");
-  const [side, setSide] = useState("buy");
+  const [selectedTradeType, setSelectedTradeType] = useState<TradeCategory>("accumulator");
+  const [selectedSide, setSelectedSide] = useState("buy");
   const [stake, setStake] = useState(10);
   const [payoutMode, setPayoutMode] = useState<"stake" | "payout">("stake");
-  const [duration, setDuration] = useState(1);
+  const [duration, setDuration] = useState(5);
   const [durationUnit, setDurationUnit] = useState<"t" | "s" | "m">("t");
-  const [barrierDigit, setBarrierDigit] = useState(8);
-  const [barrierOffset, setBarrierOffset] = useState("+0.10");
+  const [barrier, setBarrier] = useState("+0.10");
+  const [selectedDigit, setSelectedDigit] = useState(5);
   const [multiplier, setMultiplier] = useState(100);
+  const [takeProfit, setTakeProfit] = useState<number>(0);
+  const [stopLoss, setStopLoss] = useState<number>(0);
+  const [quotes, setQuotes] = useState<Record<string, ProposalQuote>>({});
+  const [quotesLoading, setQuotesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
-  const activePollsRef = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
+  const [activeContract, setActiveContract] = useState<ActiveContractState>(EMPTY_CONTRACT_STATE);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const unsubscribeRef = useRef<null | (() => Promise<void>)>(null);
+  const buyInFlightRef = useRef(false);
+  const tradeIdRef = useRef<string | null>(null);
+  const activeAccountIdRef = useRef<string | null>(null);
+  const closedRef = useRef(false);
+
+  const config = tradeTypeConfig(selectedTradeType);
+  const currentDigit =
+    lastPrice != null && Number.isFinite(lastPrice) ? Number(lastPrice.toFixed(2).slice(-1)) : null;
 
   useEffect(() => {
-    const activePolls = activePollsRef.current;
+    setSelectedSide(tradeTypeConfig(selectedTradeType).sides[0]?.value ?? "up");
+    setActiveContract(EMPTY_CONTRACT_STATE);
+    setErrorMessage(null);
+    onTradeTypeChange?.(selectedTradeType);
+  }, [onTradeTypeChange, selectedTradeType]);
+
+  useEffect(() => {
     return () => {
-      activePolls.forEach(clearInterval);
+      void cleanupSubscription();
     };
   }, []);
 
   useEffect(() => {
-    setSide(SIDES_BY_CATEGORY[category][0].value);
-  }, [category]);
-
-  const isDigit = ["even_odd", "over_under", "matches_differs"].includes(category);
-  const needsDigit = category === "over_under" || category === "matches_differs";
-  const needsBarrierOffset = category === "higher_lower" || category === "touch_no_touch";
-  const isAccumulator = category === "accumulator";
-  const isMultiplier = category === "multiplier";
-  const showDuration = !isAccumulator && !isMultiplier;
-  const sides = SIDES_BY_CATEGORY[category];
-  const catIdx = TRADE_CATEGORIES.findIndex((c) => c.value === category);
-  const currentDigit =
-    lastPrice != null && Number.isFinite(lastPrice) ? Number(lastPrice.toFixed(2).slice(-1)) : null;
-  const cycleCategory = useCallback(
-    (dir: -1 | 1) => {
-      const next = (catIdx + dir + TRADE_CATEGORIES.length) % TRADE_CATEGORIES.length;
-      setCategory(TRADE_CATEGORIES[next].value);
-    },
-    [catIdx],
-  );
-  const currentCategory = TRADE_CATEGORIES[catIdx];
-
-  useEffect(() => {
-    if (isAccumulator) return;
-    onAccumulatorBarriers?.({ entry: null, high: null, low: null, breached: false });
-  }, [isAccumulator, onAccumulatorBarriers]);
-
-  useEffect(() => {
-    if (!token || !tradeCurrency) {
-      setPayouts({});
+    if (selectedTradeType === "accumulator") return;
+    if (activeContract.status === "active") {
+      onAccumulatorBarriers?.({
+        entry: activeContract.entrySpot,
+        high: config.needsBarrier ? barrierLineFromInput(barrier, activeContract.entrySpot ?? lastPrice) : null,
+        low: null,
+        breached: activeContract.status === "lost",
+      });
       return;
     }
-    if (isAccumulator) {
-      setPayouts({});
-      return;
-    }
-    if (account) {
-      setAuthenticatedAccount(token, account.account_id, account.is_virtual ?? account.is_demo);
-    }
-
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const next: Record<string, { payout: number; pct: number }> = {};
-        for (const s of sides) {
-          const ct = contractTypeFor(category, s.value);
-          const proposal: TradeProposalPayload = {
-            proposal: 1,
-            amount: stake,
-            basis: payoutMode,
-            contract_type: ct,
-            currency: tradeCurrency,
-            underlying_symbol: market,
-          };
-          if (showDuration) {
-            proposal.duration = duration;
-            proposal.duration_unit = isDigit ? "t" : durationUnit;
-          }
-          if (needsDigit) proposal.barrier = String(barrierDigit);
-          if (needsBarrierOffset) proposal.barrier = barrierOffset;
-          if (isMultiplier) proposal.multiplier = multiplier;
-          try {
-            const r = await send(proposal);
-            const p = Number(r.proposal?.payout ?? 0);
-            const pct = stake > 0 ? ((p - stake) / stake) * 100 : 0;
-            next[s.value] = { payout: p, pct };
-          } catch {
-            /* ignore */
-          }
-        }
-        if (!cancelled) {
-          setPayouts(next);
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    const t = setTimeout(run, 350);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    onAccumulatorBarriers?.({
+      entry: null,
+      high: config.needsBarrier ? barrierLineFromInput(barrier, lastPrice) : null,
+      low: null,
+      breached: false,
+    });
   }, [
-    token,
-    category,
-    side,
-    stake,
-    duration,
-    durationUnit,
-    barrierDigit,
-    barrierOffset,
-    multiplier,
-    market,
-    payoutMode,
-    tradeCurrency,
-    account,
+    activeContract.entrySpot,
+    activeContract.status,
+    barrier,
+    config.needsBarrier,
+    lastPrice,
+    onAccumulatorBarriers,
+    selectedTradeType,
   ]);
 
-  async function handleBuy(sideOverride?: string) {
-    const activeSide = sideOverride ?? side;
-    if (!user) {
-      toast.error("Sign in to place trades.");
+  useEffect(() => {
+    if (selectedTradeType === "accumulator") {
+      setQuotes({});
       return;
     }
-    if (!token) {
-      toast.error("Connect your Deriv account first.");
-      return;
-    }
-    if (!account) {
-      toast.error("Select a Deriv account first.");
-      return;
-    }
-    if (!tradeCurrency) {
-      toast.error("Account currency is missing. Reconnect your Deriv account.");
-      return;
-    }
-    if (!Number.isFinite(stake) || stake <= 0) {
-      toast.error("Enter a valid stake.");
-      return;
-    }
-    if (isAccumulator) {
-      toast.error("Use the Accumulators panel to place accumulator trades.");
+    if (!token || !account || !tradeCurrency) {
+      setQuotes({});
       return;
     }
     setAuthenticatedAccount(token, account.account_id, account.is_virtual ?? account.is_demo);
-    if (accountBalance !== null && accountBalance < stake) {
-      toast.error(
-        `Insufficient balance: ${accountBalance.toFixed(2)} ${tradeCurrency} available, need ${stake.toFixed(2)} ${tradeCurrency}.`,
+    let cancelled = false;
+    const timeout = setTimeout(async () => {
+      setQuotesLoading(true);
+      const next: Record<string, ProposalQuote> = {};
+      await Promise.all(
+        config.sides.map(async (side) => {
+          try {
+            const payload = buildPayload(side.value, payoutMode);
+            const response = await requestProposal(payload);
+            const proposal = response.proposal ?? {};
+            const payout = numberFrom(proposal.payout);
+            const askPrice = numberFrom(proposal.ask_price) ?? stake;
+            next[side.value] = {
+              askPrice,
+              error: null,
+              id: String(proposal.id ?? ""),
+              payout,
+              pct: payout != null && askPrice > 0 ? ((payout - askPrice) / askPrice) * 100 : null,
+            };
+          } catch (error) {
+            next[side.value] = {
+              ...EMPTY_QUOTE,
+              error: error instanceof Error ? error.message : "Proposal unavailable",
+            };
+          }
+        }),
       );
+      if (!cancelled) {
+        setQuotes(next);
+        setQuotesLoading(false);
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    account?.account_id,
+    barrier,
+    config.sides,
+    duration,
+    durationUnit,
+    market,
+    multiplier,
+    payoutMode,
+    selectedDigit,
+    selectedTradeType,
+    stake,
+    stopLoss,
+    takeProfit,
+    token,
+    tradeCurrency,
+  ]);
+
+  useEffect(() => {
+    const selectedAccountId = account?.account_id ?? null;
+    if (
+      activeContract.status === "active" &&
+      activeAccountIdRef.current &&
+      selectedAccountId &&
+      activeAccountIdRef.current !== selectedAccountId
+    ) {
+      setActiveContract((current) => ({
+        ...current,
+        error: "Selected Deriv account changed. Reconnect before trading again.",
+        isValidToSell: false,
+        status: "error",
+      }));
+      void cleanupSubscription();
+    }
+  }, [account?.account_id, activeContract.status]);
+
+  function buildPayload(side: string, basis: "stake" | "payout" = "stake") {
+    const input: ProposalInput = {
+      barrier,
+      currency: tradeCurrency,
+      duration,
+      durationUnit,
+      market,
+      multiplier,
+      payoutMode: basis,
+      selectedDigit,
+      side,
+      stake,
+      stopLoss,
+      takeProfit,
+      tradeType: selectedTradeType,
+    };
+    return buildStandardProposalPayload(input);
+  }
+
+  function validateAccount() {
+    if (!user) throw new Error("Sign in to place trades.");
+    if (!token || !account) throw new Error("Connect and select your Deriv account first.");
+    if (!tradeCurrency) throw new Error("Selected account currency is missing.");
+    if (!Number.isFinite(stake) || stake <= 0) throw new Error("Enter a valid stake.");
+    if (accountBalance !== null && accountBalance < stake) {
+      throw new Error(
+        `Insufficient balance: ${accountBalance.toFixed(2)} ${tradeCurrency} available.`,
+      );
+    }
+    const demo = isDerivDemoAccount(account);
+    const loginId = accountLoginId.toUpperCase();
+    if (demo && !/^(VRTC|VR|DOT)/.test(loginId)) {
+      throw new Error("Demo trading requires a selected demo account.");
+    }
+    if (!demo && !loginId.startsWith("CR")) {
+      throw new Error("Real trading requires a selected real account.");
+    }
+  }
+
+  async function cleanupSubscription() {
+    const unsubscribe = unsubscribeRef.current;
+    unsubscribeRef.current = null;
+    if (unsubscribe) await unsubscribe();
+  }
+
+  async function markTradeClosed(nextState: ActiveContractState) {
+    const tradeId = tradeIdRef.current;
+    if (!tradeId || closedRef.current) return;
+    if (!["sold", "won", "lost"].includes(nextState.status)) return;
+    closedRef.current = true;
+    const profit = Number(nextState.currentProfit ?? 0);
+    const { error } = await supabase
+      .from("trades")
+      .update({
+        profit_loss: profit,
+        status: profit >= 0 && nextState.status !== "lost" ? "won" : "lost",
+        closed_at: new Date().toISOString(),
+      })
+      .eq("id", tradeId);
+    if (error) console.error("[Deriv Trade] Could not update closed trade", error);
+  }
+
+  async function handleBuy(side: TradeSide) {
+    if (buyInFlightRef.current || busy) return;
+    if (!token) {
+      const url = await buildOAuthUrl({ returnTo: "/" });
+      console.log("Deriv OAuth URL:", url);
+      window.location.href = url;
       return;
     }
+    buyInFlightRef.current = true;
     setBusy(true);
+    setErrorMessage(null);
+    setSelectedSide(side.value);
+    setActiveContract({ ...EMPTY_CONTRACT_STATE, status: "buying" });
+    closedRef.current = false;
     try {
-      const contract_type = contractTypeFor(category, activeSide);
-      const proposal: TradeProposalPayload = {
-        proposal: 1,
-        amount: stake,
-        basis: "stake",
-        contract_type,
-        currency: tradeCurrency,
-        underlying_symbol: market,
-      };
-      if (showDuration) {
-        proposal.duration = duration;
-        proposal.duration_unit = isDigit ? "t" : durationUnit;
+      validateAccount();
+      if (!account || !token || !user) throw new Error("Connect and select your Deriv account first.");
+      setAuthenticatedAccount(token, account.account_id, account.is_virtual ?? account.is_demo);
+      await cleanupSubscription();
+
+      const quote = quotes[side.value];
+      let proposalId = quote?.id;
+      let askPrice = quote?.askPrice ?? stake;
+      if (!proposalId) {
+        const proposalResponse = await requestProposal(buildPayload(side.value, "stake"));
+        const proposal = proposalResponse.proposal ?? {};
+        proposalId = String(proposal.id ?? "");
+        askPrice = numberFrom(proposal.ask_price) ?? stake;
       }
-      if (needsDigit) proposal.barrier = String(barrierDigit);
-      if (needsBarrierOffset) proposal.barrier = barrierOffset;
-      if (isMultiplier) proposal.multiplier = multiplier;
-      console.info("[Deriv Trade] Placing trade", {
-        selectedAccountId: account.account_id,
-        selectedLoginId: account.loginid,
-        is_demo: account.is_demo,
-        is_virtual: account.is_virtual,
-        wsAccountId: getTradingSocketAccountId(),
-        finalProposalPayload: proposal,
-      });
+      if (!proposalId) throw new Error("No proposal id available.");
 
-      const propResp = await send(proposal);
-      const proposalId = propResp.proposal?.id;
-      if (!proposalId) throw new Error("No proposal returned");
-      const buyResp = await send({ buy: proposalId, price: stake });
-      const contract = buyResp.buy;
-      const contractId = String(contract?.contract_id ?? "");
-      if (!contract || !contractId) throw new Error("No contract returned");
-      toast.success(`Bought contract ${contractId}`);
-
-      const { data: trade, error: tradeInsertError } = await supabase
+      const buyResponse = await buyProposal(proposalId, askPrice);
+      const buy = buyResponse.buy ?? {};
+      const contractId = String(buy.contract_id ?? "");
+      const contractType = String(buy.contract_type ?? buildPayload(side.value, "stake").contract_type);
+      const { data: trade, error: insertError } = await supabase
         .from("trades")
         .insert({
           user_id: user.id,
           deriv_contract_id: contractId,
           symbol: market,
-          trade_type: contract_type,
+          trade_type: contractType,
           stake,
-          payout: Number(contract.payout ?? 0),
+          payout: Number(buy.payout ?? quote?.payout ?? 0),
           status: "open",
         })
         .select()
         .single();
-      if (tradeInsertError) {
-        console.error("Could not save trade history", tradeInsertError);
+      if (insertError) {
+        console.error("[Deriv Trade] Could not save trade", insertError);
         toast.error("Trade placed, but history could not be saved.");
       }
-
-      const poll = setInterval(async () => {
-        try {
-          const res = await send({ proposal_open_contract: 1, contract_id: contractId });
-          const c = res.proposal_open_contract;
-          if (c?.is_sold) {
-            clearInterval(poll);
-            activePollsRef.current.delete(poll);
-            const profit = Number(c.profit ?? 0);
-            if (trade?.id) {
-              const { error: tradeUpdateError } = await supabase
-                .from("trades")
-                .update({
-                  profit_loss: profit,
-                  status: profit >= 0 ? "won" : "lost",
-                  closed_at: new Date().toISOString(),
-                })
-                .eq("id", trade.id);
-              if (tradeUpdateError) {
-                console.error("Could not update closed trade", tradeUpdateError);
-              }
-            }
-            toast[profit >= 0 ? "success" : "error"](
-              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} ${tradeCurrency}`,
-            );
+      tradeIdRef.current = trade?.id ?? null;
+      activeAccountIdRef.current = account.account_id;
+      setActiveContract({
+        ...EMPTY_CONTRACT_STATE,
+        buyPrice: numberFrom(buy.buy_price) ?? askPrice,
+        contractId,
+        payout: numberFrom(buy.payout) ?? quote?.payout ?? null,
+        status: "active",
+      });
+      unsubscribeRef.current = await subscribeOpenContract(contractId, (openContract) => {
+        setActiveContract((current) => {
+          const next = normalizeOpenContract(openContract, current);
+          console.info("[Deriv Trade] proposal_open_contract update", {
+            contractId: next.contractId,
+            currentSpot: next.currentSpot,
+            entrySpot: next.entrySpot,
+            payout: next.payout,
+            profit: next.currentProfit,
+            sellPrice: next.sellPrice,
+            isValidToSell: next.isValidToSell,
+            status: next.status,
+            websocketAccountId: getTradingSocketAccountId(),
+          });
+          if (["sold", "won", "lost"].includes(next.status)) {
+            void cleanupSubscription();
+            void markTradeClosed(next);
           }
-        } catch {
-          /* ignore */
-        }
-      }, 1500);
-      activePollsRef.current.add(poll);
-      setTimeout(() => {
-        clearInterval(poll);
-        activePollsRef.current.delete(poll);
-      }, 120000);
-    } catch (e: unknown) {
-      console.error("Trade failed", e);
-      toast.error(e instanceof Error ? e.message : "Trade failed");
+          return next;
+        });
+      });
+      toast.success(`Bought ${side.label}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Trade failed.";
+      console.error("[Deriv Trade] Buy failed", error);
+      setErrorMessage(message);
+      setActiveContract((current) => ({ ...current, error: message, status: "error" }));
+      toast.error(message);
+    } finally {
+      buyInFlightRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function handleSell() {
+    if (!activeContract.contractId || !activeContract.isValidToSell || activeContract.sellPrice == null) {
+      toast.error("No sell price available for this contract.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await sellContract(activeContract.contractId, activeContract.sellPrice);
+      const sold = response.sell ?? {};
+      const profit = numberFrom(sold.profit) ?? activeContract.currentProfit ?? 0;
+      const next: ActiveContractState = {
+        ...activeContract,
+        currentProfit: profit,
+        isValidToSell: false,
+        sellPrice: numberFrom(sold.sold_for, sold.sell_price) ?? activeContract.sellPrice,
+        status: profit >= 0 ? "won" : "lost",
+      };
+      setActiveContract(next);
+      await cleanupSubscription();
+      await markTradeClosed(next);
+      toast[profit >= 0 ? "success" : "error"](
+        `Closed ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${tradeCurrency}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not close contract.";
+      setErrorMessage(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
   }
 
-  const accentBuy = "bg-[oklch(0.7_0.17_150)] hover:bg-[oklch(0.65_0.17_150)]";
-  const sideAccent: Record<string, string> = {
-    up: "bg-emerald-500",
-    down: "bg-rose-500",
-    higher: "bg-emerald-500",
-    lower: "bg-rose-500",
-    over: "bg-emerald-500",
-    under: "bg-rose-500",
-    even: "bg-emerald-500",
-    odd: "bg-rose-500",
-    touch: "bg-emerald-500",
-    no_touch: "bg-rose-500",
-    matches: "bg-emerald-500",
-    differs: "bg-rose-500",
-    buy: "bg-emerald-500",
-  };
+  const activeQuote = quotes[selectedSide];
+  const tradeIndex = TRADE_TYPE_CONFIGS.findIndex((item) => item.category === selectedTradeType);
+  const nextTradeType = useCallback(
+    (direction: -1 | 1) => {
+      const next =
+        (tradeIndex + direction + TRADE_TYPE_CONFIGS.length) % TRADE_TYPE_CONFIGS.length;
+      setSelectedTradeType(TRADE_TYPE_CONFIGS[next].category);
+    },
+    [tradeIndex],
+  );
 
-  return (
-    <div className="min-w-0 space-y-3">
-      {/* Trade type pill (green border highlight matches Deriv accumulator selector) */}
-      <div className="rounded-xl border-2 border-[oklch(0.7_0.17_150)] bg-white p-3 shadow-sm">
-        <div className="text-[11px] text-[oklch(0.45_0.02_260)] underline underline-offset-2">
-          Learn about this trade type
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          <button
-            onClick={() => cycleCategory(-1)}
-            className="rounded-md p-1 hover:bg-[oklch(0.96_0.005_240)]"
-            aria-label="Previous trade type"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <div className="flex flex-1 items-center justify-center gap-2 px-3 py-1">
-            {isAccumulator ? (
-              <span className="text-[oklch(0.7_0.17_150)]">📈</span>
-            ) : (
-              <>
-                <TrendingUp className="h-4 w-4 text-emerald-500" />
-                <TrendingDown className="h-4 w-4 text-rose-500" />
-              </>
-            )}
-            <span className="font-semibold">{currentCategory?.label}</span>
-          </div>
-          <button
-            onClick={() => cycleCategory(1)}
-            className="rounded-md p-1 hover:bg-[oklch(0.96_0.005_240)]"
-            aria-label="Next trade type"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+  const activeRows = useMemo(
+    () => [
+      ["Status", activeContract.status],
+      ["Contract", activeContract.contractId],
+      ["Entry", numberLabel(activeContract.entrySpot)],
+      ["Current", numberLabel(activeContract.currentSpot ?? lastPrice)],
+      ["Buy price", moneyLabel(activeContract.buyPrice, tradeCurrency)],
+      ["Payout", moneyLabel(activeContract.payout, tradeCurrency)],
+      ["P/L", moneyLabel(activeContract.currentProfit, tradeCurrency, true)],
+      ["Sell price", moneyLabel(activeContract.sellPrice, tradeCurrency)],
+    ],
+    [activeContract, lastPrice, tradeCurrency],
+  );
 
-      {showDuration && (
-        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
-          <div className="text-center text-sm text-[oklch(0.45_0.02_260)]">
-            {durationUnit === "t" ? "Ticks" : durationUnit === "s" ? "Seconds" : "Minutes"}
-          </div>
-          <Slider
-            className="mt-3"
-            min={1}
-            max={10}
-            step={1}
-            value={[duration]}
-            onValueChange={(v) => setDuration(v[0])}
-          />
-          <div className="mt-2 text-center font-semibold">
-            {duration} {durationUnit === "t" ? `Tick${duration > 1 ? "s" : ""}` : durationUnit}
-          </div>
-          {!isDigit && (
-            <div className="mt-2 flex justify-center gap-1">
-              {(["t", "s", "m"] as const).map((u) => (
-                <button
-                  key={u}
-                  onClick={() => setDurationUnit(u)}
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[11px]",
-                    durationUnit === u
-                      ? "bg-[oklch(0.7_0.17_150)] text-white"
-                      : "bg-[oklch(0.96_0.005_240)] text-[oklch(0.45_0.02_260)]",
-                  )}
-                >
-                  {u === "t" ? "ticks" : u === "s" ? "sec" : "min"}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {isDigit && (
-        <DigitWheel
-          category={category}
-          currentDigit={currentDigit}
-          selectedDigit={barrierDigit}
-          selectedSide={side}
-          onDigitChange={needsDigit ? setBarrierDigit : undefined}
+  if (selectedTradeType === "accumulator") {
+    return (
+      <div className="min-w-0 space-y-3">
+        <TradeTypeCard
+          config={config}
+          onNext={() => nextTradeType(1)}
+          onPrevious={() => nextTradeType(-1)}
         />
-      )}
-
-      {needsBarrierOffset && (
-        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
-          <div className="mb-1 text-sm">Barrier (offset from spot)</div>
-          <Input value={barrierOffset} onChange={(e) => setBarrierOffset(e.target.value)} />
-        </div>
-      )}
-
-      {isAccumulator && (
         <AccumulatorTradePanel
           lastPrice={lastPrice}
           market={market}
           onBarriers={onAccumulatorBarriers}
           onMarketChange={onMarketChange}
         />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-0 space-y-3">
+      <TradeTypeCard
+        config={config}
+        onNext={() => nextTradeType(1)}
+        onPrevious={() => nextTradeType(-1)}
+      />
+
+      <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
+        <div className="mb-2 text-center text-sm font-medium text-[#555555]">Market</div>
+        <Select value={market} onValueChange={onMarketChange}>
+          <SelectTrigger className="h-10 rounded-md border-[#d6d6d6] bg-white text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SYNTHETIC_MARKETS.map((item) => (
+              <SelectItem key={item.symbol} value={item.symbol}>
+                {item.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {config.needsDuration && (
+        <TickDurationSelector
+          duration={duration}
+          durationUnit={durationUnit}
+          onDurationChange={setDuration}
+          onUnitChange={setDurationUnit}
+          showUnits={!isDigitTrade(selectedTradeType)}
+        />
       )}
 
-      {isMultiplier && (
-        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
-          <div className="mb-2 text-sm">Multiplier</div>
-          <Select value={String(multiplier)} onValueChange={(v) => setMultiplier(Number(v))}>
-            <SelectTrigger>
+      {config.needsDigit && (
+        <DigitSelector
+          currentDigit={currentDigit}
+          mode={config.digitMode === "prediction" ? "prediction" : "barrier"}
+          selectedDigit={selectedDigit}
+          onDigitChange={setSelectedDigit}
+        />
+      )}
+
+      {config.needsBarrier && (
+        <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
+          <div className="mb-2 text-sm font-bold text-[#333333]">Barrier</div>
+          <Input
+            value={barrier}
+            onChange={(event) => setBarrier(event.target.value)}
+            className="h-10 rounded-md border-[#d6d6d6] text-center font-mono"
+            placeholder="+0.10"
+          />
+          <div className="mt-2 text-xs text-[#777777]">
+            Distance from barrier: {distanceFromBarrierLabel(lastPrice, barrier)}
+          </div>
+        </div>
+      )}
+
+      {config.supportsMultiplier && (
+        <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
+          <div className="mb-2 text-sm font-bold text-[#333333]">Multiplier</div>
+          <Select value={String(multiplier)} onValueChange={(value) => setMultiplier(Number(value))}>
+            <SelectTrigger className="h-10 rounded-md border-[#d6d6d6]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {[10, 20, 30, 50, 100, 200, 300, 500].map((m) => (
-                <SelectItem key={m} value={String(m)}>
-                  ×{m}
+              {[10, 20, 30, 50, 100, 200, 300, 500].map((item) => (
+                <SelectItem key={item} value={String(item)}>
+                  x{item}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
-      )}
-
-      {!isAccumulator && (
-        <div className="rounded-xl bg-white p-3">
-          <div className="mb-3 grid grid-cols-2 overflow-hidden rounded-lg bg-[oklch(0.96_0.005_240)] p-1">
-            <button
-              onClick={() => setPayoutMode("stake")}
-              className={cn(
-                "rounded-md py-1.5 text-sm font-medium transition",
-                payoutMode === "stake" ? "bg-white shadow" : "text-[oklch(0.45_0.02_260)]",
-              )}
-            >
-              Stake
-            </button>
-            <button
-              onClick={() => setPayoutMode("payout")}
-              className={cn(
-                "rounded-md py-1.5 text-sm font-medium transition",
-                payoutMode === "payout" ? "bg-white shadow" : "text-[oklch(0.45_0.02_260)]",
-              )}
-            >
-              Payout
-            </button>
-          </div>
-          <div className="text-center text-sm text-[oklch(0.45_0.02_260)]">Stake</div>
-          <div className="mt-2 flex min-w-0 items-center gap-1.5 sm:gap-2">
-            <button
-              onClick={() => setStake((s) => Math.max(0.35, +(s - 1).toFixed(2)))}
-              className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
-              aria-label="Decrease stake"
-            >
-              <Minus className="h-4 w-4" />
-            </button>
+          <div className="mt-3 grid grid-cols-2 gap-2">
             <Input
               type="number"
-              min={0.35}
-              step={1}
-              value={stake}
-              onChange={(e) => setStake(Number(e.target.value))}
-              className="min-w-0 text-center font-mono text-base"
+              min={0}
+              value={takeProfit}
+              onChange={(event) => setTakeProfit(Number(event.target.value))}
+              className="h-9 text-center font-mono"
+              placeholder="Take profit"
             />
-            <button
-              onClick={() => setStake((s) => +(s + 1).toFixed(2))}
-              className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
-              aria-label="Increase stake"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-            <span className="w-10 shrink-0 truncate text-center text-xs font-medium text-[oklch(0.45_0.02_260)] sm:w-14 sm:text-sm">
-              {tradeCurrency}
-            </span>
+            <Input
+              type="number"
+              min={0}
+              value={stopLoss}
+              onChange={(event) => setStopLoss(Number(event.target.value))}
+              className="h-9 text-center font-mono"
+              placeholder="Stop loss"
+            />
           </div>
         </div>
       )}
 
-      {/* Side cards (non-accumulator) — click to execute the trade for that side */}
-      {!isAccumulator && (
-        <div className="space-y-2">
-          {sides.map((s) => {
-            const live = payouts[s.value];
-            const isSelected = side === s.value;
-            return (
-              <button
-                key={s.value}
-                onClick={() => {
-                  setSide(s.value);
-                  if (!user) {
-                    toast.error("Sign in to place trades.");
-                    return;
-                  }
-                  if (!token) {
-                    toast.message("Connect your Deriv account to trade.");
-                    buildOAuthUrl({ returnTo: "/" }).then((url) => {
-                      console.log("Deriv OAuth URL:", url);
-                      window.location.href = url;
-                    });
-                    return;
-                  }
-                  if (!busy) void handleBuy(s.value);
-                }}
-                disabled={busy}
-                className={cn(
-                  "w-full overflow-hidden rounded-xl text-left transition disabled:opacity-60",
-                  isSelected
-                    ? "ring-2 ring-[oklch(0.55_0.22_265)]/60"
-                    : "opacity-90 hover:opacity-100",
-                )}
-              >
-                <div className="flex items-center justify-between bg-[oklch(0.96_0.005_240)] px-3 py-1.5 text-xs text-[oklch(0.45_0.02_260)]">
-                  <span>
-                    Payout {live ? live.payout.toFixed(2) : "—"} {tradeCurrency}
-                  </span>
-                </div>
-                <div
-                  className={cn(
-                    "flex items-center justify-between px-4 py-3 text-white",
-                    sideAccent[s.value] ?? "bg-muted",
-                  )}
-                >
-                  <span className="font-semibold">
-                    {busy && side === s.value ? "Submitting…" : s.label}
-                  </span>
-                  <span className="font-mono text-sm">{live ? `${live.pct.toFixed(2)}%` : ""}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+      <StakePayoutToggle
+        currency={tradeCurrency}
+        mode={payoutMode}
+        onModeChange={setPayoutMode}
+        onStakeChange={setStake}
+        stake={stake}
+      />
+
+      <div className="space-y-2">
+        {config.sides.map((side) => {
+          const quote = quotes[side.value] ?? EMPTY_QUOTE;
+          return (
+            <ProposalButton
+              key={side.value}
+              disabled={busy || quotesLoading || Boolean(quote.error)}
+              label={side.label}
+              loading={quotesLoading}
+              onClick={() => void handleBuy(side)}
+              payout={moneyLabel(quote.payout, tradeCurrency)}
+              pct={quote.pct != null ? `${quote.pct.toFixed(2)}%` : undefined}
+              tone={side.tone}
+            />
+          );
+        })}
+      </div>
+
+      {(activeContract.contractId || activeContract.status === "error") && (
+        <ProposalSummary rows={activeRows} />
       )}
 
-      {/* Buy button (Multiplier) */}
-      {isMultiplier && (
+      {activeContract.status === "active" && (
         <Button
-          onClick={() => {
-            if (!user) {
-              toast.error("Sign in to place trades.");
-              return;
-            }
-            if (!token) {
-              buildOAuthUrl({ returnTo: "/" }).then((url) => {
-                console.log("Deriv OAuth URL:", url);
-                window.location.href = url;
-              });
-              return;
-            }
-            void handleBuy();
-          }}
-          disabled={busy}
-          className={cn(
-            "h-12 w-full rounded-xl text-base font-semibold text-white",
-            accentBuy,
-          )}
+          onClick={() => void handleSell()}
+          disabled={busy || !activeContract.isValidToSell}
+          className="h-11 w-full rounded-lg bg-[#ff444f] text-sm font-bold text-white hover:bg-[#eb3e48]"
         >
-          {busy
-            ? "Submitting…"
-            : token
-                ? `Buy ${sides.find((s) => s.value === side)?.label ?? ""} (${isDemo ? "Demo" : "Live"})`
-                : "Sign in & connect Deriv to trade"}
+          <X className="mr-2 size-4" />
+          {activeContract.isValidToSell
+            ? `Close ${moneyLabel(activeContract.sellPrice, tradeCurrency)}`
+            : "Waiting for sell price"}
         </Button>
       )}
 
-      <p className="text-[11px] text-[oklch(0.5_0.02_260)]">
-        Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "—"}</span>. You can lose
+      {(errorMessage || activeContract.error || activeQuote?.error) && (
+        <div className="rounded-lg border border-[#ffd1d4] bg-[#fff7f7] p-3 text-xs font-medium text-[#cc2f39]">
+          {errorMessage || activeContract.error || activeQuote?.error}
+        </div>
+      )}
+
+      <p className="text-[11px] text-[#777777]">
+        Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "-"}</span>. You can lose
         money rapidly.
       </p>
     </div>
   );
 }
 
-function DigitWheel({
-  category,
-  currentDigit,
-  onDigitChange,
-  selectedDigit,
-  selectedSide,
-}: {
-  category: TradeCategory;
-  currentDigit: number | null;
-  onDigitChange?: (digit: number) => void;
-  selectedDigit: number;
-  selectedSide: string;
-}) {
-  const digits = Array.from({ length: 10 }, (_, digit) => digit);
-  const isReadOnly = !onDigitChange;
-  const title = category === "even_odd" ? "Last digit" : "Prediction digit";
+function numberFrom(...values: unknown[]) {
+  for (const value of values) {
+    if (value == null || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
 
-  return (
-    <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <div className="text-sm font-semibold">{title}</div>
-          <div className="text-[11px] text-[oklch(0.5_0.02_260)]">
-            {category === "over_under"
-              ? `${selectedSide === "over" ? "Over" : "Under"} ${selectedDigit}`
-              : category === "matches_differs"
-                ? `${selectedSide === "matches" ? "Matches" : "Differs"} ${selectedDigit}`
-                : selectedSide === "even"
-                  ? "Even digits"
-                  : "Odd digits"}
-          </div>
-        </div>
-        <div className="rounded-md bg-[#ff444f] px-2.5 py-1 text-xs font-bold text-white">
-          {currentDigit ?? "-"}
-        </div>
-      </div>
+function numberLabel(value?: number | null) {
+  return value != null && Number.isFinite(value) ? value.toFixed(4) : "-";
+}
 
-      <div className="relative mx-auto size-56">
-        <div className="absolute inset-7 rounded-full border border-[#ececec] bg-[#fafafa]" />
-        <div className="absolute left-1/2 top-1/2 flex size-20 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-[#dedede] bg-white shadow-sm">
-          <span className="text-[10px] font-bold uppercase text-[#777777]">Spot</span>
-          <span className="font-mono text-2xl font-bold text-[#333333]">{currentDigit ?? "-"}</span>
-        </div>
+function moneyLabel(value?: number | null, currency?: string, signed = false) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  const prefix = signed && value > 0 ? "+" : "";
+  return `${prefix}${value.toFixed(2)}${currency ? ` ${currency}` : ""}`;
+}
 
-        {digits.map((digit, index) => {
-          const angle = (index / digits.length) * Math.PI * 2 - Math.PI / 2;
-          const radius = 86;
-          const x = Math.cos(angle) * radius;
-          const y = Math.sin(angle) * radius;
-          const selected = !isReadOnly && selectedDigit === digit;
-          const live = currentDigit === digit;
-          const evenOddMatch =
-            category === "even_odd" &&
-            ((selectedSide === "even" && digit % 2 === 0) ||
-              (selectedSide === "odd" && digit % 2 === 1));
-          return (
-            <button
-              key={digit}
-              type="button"
-              disabled={isReadOnly}
-              onClick={() => onDigitChange?.(digit)}
-              className={cn(
-                "absolute flex size-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold transition",
-                selected && "border-[#ff444f] bg-[#ff444f] text-white shadow-md",
-                !selected && evenOddMatch && "border-[#4bb4b3] bg-[#e5f7f6] text-[#147a78]",
-                !selected && !evenOddMatch && "border-[#dedede] bg-white text-[#555555]",
-                live && "ring-2 ring-[#ff444f]/40",
-                !isReadOnly && "hover:border-[#ff444f]",
-              )}
-              style={{ left: `calc(50% + ${x}px)`, top: `calc(50% + ${y}px)` }}
-              aria-label={`Digit ${digit}`}
-            >
-              {digit}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+function barrierLineFromInput(barrier: string, spot?: number | null) {
+  const value = Number(barrier);
+  if (!Number.isFinite(value)) return null;
+  if ((barrier.startsWith("+") || barrier.startsWith("-")) && spot != null) {
+    return spot + value;
+  }
+  return value;
+}
+
+function distanceFromBarrierLabel(spot: number | null | undefined, barrier: string) {
+  const line = barrierLineFromInput(barrier, spot);
+  if (spot == null || line == null) return "-";
+  return Math.abs(spot - line).toFixed(4);
 }

@@ -4,6 +4,8 @@ import { TopShell } from "@/components/top-shell";
 import { DerivChart } from "@/components/deriv-chart";
 import { TradePanel } from "@/components/trade-panel";
 import { SignalsPanel } from "@/components/signals-panel";
+import type { TradeCategory } from "@/lib/deriv";
+import { isDigitTrade } from "@/lib/trade-types";
 import {
   Shield,
   Sun,
@@ -32,6 +34,7 @@ export const Route = createFileRoute("/")({
 function Index() {
   const [symbol, setSymbol] = useState("1HZ100V");
   const [price, setPrice] = useState<number | null>(null);
+  const [tradeType, setTradeType] = useState<TradeCategory>("accumulator");
   const [barriers, setBarriers] = useState<{
     breached?: boolean;
     entry: number | null;
@@ -78,6 +81,7 @@ function Index() {
             highBarrier={barriers.high}
             lowBarrier={barriers.low}
             barrierBreached={barriers.breached}
+            showDigitStats={isDigitTrade(tradeType)}
           />
 
           <p className="mt-2 text-xs text-[oklch(0.5_0.02_260)]">
@@ -94,6 +98,7 @@ function Index() {
             lastPrice={price}
             onAccumulatorBarriers={setBarriers}
             onMarketChange={setSymbol}
+            onTradeTypeChange={setTradeType}
           />
         </aside>
       </div>
