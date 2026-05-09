@@ -18,7 +18,6 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
             return Response.json({ error: "Missing code or codeVerifier" }, { status: 400 });
           }
 
-          const appId = process.env.VITE_DERIV_APP_ID ?? "";
           const clientId = process.env.VITE_DERIV_CLIENT_ID ?? "";
           const rawClientSecret =
             process.env.DERIV_CLIENT_SECRET ?? process.env.VITE_DERIV_CLIENT_SECRET;
@@ -44,7 +43,6 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
           console.log("Deriv token exchange request", {
             endpoint: "https://auth.deriv.com/oauth2/token",
             grant_type: "authorization_code",
-            deriv_app_id: appId,
             client_id: clientId,
             redirect_uri: DERIV_REDIRECT_URI,
             hasCode: Boolean(code),

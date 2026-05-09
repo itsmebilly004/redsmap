@@ -405,7 +405,9 @@ export async function buildOAuthUrl(
     throw new Error("Invalid Deriv OAuth endpoint. Refusing to redirect to a non-OAuth URL.");
   }
   if (parsed.searchParams.has("app_id") || parsed.searchParams.has("redirect")) {
-    throw new Error("Invalid Deriv OAuth URL. Authorization URL must not include app_id or redirect.");
+    throw new Error(
+      "Invalid Deriv OAuth URL. Authorization URL must not include app_id or redirect.",
+    );
   }
   console.info("[Deriv OAuth] Final authorization URL", url);
   console.info("[Deriv OAuth] Authorization diagnostics", {
