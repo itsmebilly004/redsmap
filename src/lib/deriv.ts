@@ -1,6 +1,7 @@
 // src/lib/deriv.ts
 
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
+const DERIV_CLIENT_ID = import.meta.env.VITE_DERIV_CLIENT_ID ?? DERIV_APP_ID;
 const DERIV_REDIRECT_URI = import.meta.env.VITE_DERIV_REDIRECT_URI;
 const PUBLIC_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 
@@ -260,8 +261,11 @@ async function sha256(value: string) {
   return crypto.subtle.digest("SHA-256", data);
 }
 
-export async function buildOAuthUrl() {
+export async function buildOAuthUrl(options: { mode?: "signin" | "signup" } = {}) {
   if (!isBrowser) return "";
+  if (!DERIV_CLIENT_ID) throw new Error("Missing VITE_DERIV_CLIENT_ID");
+  if (!DERIV_REDIRECT_URI) throw new Error("Missing VITE_DERIV_REDIRECT_URI");
+
   const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
   const codeVerifier = base64UrlEncode(verifierBytes);
   const codeChallenge = base64UrlEncode(await sha256(codeVerifier));
@@ -272,13 +276,19 @@ export async function buildOAuthUrl() {
 
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: DERIV_APP_ID,
+    client_id: DERIV_CLIENT_ID,
     redirect_uri: DERIV_REDIRECT_URI,
     scope: "trade account_manage",
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
+  if (DERIV_APP_ID && DERIV_APP_ID !== DERIV_CLIENT_ID) {
+    params.set("app_id", DERIV_APP_ID);
+  }
+  if (options.mode === "signup") {
+    params.set("prompt", "registration");
+  }
   return `https://auth.deriv.com/oauth2/auth?${params.toString()}`;
 }
 
