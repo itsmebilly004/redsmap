@@ -263,8 +263,8 @@ async function sha256(value: string) {
 
 export async function buildOAuthUrl(options: { mode?: "signin" | "signup" } = {}) {
   if (!isBrowser) return "";
-  if (!DERIV_CLIENT_ID) throw new Error("Missing VITE_DERIV_CLIENT_ID");
-  if (!DERIV_REDIRECT_URI) throw new Error("Missing VITE_DERIV_REDIRECT_URI");
+  if (!DERIV_CLIENT_ID) throw new Error("Missing required OAuth parameter: client_id");
+  if (!DERIV_REDIRECT_URI) throw new Error("Missing required OAuth parameter: redirect_uri");
 
   const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
   const codeVerifier = base64UrlEncode(verifierBytes);
@@ -283,6 +283,19 @@ export async function buildOAuthUrl(options: { mode?: "signin" | "signup" } = {}
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
+  const requiredParams = [
+    "response_type",
+    "client_id",
+    "redirect_uri",
+    "scope",
+    "state",
+    "code_challenge",
+    "code_challenge_method",
+  ];
+  const missingParam = requiredParams.find((param) => !params.get(param));
+  if (missingParam) {
+    throw new Error(`Missing required OAuth parameter: ${missingParam}`);
+  }
   if (DERIV_APP_ID && DERIV_APP_ID !== DERIV_CLIENT_ID) {
     params.set("app_id", DERIV_APP_ID);
   }

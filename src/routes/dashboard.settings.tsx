@@ -48,7 +48,9 @@ function SettingsPage() {
   }
 
   async function connectDeriv() {
-    window.location.href = await buildOAuthUrl();
+    const url = await buildOAuthUrl();
+    console.log("Deriv OAuth URL:", url);
+    window.location.href = url;
   }
 
   async function deleteAccount() {

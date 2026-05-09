@@ -31,6 +31,7 @@ function AuthPage() {
     setBusy(true);
     try {
       const url = await buildOAuthUrl({ mode });
+      console.log("Deriv OAuth URL:", url);
       window.location.href = url;
     } catch (error) {
       console.error("Could not build Deriv OAuth URL", error);
