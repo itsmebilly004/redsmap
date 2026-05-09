@@ -8,7 +8,6 @@ import {
   type ISeriesApi,
   type LineData,
   type CandlestickData,
-  type IPriceLine,
   type UTCTimestamp,
 } from "lightweight-charts";
 import {
@@ -29,6 +28,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import {
+  clearBarrierLines,
+  renderBarrierLines,
+  type BarrierLineRefs,
+} from "@/lib/chart-barriers";
 
 type ChartType = "area" | "candle";
 type AnalysisTool = "sma" | "ema" | "bollinger" | "highlow";
@@ -39,8 +43,10 @@ type Props = {
   onPrice?: (price: number) => void;
   height?: number;
   className?: string;
+  entryPrice?: number | null;
   highBarrier?: number | null;
   lowBarrier?: number | null;
+  barrierBreached?: boolean;
 };
 
 const TIMEFRAMES = [
@@ -79,8 +85,10 @@ export function DerivChart({
   onPrice,
   height = 420,
   className,
+  entryPrice,
   highBarrier,
   lowBarrier,
+  barrierBreached,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -88,8 +96,7 @@ export function DerivChart({
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const indicatorSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const highLowLineRefs = useRef<IPriceLine[]>([]);
-  const highLineRef = useRef<IPriceLine | null>(null);
-  const lowLineRef = useRef<IPriceLine | null>(null);
+  const barrierLineRefs = useRef<BarrierLineRefs>({ entry: null, lower: null, upper: null });
   const candleBufferRef = useRef<Map<number, Candle>>(new Map());
   const historyRef = useRef<LineData[]>([]);
 
@@ -284,6 +291,7 @@ export function DerivChart({
       candleSeriesRef.current = null;
       indicatorSeriesRef.current = [];
       highLowLineRefs.current = [];
+      barrierLineRefs.current = { entry: null, lower: null, upper: null };
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType]);
@@ -391,35 +399,14 @@ export function DerivChart({
   useEffect(() => {
     const series = areaSeriesRef.current ?? candleSeriesRef.current;
     if (!series) return;
-    if (highLineRef.current) {
-      series.removePriceLine(highLineRef.current);
-      highLineRef.current = null;
-    }
-    if (lowLineRef.current) {
-      series.removePriceLine(lowLineRef.current);
-      lowLineRef.current = null;
-    }
-    if (highBarrier != null && Number.isFinite(highBarrier)) {
-      highLineRef.current = series.createPriceLine({
-        price: highBarrier,
-        color: "#2196f3",
-        lineWidth: 2,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: "Upper barrier",
-      });
-    }
-    if (lowBarrier != null && Number.isFinite(lowBarrier)) {
-      lowLineRef.current = series.createPriceLine({
-        price: lowBarrier,
-        color: "#2196f3",
-        lineWidth: 2,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: "Lower barrier",
-      });
-    }
-  }, [highBarrier, lowBarrier]);
+    clearBarrierLines(series, barrierLineRefs.current);
+    renderBarrierLines(series, barrierLineRefs.current, {
+      entryPrice,
+      lowerBarrier: lowBarrier,
+      upperBarrier: highBarrier,
+      breached: barrierBreached,
+    });
+  }, [entryPrice, highBarrier, lowBarrier, barrierBreached]);
 
   function toggleAnalysisTool(tool: AnalysisTool) {
     setAnalysisTools((current) => {

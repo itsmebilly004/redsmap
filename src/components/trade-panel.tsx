@@ -25,7 +25,6 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
-  Info,
   Minus,
   Plus,
   TrendingDown,
@@ -33,6 +32,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { AccumulatorTradePanel } from "@/components/accumulator-trade-panel";
 
 type TradeProposalPayload = Record<string, unknown> & {
   proposal: 1;
@@ -44,18 +44,27 @@ type TradeProposalPayload = Record<string, unknown> & {
   duration?: number;
   duration_unit?: "t" | "s" | "m";
   barrier?: string;
-  growth_rate?: number;
   multiplier?: number;
-  limit_order?: { take_profit: number };
 };
 
 interface TradePanelProps {
   market: string;
   lastPrice?: number | null;
-  onAccumulatorBarriers?: (b: { high: number | null; low: number | null }) => void;
+  onAccumulatorBarriers?: (b: {
+    entry: number | null;
+    high: number | null;
+    low: number | null;
+    breached?: boolean;
+  }) => void;
+  onMarketChange?: (market: string) => void;
 }
 
-export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePanelProps) {
+export function TradePanel({
+  market,
+  lastPrice,
+  onAccumulatorBarriers,
+  onMarketChange,
+}: TradePanelProps) {
   const { user } = useAuth();
   const { account, balance: accountBalance, currency } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
@@ -70,18 +79,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const [durationUnit, setDurationUnit] = useState<"t" | "s" | "m">("t");
   const [barrierDigit, setBarrierDigit] = useState(8);
   const [barrierOffset, setBarrierOffset] = useState("+0.10");
-  const [growthRate, setGrowthRate] = useState(0.03);
   const [multiplier, setMultiplier] = useState(100);
-  const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
-  const [takeProfit, setTakeProfit] = useState<number>(0);
   const [busy, setBusy] = useState(false);
-  const [openAccumulator, setOpenAccumulator] = useState<{
-    contractId: string;
-    tradeId?: string;
-    buyPrice: number;
-    bidPrice: number | null;
-    profit: number | null;
-  } | null>(null);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
   const activePollsRef = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
 
@@ -91,26 +90,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       activePolls.forEach(clearInterval);
     };
   }, []);
-
-  const [accuMeta, setAccuMeta] = useState<{
-    maxPayout: number | null;
-    maxTicks: number | null;
-    high: number | null;
-    low: number | null;
-    tickSize: number | null;
-    tickFreq: number | null;
-    minStake: number | null;
-    maxStake: number | null;
-  }>({
-    maxPayout: null,
-    maxTicks: null,
-    high: null,
-    low: null,
-    tickSize: null,
-    tickFreq: null,
-    minStake: null,
-    maxStake: null,
-  });
 
   useEffect(() => {
     setSide(SIDES_BY_CATEGORY[category][0].value);
@@ -136,7 +115,16 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const currentCategory = TRADE_CATEGORIES[catIdx];
 
   useEffect(() => {
+    if (isAccumulator) return;
+    onAccumulatorBarriers?.({ entry: null, high: null, low: null, breached: false });
+  }, [isAccumulator, onAccumulatorBarriers]);
+
+  useEffect(() => {
     if (!token || !tradeCurrency) {
+      setPayouts({});
+      return;
+    }
+    if (isAccumulator) {
       setPayouts({});
       return;
     }
@@ -148,7 +136,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     const run = async () => {
       try {
         const next: Record<string, { payout: number; pct: number }> = {};
-        let accuInfo: typeof accuMeta | null = null;
         for (const s of sides) {
           const ct = contractTypeFor(category, s.value);
           const proposal: TradeProposalPayload = {
@@ -165,40 +152,18 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           }
           if (needsDigit) proposal.barrier = String(barrierDigit);
           if (needsBarrierOffset) proposal.barrier = barrierOffset;
-          if (isAccumulator) proposal.growth_rate = growthRate;
           if (isMultiplier) proposal.multiplier = multiplier;
           try {
             const r = await send(proposal);
             const p = Number(r.proposal?.payout ?? 0);
             const pct = stake > 0 ? ((p - stake) / stake) * 100 : 0;
             next[s.value] = { payout: p, pct };
-            if (isAccumulator) {
-              const pr = r.proposal ?? {};
-              const high = pr.high_barrier ?? pr.barrier_spot_distance ?? null;
-              const low = pr.low_barrier ?? null;
-              accuInfo = {
-                maxPayout: Number(pr.maximum_payout ?? 0) || null,
-                maxTicks: Number(pr.maximum_ticks ?? 0) || null,
-                high: high != null ? Number(high) : null,
-                low: low != null ? Number(low) : null,
-                tickSize: pr.tick_size_barrier != null ? Number(pr.tick_size_barrier) : null,
-                tickFreq: pr.tick_count != null ? Number(pr.tick_count) : null,
-                minStake: pr.min_stake != null ? Number(pr.min_stake) : null,
-                maxStake: pr.max_stake != null ? Number(pr.max_stake) : null,
-              };
-            }
           } catch {
             /* ignore */
           }
         }
         if (!cancelled) {
           setPayouts(next);
-          if (isAccumulator && accuInfo) {
-            setAccuMeta(accuInfo);
-          } else if (!isAccumulator) {
-            setAccuMeta((m) => ({ ...m, high: null, low: null, tickSize: null }));
-            onAccumulatorBarriers?.({ high: null, low: null });
-          }
         }
       } catch {
         /* ignore */
@@ -219,47 +184,11 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     durationUnit,
     barrierDigit,
     barrierOffset,
-    growthRate,
     multiplier,
     market,
     payoutMode,
     tradeCurrency,
     account,
-  ]);
-
-  // Deriv accumulator barriers are recomputed on every tick from the current
-  // spot using `tick_size_barrier` (fractional distance from spot). Mirror that
-  // exact logic so the blue guide lines track the price the same way Deriv's
-  // own chart does.
-  useEffect(() => {
-    if (!isAccumulator) return;
-    if (lastPrice == null || !Number.isFinite(lastPrice)) {
-      onAccumulatorBarriers?.({ high: null, low: null });
-      return;
-    }
-    const tsb = accuMeta.tickSize;
-    if (tsb != null && Number.isFinite(tsb) && tsb > 0) {
-      const high = lastPrice * (1 + tsb);
-      const low = lastPrice * (1 - tsb);
-      onAccumulatorBarriers?.({ high, low });
-    } else if (growthRate > 0) {
-      const estimatedTickSize = Math.max(0.0005, growthRate / 10);
-      const high = lastPrice * (1 + estimatedTickSize);
-      const low = lastPrice * (1 - estimatedTickSize);
-      onAccumulatorBarriers?.({ high, low });
-    } else if (accuMeta.high != null && accuMeta.low != null) {
-      // Until we receive proposal metadata, fall back to the absolute barriers
-      // returned by the most recent proposal.
-      onAccumulatorBarriers?.({ high: accuMeta.high, low: accuMeta.low });
-    }
-  }, [
-    isAccumulator,
-    lastPrice,
-    accuMeta.tickSize,
-    accuMeta.high,
-    accuMeta.low,
-    growthRate,
-    onAccumulatorBarriers,
   ]);
 
   async function handleBuy(sideOverride?: string) {
@@ -282,6 +211,10 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     }
     if (!Number.isFinite(stake) || stake <= 0) {
       toast.error("Enter a valid stake.");
+      return;
+    }
+    if (isAccumulator) {
+      toast.error("Use the Accumulators panel to place accumulator trades.");
       return;
     }
     setAuthenticatedAccount(token, account.account_id, account.is_virtual ?? account.is_demo);
@@ -308,12 +241,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       }
       if (needsDigit) proposal.barrier = String(barrierDigit);
       if (needsBarrierOffset) proposal.barrier = barrierOffset;
-      if (isAccumulator) {
-        proposal.growth_rate = growthRate;
-        if (takeProfitEnabled && takeProfit > 0) {
-          proposal.limit_order = { take_profit: takeProfit };
-        }
-      }
       if (isMultiplier) proposal.multiplier = multiplier;
       console.info("[Deriv Trade] Placing trade", {
         selectedAccountId: account.account_id,
@@ -351,36 +278,14 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         toast.error("Trade placed, but history could not be saved.");
       }
 
-      if (isAccumulator) {
-        setOpenAccumulator({
-          contractId,
-          tradeId: trade?.id,
-          buyPrice: Number(contract.buy_price ?? stake),
-          bidPrice: null,
-          profit: 0,
-        });
-      }
-
       const poll = setInterval(async () => {
         try {
           const res = await send({ proposal_open_contract: 1, contract_id: contractId });
           const c = res.proposal_open_contract;
-          if (isAccumulator && !c?.is_sold) {
-            setOpenAccumulator((current) =>
-              current?.contractId === contractId
-                ? {
-                    ...current,
-                    bidPrice: c?.bid_price != null ? Number(c.bid_price) : current.bidPrice,
-                    profit: c?.profit != null ? Number(c.profit) : current.profit,
-                  }
-                : current,
-            );
-          }
           if (c?.is_sold) {
             clearInterval(poll);
             activePollsRef.current.delete(poll);
             const profit = Number(c.profit ?? 0);
-            if (isAccumulator) setOpenAccumulator(null);
             if (trade?.id) {
               const { error: tradeUpdateError } = await supabase
                 .from("trades")
@@ -410,39 +315,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     } catch (e: unknown) {
       console.error("Trade failed", e);
       toast.error(e instanceof Error ? e.message : "Trade failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleSellAccumulator() {
-    if (!openAccumulator) return;
-    setBusy(true);
-    try {
-      const response = await send({ sell: openAccumulator.contractId, price: 0 });
-      const sold = response.sell;
-      const profit = Number(sold?.profit ?? openAccumulator.profit ?? 0);
-      if (openAccumulator.tradeId) {
-        const { error: tradeUpdateError } = await supabase
-          .from("trades")
-          .update({
-            profit_loss: profit,
-            status: profit >= 0 ? "won" : "lost",
-            closed_at: new Date().toISOString(),
-          })
-          .eq("id", openAccumulator.tradeId);
-        if (tradeUpdateError) {
-          console.error("Could not update sold accumulator", tradeUpdateError);
-          toast.error("Accumulator sold, but history could not be updated.");
-        }
-      }
-      toast[profit >= 0 ? "success" : "error"](
-        `Sold accumulator ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${tradeCurrency}`,
-      );
-      setOpenAccumulator(null);
-    } catch (error: unknown) {
-      console.error("Could not sell accumulator", error);
-      toast.error(error instanceof Error ? error.message : "Could not sell accumulator");
     } finally {
       setBusy(false);
     }
@@ -555,29 +427,13 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         </div>
       )}
 
-      {/* Accumulator: Growth rate pills */}
       {isAccumulator && (
-        <div className="rounded-xl bg-white p-3">
-          <div className="mb-2 flex items-center justify-center gap-1 text-sm text-[oklch(0.45_0.02_260)]">
-            Growth rate <Info className="h-3.5 w-3.5" />
-          </div>
-          <div className="grid grid-cols-5 gap-2">
-            {[0.01, 0.02, 0.03, 0.04, 0.05].map((g) => (
-              <button
-                key={g}
-                onClick={() => setGrowthRate(g)}
-                className={cn(
-                  "rounded-md py-2 text-sm font-medium transition",
-                  growthRate === g
-                    ? "bg-[oklch(0.7_0.17_150)]/15 text-[oklch(0.4_0.15_150)] ring-1 ring-[oklch(0.7_0.17_150)]"
-                    : "text-[oklch(0.3_0.02_260)] hover:bg-[oklch(0.96_0.005_240)]",
-                )}
-              >
-                {Math.round(g * 100)}%
-              </button>
-            ))}
-          </div>
-        </div>
+        <AccumulatorTradePanel
+          lastPrice={lastPrice}
+          market={market}
+          onBarriers={onAccumulatorBarriers}
+          onMarketChange={onMarketChange}
+        />
       )}
 
       {isMultiplier && (
@@ -598,9 +454,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         </div>
       )}
 
-      {/* Stake (with currency selector for accumulator) */}
-      <div className="rounded-xl bg-white p-3">
-        {!isAccumulator && (
+      {!isAccumulator && (
+        <div className="rounded-xl bg-white p-3">
           <div className="mb-3 grid grid-cols-2 overflow-hidden rounded-lg bg-[oklch(0.96_0.005_240)] p-1">
             <button
               onClick={() => setPayoutMode("stake")}
@@ -621,154 +476,34 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
               Payout
             </button>
           </div>
-        )}
-        <div className="text-center text-sm text-[oklch(0.45_0.02_260)]">Stake</div>
-        <div className="mt-2 flex min-w-0 items-center gap-1.5 sm:gap-2">
-          <button
-            onClick={() => setStake((s) => Math.max(isAccumulator ? 1 : 0.35, +(s - 1).toFixed(2)))}
-            className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
-            aria-label="Decrease stake"
-          >
-            <Minus className="h-4 w-4" />
-          </button>
-          <Input
-            type="number"
-            min={isAccumulator ? 1 : 0.35}
-            step={1}
-            value={stake}
-            onChange={(e) => setStake(Number(e.target.value))}
-            className="min-w-0 text-center font-mono text-base"
-          />
-          <button
-            onClick={() => setStake((s) => +(s + 1).toFixed(2))}
-            className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
-            aria-label="Increase stake"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-          <span className="w-10 shrink-0 truncate text-center text-xs font-medium text-[oklch(0.45_0.02_260)] sm:w-14 sm:text-sm">
-            {tradeCurrency}
-          </span>
-        </div>
-      </div>
-
-      {/* Take profit (Accumulator only) — Deriv-style stepper */}
-      {isAccumulator && (
-        <div className="rounded-xl bg-white p-3">
-          <label className="flex items-center justify-between text-sm">
-            <span className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={takeProfitEnabled}
-                onChange={(e) => setTakeProfitEnabled(e.target.checked)}
-                className="size-4 rounded border-[oklch(0.85_0.01_240)]"
-              />
-              Take profit <Info className="h-3.5 w-3.5 text-[oklch(0.6_0.02_260)]" />
-            </span>
-          </label>
-          {takeProfitEnabled && (
-            <div className="mt-2 flex min-w-0 items-center gap-1.5 sm:gap-2">
-              <button
-                onClick={() => setTakeProfit((v) => Math.max(0, +(v - 1).toFixed(2)))}
-                className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
-                aria-label="Decrease take profit"
-              >
-                <Minus className="h-4 w-4" />
-              </button>
-              <Input
-                type="number"
-                min={0}
-                step={1}
-                value={takeProfit}
-                onChange={(e) => setTakeProfit(Number(e.target.value))}
-                className="min-w-0 text-center font-mono"
-                placeholder={`Amount (${tradeCurrency})`}
-              />
-              <button
-                onClick={() => setTakeProfit((v) => +(v + 1).toFixed(2))}
-                className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
-                aria-label="Increase take profit"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-              <span className="w-10 shrink-0 truncate text-center text-xs text-[oklch(0.45_0.02_260)] sm:w-12">
-                {tradeCurrency}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Accumulator stat rows (mirrors Deriv's proposal summary) */}
-      {isAccumulator && (
-        <div className="rounded-xl border border-[#d8edf7] bg-[#f7fcff] p-3 text-sm">
-          <div className="mb-2 flex items-center justify-between rounded-md bg-white px-3 py-2 text-xs">
-            <span className="font-semibold text-[#147a78]">Accumulator barrier corridor</span>
-            <span className="font-mono text-[#555555]">
-              {lastPrice != null ? lastPrice.toFixed(4) : "-"}
+          <div className="text-center text-sm text-[oklch(0.45_0.02_260)]">Stake</div>
+          <div className="mt-2 flex min-w-0 items-center gap-1.5 sm:gap-2">
+            <button
+              onClick={() => setStake((s) => Math.max(0.35, +(s - 1).toFixed(2)))}
+              className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
+              aria-label="Decrease stake"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <Input
+              type="number"
+              min={0.35}
+              step={1}
+              value={stake}
+              onChange={(e) => setStake(Number(e.target.value))}
+              className="min-w-0 text-center font-mono text-base"
+            />
+            <button
+              onClick={() => setStake((s) => +(s + 1).toFixed(2))}
+              className="shrink-0 rounded-md bg-[oklch(0.96_0.005_240)] p-2 hover:bg-[oklch(0.92_0.005_240)]"
+              aria-label="Increase stake"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <span className="w-10 shrink-0 truncate text-center text-xs font-medium text-[oklch(0.45_0.02_260)] sm:w-14 sm:text-sm">
+              {tradeCurrency}
             </span>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-1 py-1">
-            <span className="text-[oklch(0.4_0.02_260)]">Max. payout</span>
-            <span className="font-medium underline decoration-dotted">
-              {accuMeta.maxPayout != null
-                ? `${accuMeta.maxPayout.toFixed(2)} ${tradeCurrency}`
-                : `6,000.00 ${tradeCurrency}`}
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-1 py-1">
-            <span className="text-[oklch(0.4_0.02_260)]">Max. ticks</span>
-            <span className="font-medium underline decoration-dotted">
-              {accuMeta.maxTicks ?? 85} ticks
-            </span>
-          </div>
-          {accuMeta.tickSize != null && (
-            <div className="flex flex-wrap items-center justify-between gap-1 py-1">
-              <span className="text-[oklch(0.4_0.02_260)]">Tick size barrier</span>
-              <span className="font-medium">±{accuMeta.tickSize.toFixed(5)}</span>
-            </div>
-          )}
-          {(accuMeta.minStake != null || accuMeta.maxStake != null) && (
-            <div className="flex flex-wrap items-center justify-between gap-1 py-1">
-              <span className="text-[oklch(0.4_0.02_260)]">Stake range</span>
-              <span className="font-medium">
-                {(accuMeta.minStake ?? 1).toFixed(2)} – {(accuMeta.maxStake ?? 2000).toFixed(2)}{" "}
-                {tradeCurrency}
-              </span>
-            </div>
-          )}
-          {accuMeta.high != null && accuMeta.low != null && (
-            <div className="flex flex-wrap items-center justify-between gap-1 py-1">
-              <span className="text-[oklch(0.4_0.02_260)]">Barriers</span>
-              <span className="font-mono text-xs">
-                {accuMeta.low.toFixed(4)} / {accuMeta.high.toFixed(4)}
-              </span>
-            </div>
-          )}
-          {openAccumulator && (
-            <div className="mt-2 rounded-md border border-[#cce9e7] bg-white p-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-[#147a78]">Open accumulator</span>
-                <span
-                  className={cn(
-                    "font-mono font-bold",
-                    (openAccumulator.profit ?? 0) >= 0 ? "text-emerald-600" : "text-rose-600",
-                  )}
-                >
-                  {(openAccumulator.profit ?? 0) >= 0 ? "+" : ""}
-                  {(openAccumulator.profit ?? 0).toFixed(2)} {tradeCurrency}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center justify-between text-[11px] text-[#666666]">
-                <span>Sell price</span>
-                <span className="font-mono">
-                  {openAccumulator.bidPrice != null
-                    ? `${openAccumulator.bidPrice.toFixed(2)} ${tradeCurrency}`
-                    : "Pending"}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -827,14 +562,10 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         </div>
       )}
 
-      {/* Buy button (Accumulator / Multiplier) */}
-      {(isAccumulator || isMultiplier) && (
+      {/* Buy button (Multiplier) */}
+      {isMultiplier && (
         <Button
           onClick={() => {
-            if (isAccumulator && openAccumulator) {
-              void handleSellAccumulator();
-              return;
-            }
             if (!user) {
               toast.error("Sign in to place trades.");
               return;
@@ -851,14 +582,12 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           disabled={busy}
           className={cn(
             "h-12 w-full rounded-xl text-base font-semibold text-white",
-            isAccumulator ? (openAccumulator ? "bg-[#ff444f] hover:bg-[#eb3e48]" : accentBuy) : "",
+            accentBuy,
           )}
         >
           {busy
             ? "Submitting…"
-            : openAccumulator
-              ? `Sell ${openAccumulator.bidPrice != null ? openAccumulator.bidPrice.toFixed(2) : ""} ${tradeCurrency}`
-              : token
+            : token
                 ? `Buy ${sides.find((s) => s.value === side)?.label ?? ""} (${isDemo ? "Demo" : "Live"})`
                 : "Sign in & connect Deriv to trade"}
         </Button>

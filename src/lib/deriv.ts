@@ -16,10 +16,11 @@ export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "di
 
 type DerivRecord = Record<string, unknown>;
 type DerivError = { message?: string };
-type DerivMessage = DerivRecord & {
+export type DerivMessage = DerivRecord & {
   req_id?: number;
   msg_type?: string;
   error?: DerivError;
+  subscription?: { id?: string };
   tick?: { symbol?: string; quote?: string | number; epoch?: string | number };
   balance?: {
     balance?: string | number;
@@ -349,6 +350,15 @@ function openAuthenticatedSocket(
 export function onMessage(fn: Listener) {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+export async function forgetSubscription(subscriptionId: string) {
+  if (!subscriptionId) return;
+  try {
+    await send({ forget: subscriptionId });
+  } catch (error) {
+    console.warn("[Deriv WS] Could not forget subscription", { subscriptionId, error });
+  }
 }
 
 export async function send(payload: DerivRecord): Promise<DerivMessage> {

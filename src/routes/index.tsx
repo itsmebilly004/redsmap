@@ -32,7 +32,13 @@ export const Route = createFileRoute("/")({
 function Index() {
   const [symbol, setSymbol] = useState("1HZ100V");
   const [price, setPrice] = useState<number | null>(null);
-  const [barriers, setBarriers] = useState<{ high: number | null; low: number | null }>({
+  const [barriers, setBarriers] = useState<{
+    breached?: boolean;
+    entry: number | null;
+    high: number | null;
+    low: number | null;
+  }>({
+    entry: null,
     high: null,
     low: null,
   });
@@ -68,8 +74,10 @@ function Index() {
             onSymbolChange={setSymbol}
             onPrice={setPrice}
             height={340}
+            entryPrice={barriers.entry}
             highBarrier={barriers.high}
             lowBarrier={barriers.low}
+            barrierBreached={barriers.breached}
           />
 
           <p className="mt-2 text-xs text-[oklch(0.5_0.02_260)]">
@@ -81,7 +89,12 @@ function Index() {
 
         {/* Trade panel */}
         <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 sm:p-3">
-          <TradePanel market={symbol} lastPrice={price} onAccumulatorBarriers={setBarriers} />
+          <TradePanel
+            market={symbol}
+            lastPrice={price}
+            onAccumulatorBarriers={setBarriers}
+            onMarketChange={setSymbol}
+          />
         </aside>
       </div>
 
