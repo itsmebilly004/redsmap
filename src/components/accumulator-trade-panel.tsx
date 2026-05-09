@@ -138,11 +138,8 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       );
     }
     const loginId = accountLoginId.toUpperCase();
-    if (selectedAccountIsDemo && !/^(VRTC|VR|DOT)/.test(loginId)) {
-      throw new Error("Demo trading requires a selected demo account.");
-    }
-    if (!selectedAccountIsDemo && !loginId.startsWith("CR")) {
-      throw new Error("Real trading requires a selected real account.");
+    if (!selectedAccountIsDemo && /^(VRTC|VR)/.test(loginId)) {
+      throw new Error("Real trading requires a selected real account, not a virtual account.");
     }
   }
 

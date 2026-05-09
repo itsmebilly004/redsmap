@@ -7,6 +7,12 @@ const DERIV_REDIRECT_URI =
 const DERIV_OAUTH_ENDPOINT = "https://auth.deriv.com/oauth2/auth";
 const DERIV_SCOPE = "trade account_manage";
 const PUBLIC_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
+const LEGACY_OAUTH_MARKERS = [
+  "oauth.deriv.com",
+  "/oauth2/authorize",
+  "redirect=home",
+  "brand=deriv",
+];
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
@@ -528,6 +534,22 @@ async function sha256(value: string) {
   return crypto.subtle.digest("SHA-256", data);
 }
 
+function assertNoLegacyOAuthUrl(url: string) {
+  const lower = url.toLowerCase();
+  const marker = LEGACY_OAUTH_MARKERS.find((item) => lower.includes(item));
+  if (!marker) {
+    console.info("[Deriv OAuth] Legacy URL blocked", false);
+    return;
+  }
+  console.error("[Deriv OAuth] Legacy URL blocked", {
+    marker,
+    url,
+  });
+  throw new Error(
+    "Blocked invalid Deriv OAuth URL. Please refresh and try again; the app must use the new OAuth2 PKCE login flow.",
+  );
+}
+
 export async function buildOAuthUrl(
   options: { mode?: "signin" | "signup"; returnTo?: string } = {},
 ) {
@@ -564,12 +586,6 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
-  // Keep the new OAuth2 PKCE flow, but include the registered V1 app id on
-  // login when available. Deriv documents this on the new auth endpoint for
-  // legacy app support; it helps older Deriv accounts stay inside the consent
-  // flow instead of falling through to the Deriv dashboard.
-  if (DERIV_APP_ID && options.mode !== "signup") params.set("app_id", DERIV_APP_ID);
-
   // The provider handles the login and consent screens. `prompt` is only
   // documented for signup, where it must be `registration`.
   const prompt = options.mode === "signup" ? "registration" : undefined;
@@ -589,25 +605,24 @@ export async function buildOAuthUrl(
     throw new Error(`Missing required OAuth parameter: ${missingParam}`);
   }
   const url = `${DERIV_OAUTH_ENDPOINT}?${params.toString()}`;
+  assertNoLegacyOAuthUrl(url);
   const parsed = new URL(url);
   if (parsed.origin !== "https://auth.deriv.com" || parsed.pathname !== "/oauth2/auth") {
     throw new Error("Invalid Deriv OAuth endpoint. Refusing to redirect to a non-OAuth URL.");
   }
-  if (parsed.searchParams.has("redirect")) {
-    throw new Error("Invalid Deriv OAuth URL. Authorization URL must not include redirect.");
-  }
-  const oauthAppId = parsed.searchParams.get("app_id");
-  if (oauthAppId && oauthAppId !== DERIV_APP_ID) {
-    throw new Error("Invalid Deriv OAuth URL. app_id must match the configured Deriv App ID.");
+  if (parsed.searchParams.has("app_id") || parsed.searchParams.has("redirect")) {
+    throw new Error(
+      "Invalid Deriv OAuth URL. Authorization URL must use client_id and must not include app_id or redirect.",
+    );
   }
   console.info("[Deriv OAuth] Final authorization URL", url);
   console.info("[Deriv OAuth] Authorization diagnostics", {
     finalOAuthUrl: url,
     endpoint: DERIV_OAUTH_ENDPOINT,
     client_id: DERIV_CLIENT_ID,
-    legacy_app_id: oauthAppId ? "[configured]" : null,
+    clientIdExists: Boolean(DERIV_CLIENT_ID),
     redirect_uri: DERIV_REDIRECT_URI,
-    scope: DERIV_SCOPE,
+    scopes: DERIV_SCOPE,
     prompt: prompt ?? "standard-login",
     stateExists: Boolean(state),
     codeChallengeExists: Boolean(codeChallenge),

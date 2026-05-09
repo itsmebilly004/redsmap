@@ -86,15 +86,15 @@ function isDemoAccount(account: DerivAccount, accountId: string) {
     account.type,
     account["account_category"],
   ).toLowerCase();
-
-  if (loginId.startsWith("VRTC") || loginId.startsWith("VR") || loginId.startsWith("DOT")) {
-    return true;
-  }
-  if (loginId.startsWith("CR")) return false;
   const isVirtual = booleanFrom(account.is_virtual);
   const isDemo = booleanFrom(account.is_demo);
+
   if (isVirtual === true || isDemo === true) return true;
   if (isVirtual === false || isDemo === false) return false;
+  if (loginId.startsWith("VRTC") || loginId.startsWith("VR")) return true;
+  if (loginId.startsWith("CR") || loginId.startsWith("DOT") || loginId.includes("USDT")) {
+    return false;
+  }
   if (accountType.includes("demo") || accountType.includes("virtual")) return true;
   if (accountType.includes("real")) return false;
   return false;

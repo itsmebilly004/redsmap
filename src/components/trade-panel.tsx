@@ -254,11 +254,8 @@ export function TradePanel({
     }
     const demo = isDerivDemoAccount(account);
     const loginId = accountLoginId.toUpperCase();
-    if (demo && !/^(VRTC|VR|DOT)/.test(loginId)) {
-      throw new Error("Demo trading requires a selected demo account.");
-    }
-    if (!demo && !loginId.startsWith("CR")) {
-      throw new Error("Real trading requires a selected real account.");
+    if (!demo && /^(VRTC|VR)/.test(loginId)) {
+      throw new Error("Real trading requires a selected real account, not a virtual account.");
     }
   }
 

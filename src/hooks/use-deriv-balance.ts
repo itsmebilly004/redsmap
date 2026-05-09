@@ -32,16 +32,24 @@ export function isDerivDemoAccount(
 ) {
   const loginId = String(account.loginid ?? account.account_id ?? "").toUpperCase();
   const accountType = String(account.account_type ?? "").toLowerCase();
+  const isVirtual = booleanFrom(account.is_virtual);
+  const isDemo = booleanFrom(account.is_demo);
 
-  if (loginId.startsWith("VRTC") || loginId.startsWith("VR") || loginId.startsWith("DOT")) {
-    return true;
+  if (isVirtual === true || isDemo === true) return true;
+  if (isVirtual === false || isDemo === false) return false;
+  if (loginId.startsWith("VRTC") || loginId.startsWith("VR")) return true;
+  if (loginId.startsWith("CR") || loginId.startsWith("DOT") || loginId.includes("USDT")) {
+    return false;
   }
-  if (loginId.startsWith("CR")) return false;
-  if (account.is_virtual === true || account.is_demo === true) return true;
-  if (account.is_virtual === false || account.is_demo === false) return false;
   if (accountType.includes("demo") || accountType.includes("virtual")) return true;
   if (accountType.includes("real")) return false;
   return false;
+}
+
+function booleanFrom(value: unknown) {
+  if (value === true || value === "true" || value === 1 || value === "1") return true;
+  if (value === false || value === "false" || value === 0 || value === "0") return false;
+  return null;
 }
 
 function accountStorageKey(userId: string) {

@@ -17,17 +17,24 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const { mode } = Route.useSearch();
   const [busy, setBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const isSignup = mode === "signup";
 
   async function handleDeriv() {
     setBusy(true);
+    setErrorMessage(null);
     try {
       const url = await buildOAuthUrl({ mode, returnTo: "/dashboard" });
       console.info("[Deriv OAuth] Sign in button redirecting to authorization URL", url);
       window.location.href = url;
     } catch (error) {
       console.error("Could not build Deriv OAuth URL", error);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not start Deriv OAuth. Check the configured client_id.",
+      );
       setBusy(false);
     }
   }
@@ -69,6 +76,12 @@ function AuthPage() {
                 : "Sign in with Deriv"}
             <ArrowRight className="ml-1 size-4" />
           </Button>
+
+          {errorMessage && (
+            <div className="mt-4 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {errorMessage}
+            </div>
+          )}
 
           <ul className="mt-6 space-y-2 text-sm text-muted-foreground">
             <li className="flex gap-2">
