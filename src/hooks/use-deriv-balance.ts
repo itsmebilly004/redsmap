@@ -3,11 +3,14 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { getAuthenticatedWsUrl, setWsUrl, subscribeBalance } from "@/lib/deriv";
+import { toast } from "sonner";
 
 export type DerivAccount = {
   account_id: string;
   deriv_token: string;
   is_demo: boolean;
+  is_virtual?: boolean | null;
+  loginid?: string | null;
   currency: string | null;
   balance: number | null;
 };
@@ -41,7 +44,7 @@ export function useDerivBalance(): LiveBalance {
     (async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("account_id, deriv_token, is_demo, currency, balance")
+        .select("account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance")
         .eq("user_id", user.id)
         .eq("is_active", true)
         .order("is_demo", { ascending: true });
@@ -77,6 +80,12 @@ export function useDerivBalance(): LiveBalance {
       try {
         const wsUrl = await getAuthenticatedWsUrl(active.deriv_token, active.account_id);
         setWsUrl(wsUrl);
+        console.log("Deriv authenticated WebSocket initialized", {
+          account_id: active.account_id,
+          loginid: active.loginid,
+          is_virtual: active.is_virtual ?? active.is_demo,
+          wsUrlExists: Boolean(wsUrl),
+        });
         unsub = await subscribeBalance(active.deriv_token, async (b) => {
           setBalance(b.balance);
           if (b.currency) setCurrency(b.currency);
@@ -89,7 +98,12 @@ export function useDerivBalance(): LiveBalance {
             .eq("account_id", active.account_id);
         });
       } catch (err) {
-        console.error("Balance subscription error:", err);
+        console.error("Deriv WebSocket auth failure", {
+          account_id: active.account_id,
+          loginid: active.loginid,
+          error: err,
+        });
+        toast.error("WebSocket authentication failed. Please reconnect your Deriv account.");
       }
     })();
 

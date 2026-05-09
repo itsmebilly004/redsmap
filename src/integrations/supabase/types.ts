@@ -49,6 +49,8 @@ export type Database = {
           id: string;
           is_active: boolean;
           is_demo: boolean;
+          is_virtual: boolean | null;
+          loginid: string | null;
           user_id: string;
         };
         Insert: {
@@ -61,6 +63,8 @@ export type Database = {
           id?: string;
           is_active?: boolean;
           is_demo?: boolean;
+          is_virtual?: boolean | null;
+          loginid?: string | null;
           user_id: string;
         };
         Update: {
@@ -73,6 +77,8 @@ export type Database = {
           id?: string;
           is_active?: boolean;
           is_demo?: boolean;
+          is_virtual?: boolean | null;
+          loginid?: string | null;
           user_id?: string;
         };
         Relationships: [];

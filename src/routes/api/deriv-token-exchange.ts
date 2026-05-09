@@ -33,6 +33,14 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
             code_verifier: codeVerifier,
             redirect_uri: DERIV_REDIRECT_URI,
           });
+          console.log("Deriv token exchange request", {
+            endpoint: "https://auth.deriv.com/oauth2/token",
+            grant_type: "authorization_code",
+            client_id: clientId,
+            redirect_uri: DERIV_REDIRECT_URI,
+            hasCode: Boolean(code),
+            hasCodeVerifier: Boolean(codeVerifier),
+          });
 
           const tokenResponse = await fetch("https://auth.deriv.com/oauth2/token", {
             method: "POST",
@@ -43,6 +51,14 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
             error: "invalid_response",
             error_description: "Deriv token endpoint returned a non-JSON response",
           }));
+          console.log("Deriv token exchange response", {
+            ok: tokenResponse.ok,
+            status: tokenResponse.status,
+            hasAccessToken: Boolean(tokenData?.access_token),
+            expiresIn: tokenData?.expires_in,
+            error: tokenData?.error,
+            errorDescription: tokenData?.error_description,
+          });
 
           if (!tokenResponse.ok) {
             return Response.json(tokenData, { status: 400 });

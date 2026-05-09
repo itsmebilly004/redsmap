@@ -7,6 +7,8 @@ const DERIV_REDIRECT_URI =
 const PUBLIC_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
+export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
+export const DERIV_REDIRECT_URI_VALUE = DERIV_REDIRECT_URI;
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
 
@@ -371,6 +373,12 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
+  // Deriv's public docs only require this for sign-up (`registration`), but
+  // keeping consent explicit on login helps OAuth providers that support it
+  // avoid silently reusing a cached Deriv session.
+  const prompt = options.mode === "signup" ? "registration" : "consent";
+  params.set("prompt", prompt);
+
   const requiredParams = [
     "response_type",
     "client_id",
@@ -387,18 +395,17 @@ export async function buildOAuthUrl(
   if (DERIV_APP_ID && DERIV_APP_ID !== DERIV_CLIENT_ID) {
     params.set("app_id", DERIV_APP_ID);
   }
-  if (options.mode === "signup") {
-    params.set("prompt", "registration");
-  } else {
-    params.set("prompt", "consent");
-  }
   const url = `https://auth.deriv.com/oauth2/auth?${params.toString()}`;
   console.log("Deriv OAuth diagnostics", {
     finalOAuthUrl: url,
     client_id: DERIV_CLIENT_ID,
     redirect_uri: DERIV_REDIRECT_URI,
+    scope: "trade account_manage",
+    prompt,
     stateExists: Boolean(state),
     codeChallengeExists: Boolean(codeChallenge),
+    codeVerifierStored: sessionStorage.getItem("deriv_code_verifier") === codeVerifier,
+    stateStored: sessionStorage.getItem("deriv_oauth_state") === state,
   });
   return url;
 }
@@ -413,7 +420,7 @@ export async function getAuthenticatedWsUrl(
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Deriv-App-ID": DERIV_APP_ID,
+        "Deriv-App-ID": DERIV_CLIENT_ID,
       },
     },
   );
