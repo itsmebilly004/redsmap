@@ -24,17 +24,18 @@ import {
   RotateCcw,
   Download,
   Save,
-  Search,
-  ChevronDown,
-  Trash2,
-  FolderOpen,
-  Undo2,
-  Redo2,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
-  ExternalLink,
-  Plus,
+  Activity,
+  Target,
+  ShieldAlert,
+  Wallet,
+  Settings2,
+  Layers,
+  ChevronRight,
+  Info,
+  History,
+  Timer,
+  Fingerprint,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BOT_PRESETS } from "./trading-bots";
@@ -61,17 +62,21 @@ function BotBuilder() {
   const token = derivAccount?.deriv_token ?? null;
 
   // --- BOT CONFIGURATION STATE ---
-  const [botName, setBotName] = useState("My Deriv Bot");
+  const [botName, setBotName] = useState("ArkTrader Strategy");
   const [symbol, setSymbol] = useState("R_100");
-  const [tradeType, setTradeType] = useState<TradeCategory>("rise_fall");
-  const [contractType, setContractType] = useState("both");
+  const [tradeType, setTradeType] = useState<TradeCategory>("even_odd");
+  const [contractType, setContractType] = useState("even");
   
-  const [initialStake, setInitialStake] = useState(0.35);
-  const [currentStake, setCurrentStake] = useState(0.35);
+  const [initialStake, setInitialStake] = useState(1);
+  const [currentStake, setCurrentStake] = useState(1);
   const [martingale, setMartingale] = useState(2.0);
+  const [maxSteps, setMaxSteps] = useState(5);
+  const [currentStep, setCurrentStep] = useState(0);
   const [duration, setDuration] = useState(1);
   const [durationUnit, setDurationUnit] = useState("t");
-  
+  const [prediction, setPrediction] = useState(5);
+  const [cooldown, setCooldown] = useState(1);
+
   const [stopLoss, setStopLoss] = useState(50);
   const [takeProfit, setTakeProfit] = useState(50);
 
@@ -79,7 +84,7 @@ function BotBuilder() {
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
   const [tab, setTab] = useState("summary");
-  const [stats, setStats] = useState({ runs: 0, wins: 0, losses: 0, profit: 0, stake: 0, payout: 0 });
+  const [stats, setStats] = useState({ runs: 0, wins: 0, losses: 0, profit: 0 });
   const [journal, setJournal] = useState<{ time: string; msg: string; type?: string }[]>([]);
 
   useEffect(() => {
@@ -94,6 +99,7 @@ function BotBuilder() {
         setMartingale(config.martingale);
         setBotName(config.name);
         setTradeType(config.tradeType as TradeCategory);
+        setContractType(config.contractType);
       }
     }
   }, [preset]);
@@ -102,16 +108,28 @@ function BotBuilder() {
     setJournal(prev => [{ time: new Date().toLocaleTimeString(), msg, type }, ...prev].slice(0, 50));
   };
 
+  const saveBot = async () => {
+    if (!user) return toast.error("Sign in to save strategies.");
+    const { error } = await supabase.from("bots").upsert({
+      user_id: user.id,
+      name: botName,
+      strategy: { symbol, initialStake, martingale, stopLoss, takeProfit, duration, prediction, maxSteps },
+      status: running ? "running" : "stopped"
+    });
+    if (error) toast.error("Error: " + error.message);
+    else toast.success("Strategy stored in Cloud");
+  };
+
   const toggleBot = () => {
     if (!token) return toast.error("Connect Deriv first.");
     const next = !running;
     setRunning(next);
     runningRef.current = next;
     if (next) {
-      logJournal("▶️ Bot started", "success");
+      logJournal("▶️ Execution sequence initiated", "success");
       runCycle();
     } else {
-      logJournal("⏹️ Bot stopped", "error");
+      logJournal("⏹️ Execution sequence halted", "error");
     }
   };
 
@@ -119,7 +137,7 @@ function BotBuilder() {
     if (!token || !runningRef.current) return;
 
     if (stats.profit >= takeProfit || stats.profit <= -stopLoss) {
-      logJournal("🏁 Target Reached. Halting.", "info");
+      logJournal("🏁 Target Threshold Reached. Stopping.", "info");
       setRunning(false);
       runningRef.current = false;
       return;
@@ -127,15 +145,17 @@ function BotBuilder() {
 
     try {
       await send({ authorize: token });
-      const ct = contractTypeFor(tradeType, contractType === 'both' ? 'up' : contractType);
+      const ct = contractTypeFor(tradeType, contractType);
       
       const proposal = await send({
         proposal: 1, amount: currentStake, basis: "stake", contract_type: ct,
-        currency: derivCurrency, symbol: symbol, duration: duration, duration_unit: durationUnit
+        currency: derivCurrency, symbol: symbol, duration: duration, duration_unit: durationUnit,
+        ...(tradeType === 'over_under' || tradeType === 'matches_differs' ? { barrier: String(prediction) } : {})
       });
 
       const buy = await send({ buy: proposal.proposal.id, price: currentStake });
-      
+      logJournal(`Order: ${currentStake} ${derivCurrency} on ${ct}`);
+
       const poll = setInterval(async () => {
         if (!runningRef.current) { clearInterval(poll); return; }
         const res = await send({ proposal_open_contract: 1, contract_id: buy.buy.contract_id });
@@ -146,238 +166,215 @@ function BotBuilder() {
           const pnl = Number(c.profit);
           const won = pnl > 0;
 
-          setStats(s => ({ 
-            runs: s.runs + 1, 
-            wins: s.wins + (won ? 1 : 0), 
-            losses: s.losses + (won ? 0 : 1), 
-            profit: s.profit + pnl,
-            stake: s.stake + currentStake,
-            payout: s.payout + Number(c.payout)
-          }));
+          setStats(s => ({ runs: s.runs + 1, wins: s.wins + (won ? 1 : 0), losses: s.losses + (won ? 0 : 1), profit: s.profit + pnl }));
+          logJournal(`${won ? 'WIN' : 'LOSS'} | P&L: ${pnl.toFixed(2)}`, won ? 'success' : 'error');
 
-          logJournal(`${won ? 'WIN' : 'LOSS'}: ${pnl.toFixed(2)} ${derivCurrency}`, won ? 'success' : 'error');
+          if (won) {
+            setCurrentStake(initialStake);
+            setCurrentStep(0);
+          } else {
+            setCurrentStake(prev => Number((prev * martingale).toFixed(2)));
+            setCurrentStep(prev => prev + 1);
+          }
 
-          if (won) setCurrentStake(initialStake);
-          else setCurrentStake(prev => Number((prev * martingale).toFixed(2)));
-
-          if (runningRef.current) setTimeout(runCycle, 1000);
+          if (runningRef.current) setTimeout(runCycle, cooldown * 1000);
         }
-      }, 1500);
+      }, 1000);
 
     } catch (e: any) {
-      logJournal(`Error: ${e.message}`, 'error');
+      logJournal(`API Error: ${e.message}`, 'error');
       setRunning(false);
       runningRef.current = false;
     }
   }
 
+  const winRate = stats.runs > 0 ? Math.round((stats.wins / stats.runs) * 100) : 0;
+
   return (
     <TopShell>
-      <div className="flex h-[calc(100vh-56px)] flex-col lg:flex-row bg-[#f2f3f4] overflow-hidden">
+      <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-[#f8f9fa] lg:grid lg:grid-cols-[240px_1fr_360px]">
         
-        {/* --- LEFT SIDEBAR (Blocks Menu) --- */}
-        <aside className="w-full lg:w-[280px] bg-white border-r border-[#e5e5e5] flex flex-col shrink-0">
-          <div className="p-3">
-            <Button className="w-full bg-[#ff444f] hover:bg-[#eb3e48] text-white font-bold h-10 rounded-md">
-              Quick strategy
-            </Button>
+        {/* LEFT: WORKSPACE BLOCKS (Matched to Dashboard Sidebar) */}
+        <aside className="hidden border-r border-[oklch(0.92_0.005_240)] bg-white/70 backdrop-blur-xl lg:flex flex-col p-4 space-y-1">
+          <div className="flex items-center gap-2 mb-4 text-[#333] font-bold uppercase text-[10px] tracking-widest opacity-50 px-3">
+            <Layers className="size-4" /> Workspace
           </div>
-          
-          <div className="flex-1 overflow-y-auto">
-             <div className="px-4 py-2 flex items-center justify-between border-b border-[#f2f3f4]">
-                <span className="text-sm font-bold text-[#333]">Blocks menu</span>
-                <ChevronDown className="size-4 text-[#333]" />
-             </div>
-             
-             <div className="p-3">
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-                  <Input placeholder="Search" className="pl-9 h-9 border-[#e5e5e5] bg-[#f2f3f4]/50 text-sm" />
-                </div>
-                
-                <div className="space-y-1">
-                  {["Trade parameters", "Purchase conditions", "Sell conditions (optional)", "Restart trading conditions", "Analysis", "Utility"].map((item) => (
-                    <div key={item} className="px-3 py-2 text-sm font-medium text-[#333] hover:bg-[#f2f3f4] rounded-md cursor-pointer flex justify-between items-center group">
-                      {item}
-                      {(item === "Analysis" || item === "Utility") && <ChevronDown className="size-3 text-slate-400" />}
-                    </div>
-                  ))}
-                </div>
-             </div>
-          </div>
+          {[
+            { n: 'Parameters', c: 'bg-blue-500' },
+            { n: 'Purchase Logic', c: 'bg-[oklch(0.7_0.17_150)]' }, // Dashboard Green
+            { n: 'Risk Manager', c: 'bg-rose-500' }
+          ].map(b => (
+            <button key={b.n} onClick={() => toast.info(`${b.n} active`)} className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[oklch(0.96_0.005_240)] text-[oklch(0.35_0.02_260)]">
+              <div className={cn("size-2 rounded-full", b.c)} /> {b.n}
+            </button>
+          ))}
         </aside>
 
-        {/* --- CENTER WORKSPACE (Visual Blocks) --- */}
-        <main className="flex-1 flex flex-col min-w-0 relative">
-          {/* Workspace Toolbar */}
-          <div className="h-14 bg-white border-b border-[#e5e5e5] flex items-center px-4 gap-1 overflow-x-auto scrollbar-hide">
-            <ToolbarBtn icon={RotateCcw} />
-            <ToolbarBtn icon={FolderOpen} />
-            <ToolbarBtn icon={Save} onClick={() => toast.success("Saved")} />
-            <div className="w-px h-6 bg-[#e5e5e5] mx-1" />
-            <ToolbarBtn icon={Undo2} />
-            <ToolbarBtn icon={Redo2} />
-            <div className="w-px h-6 bg-[#e5e5e5] mx-1" />
-            <ToolbarBtn icon={ZoomIn} />
-            <ToolbarBtn icon={ZoomOut} />
-          </div>
-
-          <div className="flex-1 p-6 overflow-auto custom-scrollbar relative">
-            <div className="flex flex-col gap-6 items-start pb-20">
-              
-              {/* Block 1: Trade Parameters */}
-              <div className="w-full max-w-2xl bg-white border border-[#e5e5e5] rounded shadow-sm overflow-hidden">
-                <div className="bg-[#064e6e] px-4 py-2 flex items-center gap-2 text-white text-sm font-bold">
-                  <Plus className="size-3" /> 1. Trade parameters
-                </div>
-                <div className="p-4 space-y-4 text-[13px]">
-                   <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[#666]">Market:</span>
-                      <InlineSelect value="Derived" options={["Derived"]} />
-                      <span className="text-slate-300">&gt;</span>
-                      <InlineSelect value="Continuous Indices" options={["Continuous Indices"]} />
-                      <span className="text-slate-300">&gt;</span>
-                      <InlineSelect value={symbol} options={Object.keys(MARKETS)} labels={MARKETS} onChange={setSymbol} />
-                   </div>
-
-                   <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[#666]">Trade Type:</span>
-                      <InlineSelect value="Up/Down" options={["Up/Down"]} />
-                      <span className="text-slate-300">&gt;</span>
-                      <InlineSelect value="Rise/Fall" options={["Rise/Fall"]} />
-                   </div>
-
-                   <div className="flex items-center gap-2">
-                      <span className="text-[#666]">Contract Type:</span>
-                      <InlineSelect value={contractType} options={["both", "up", "down"]} onChange={setContractType} />
-                   </div>
-
-                   <div className="pt-2 border-t border-[#f2f3f4] space-y-3">
-                      <div className="flex items-center gap-4">
-                        <Label className="text-[#666] w-24">Duration:</Label>
-                        <div className="flex gap-1 items-center">
-                          <InlineSelect value={durationUnit} options={["t", "s", "m"]} labels={{t: "Ticks", s: "Seconds", m: "Minutes"}} onChange={setDurationUnit} />
-                          <Input type="number" value={duration} onChange={e=>setDuration(Number(e.target.value))} className="w-16 h-8 text-center" />
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <Label className="text-[#666] w-24">Stake:</Label>
-                        <div className="flex gap-1 items-center">
-                           <span className="text-xs font-bold text-slate-400">USD</span>
-                           <Input type="number" value={initialStake} onChange={e=>setInitialStake(Number(e.target.value))} className="w-24 h-8" />
-                           <span className="text-[10px] text-slate-400 ml-2">(min: 0.35 - max: 50000)</span>
-                        </div>
-                      </div>
-                   </div>
-                </div>
-              </div>
-
-              {/* Block 2: Purchase Conditions */}
-              <div className="w-[300px] bg-white border border-[#e5e5e5] rounded shadow-sm overflow-hidden">
-                <div className="bg-[#064e6e] px-4 py-2 text-white text-sm font-bold flex gap-2 items-center">
-                   <Target className="size-3" /> 2. Purchase conditions
-                </div>
-                <div className="p-4">
-                   <div className="flex items-center gap-2">
-                      <span className="text-[13px] text-[#666]">Purchase</span>
-                      <InlineSelect value="Rise" options={["Rise", "Fall"]} />
-                   </div>
-                </div>
-              </div>
-
-              {/* Block 4: Restart Conditions */}
-              <div className="w-[350px] bg-white border border-[#e5e5e5] rounded shadow-sm overflow-hidden">
-                <div className="bg-[#064e6e] px-4 py-2 text-white text-sm font-bold flex gap-2 items-center">
-                   <RotateCcw className="size-3" /> 4. Restart trading conditions
-                </div>
-                <div className="p-4">
-                   <div className="bg-[#f2f3f4] px-3 py-2 rounded text-[13px] font-medium text-[#333]">
-                      Trade again
-                   </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Floating Trash */}
-            <div className="absolute bottom-10 right-10 flex flex-col items-center gap-2">
-               <div className="size-16 bg-[#e5e5e5] rounded-lg flex items-center justify-center text-slate-400">
-                  <Trash2 className="size-8" />
+        {/* CENTER: MAIN INTERFACE (Matched to Dashboard Cards) */}
+        <main className="flex flex-col min-w-0 border-r border-[oklch(0.92_0.005_240)] overflow-hidden">
+          <header className="flex items-center justify-between p-5 border-b border-[oklch(0.92_0.005_240)] bg-white/50">
+            <div className="flex items-center gap-4">
+               <div className="size-10 rounded-xl bg-[oklch(0.93_0.06_150)] flex items-center justify-center text-[oklch(0.35_0.12_150)] border border-[oklch(0.7_0.17_150)]/30">
+                 <Zap className="size-5 fill-current" />
                </div>
+               <div>
+                 <h1 className="font-bold text-[#333] text-lg tracking-tight">{botName}</h1>
+                 <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                   <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-[oklch(0.7_0.17_150)] animate-pulse" /> Live</span>
+                   <ChevronRight className="size-3" />
+                   <span>{symbol}</span>
+                 </div>
+               </div>
+            </div>
+            <div className="flex gap-2">
+               <Button variant="outline" size="sm" className="bg-white border-[#e5e5e5] hover:bg-slate-50 text-xs font-bold text-[#333]" onClick={saveBot}><Save className="size-3.5 mr-2 text-[oklch(0.7_0.17_150)]"/> Save Strategy</Button>
+               <Button variant="outline" size="sm" className="bg-white border-[#e5e5e5] hover:bg-slate-50 text-xs font-bold text-[#333]"><Download className="size-3.5 mr-2 text-blue-500"/> Export XML</Button>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
+            <div className="grid gap-6 md:grid-cols-2">
+              
+              {/* Card: Trade Setup */}
+              <div className="bg-white border border-[oklch(0.92_0.005_240)] rounded-xl p-6 space-y-6 shadow-sm">
+                <h3 className="text-xs font-bold uppercase text-[oklch(0.7_0.17_150)] flex items-center gap-2 tracking-widest"><Wallet className="size-4"/> Trade Setup</h3>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase font-black text-slate-400 ml-1">Asset Index</Label>
+                    <Select value={symbol} onValueChange={setSymbol}>
+                      <SelectTrigger className="bg-[#fcfcfc] border-[#e5e5e5] h-11 rounded-lg font-bold text-[#333]"><SelectValue/></SelectTrigger>
+                      <SelectContent className="bg-white border-[#e5e5e5]">{Object.entries(MARKETS).map(([v,l]) => <SelectItem key={v} value={v} className="font-bold">{l}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                     <div className="space-y-1.5">
+                       <Label className="text-[10px] uppercase font-black text-slate-400 ml-1">Stake ($)</Label>
+                       <Input type="number" value={initialStake} onChange={e=>setInitialStake(Number(e.target.value))} className="bg-[#fcfcfc] border-[#e5e5e5] h-11 rounded-lg font-bold text-[#333] focus:border-[oklch(0.7_0.17_150)]"/>
+                     </div>
+                     <div className="space-y-1.5">
+                       <Label className="text-[10px] uppercase font-black text-slate-400 ml-1">Martingale (x)</Label>
+                       <Input type="number" value={martingale} onChange={e=>setMartingale(Number(e.target.value))} className="bg-[#fcfcfc] border-[#e5e5e5] h-11 rounded-lg font-bold text-[#333] focus:border-blue-400"/>
+                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card: Dynamic Parameters */}
+              <div className="bg-white border border-[oklch(0.92_0.005_240)] rounded-xl p-6 space-y-6 shadow-sm">
+                <h3 className="text-xs font-bold uppercase text-blue-500 flex items-center gap-2 tracking-widest"><Settings2 className="size-4"/> Parameters</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase font-black text-slate-400 ml-1">Duration</Label>
+                    <div className="flex gap-1">
+                      <Input type="number" value={duration} onChange={e=>setDuration(Number(e.target.value))} className="bg-[#fcfcfc] border-[#e5e5e5] h-11 rounded-lg font-bold text-[#333] w-16 text-center"/>
+                      <Select value={durationUnit} onValueChange={setDurationUnit}>
+                        <SelectTrigger className="bg-[#fcfcfc] border-[#e5e5e5] h-11 rounded-lg font-bold flex-1 text-xs text-[#333]"><SelectValue/></SelectTrigger>
+                        <SelectContent className="bg-white border-[#e5e5e5]">
+                          <SelectItem value="t">Ticks</SelectItem>
+                          <SelectItem value="s">Sec</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase font-black text-slate-400 ml-1">Digit Prediction</Label>
+                    <Select value={String(prediction)} onValueChange={v => setPrediction(Number(v))}>
+                      <SelectTrigger className="bg-[#fcfcfc] border-[#e5e5e5] h-11 rounded-lg font-bold text-[#333]"><SelectValue/></SelectTrigger>
+                      <SelectContent className="bg-white border-[#e5e5e5]">
+                        {[0,1,2,3,4,5,6,7,8,9].map(d => <SelectItem key={d} value={String(d)}>{d}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-1.5">
+                     <Label className="text-[10px] uppercase font-black text-slate-400 ml-1">Step Cap</Label>
+                     <Input type="number" value={maxSteps} onChange={e=>setMaxSteps(Number(e.target.value))} className="bg-[#fcfcfc] border-[#e5e5e5] h-11 rounded-lg font-bold text-[#333]"/>
+                   </div>
+                   <div className="space-y-1.5">
+                     <Label className="text-[10px] uppercase font-black text-slate-400 ml-1">Cooldown (s)</Label>
+                     <Input type="number" value={cooldown} onChange={e=>setCooldown(Number(e.target.value))} className="bg-[#fcfcfc] border-[#e5e5e5] h-11 rounded-lg font-bold text-[#333]"/>
+                   </div>
+                </div>
+              </div>
+
+              {/* Card: Risk Limits (md:col-span-2) */}
+              <div className="bg-white border border-[oklch(0.92_0.005_240)] rounded-xl p-6 space-y-6 shadow-sm md:col-span-2">
+                <h3 className="text-xs font-bold uppercase text-[oklch(0.7_0.17_150)] flex items-center gap-2 tracking-widest"><ShieldAlert className="size-4"/> Risk Management</h3>
+                <div className="grid gap-8 md:grid-cols-2">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-end">
+                      <span className="text-[10px] font-bold uppercase text-slate-400">Profit Target</span>
+                      <span className="text-xl font-bold text-[oklch(0.45_0.17_150)]">+{takeProfit} <span className="text-[10px] text-slate-400">USD</span></span>
+                    </div>
+                    <input type="range" min="1" max="2000" className="w-full accent-[oklch(0.7_0.17_150)] bg-[#f0f0f0] h-1.5 rounded-full appearance-none cursor-pointer" value={takeProfit} onChange={e=>setTakeProfit(Number(e.target.value))}/>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-end">
+                      <span className="text-[10px] font-bold uppercase text-slate-400">Stop Loss Limit</span>
+                      <span className="text-xl font-bold text-rose-500">-{stopLoss} <span className="text-[10px] text-slate-400">USD</span></span>
+                    </div>
+                    <input type="range" min="1" max="2000" className="w-full accent-rose-500 bg-[#f0f0f0] h-1.5 rounded-full appearance-none cursor-pointer" value={stopLoss} onChange={e=>setStopLoss(Number(e.target.value))}/>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </main>
 
-        {/* --- RIGHT SIDEBAR (Performance & Controls) --- */}
-        <aside className="w-full lg:w-[350px] bg-white border-l border-[#e5e5e5] flex flex-col shrink-0">
-          {/* Run Header */}
-          <div className="p-4 border-b border-[#e5e5e5] bg-[#f8f9fa] flex items-center justify-between">
-            <Button 
-              onClick={toggleBot} 
-              className={cn(
-                "h-10 px-6 font-bold rounded shadow-sm flex items-center gap-2 transition-all",
-                running ? "bg-[#ff444f] hover:bg-[#eb3e48] text-white" : "bg-[#4bb4b3] hover:bg-[#3da1a0] text-white"
-              )}
-            >
-              {running ? <Square className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
-              {running ? "Stop" : "Run"}
-            </Button>
-            
-            <div className="flex-1 ml-4">
-               <div className="text-[11px] font-bold text-[#666] mb-1 text-center">
-                 {running ? "Bot is running" : "Bot is not running"}
-               </div>
-               <div className="h-1.5 w-full bg-[#e5e5e5] rounded-full overflow-hidden">
-                  <div className={cn("h-full transition-all duration-1000", running ? "bg-[#4bb4b3] w-full" : "w-0")} />
-               </div>
-            </div>
-          </div>
-
+        {/* RIGHT SIDEBAR: ANALYTICS (Matched to Dashboard) */}
+        <aside className="flex flex-col bg-white/70 backdrop-blur-2xl shadow-xl">
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
-            <TabsList className="grid grid-cols-3 h-12 bg-white border-b border-[#e5e5e5] rounded-none p-0">
-              <TabsTrigger value="summary" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent font-bold text-xs">Summary</TabsTrigger>
-              <TabsTrigger value="transactions" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent font-bold text-xs">Transactions</TabsTrigger>
-              <TabsTrigger value="journal" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent font-bold text-xs">Journal</TabsTrigger>
+            <TabsList className="grid grid-cols-2 h-14 bg-white border-b border-[oklch(0.92_0.005_240)] rounded-none p-0">
+              <TabsTrigger value="summary" className="h-full rounded-none font-bold text-xs uppercase tracking-widest data-[state=active]:bg-[oklch(0.7_0.17_150)] data-[state=active]:text-white text-slate-500">Summary</TabsTrigger>
+              <TabsTrigger value="journal" className="h-full rounded-none font-bold text-xs uppercase tracking-widest data-[state=active]:bg-[oklch(0.7_0.17_150)] data-[state=active]:text-white text-slate-500">Live Logs</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="summary" className="m-0 flex-1 flex flex-col p-6 space-y-8">
-              {stats.runs === 0 ? (
-                <div className="flex-1 flex items-center justify-center text-center px-4">
-                  <p className="text-sm text-[#999] leading-relaxed">
-                    When you're ready to trade, hit <span className="font-bold text-[#333]">Run</span>.<br />
-                    You'll be able to track your bot's performance here.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                   <div className="grid grid-cols-3 gap-y-6 text-center">
-                      <StatItem label="Total stake" value={`${stats.stake.toFixed(2)} USD`} />
-                      <StatItem label="Total payout" value={`${stats.payout.toFixed(2)} USD`} />
-                      <StatItem label="No. of runs" value={String(stats.runs)} />
-                      <StatItem label="Contracts lost" value={String(stats.losses)} color="text-red-500" />
-                      <StatItem label="Contracts won" value={String(stats.wins)} color="text-green-500" />
-                      <StatItem label="Total profit/loss" value={`${stats.profit.toFixed(2)} USD`} color={stats.profit >= 0 ? "text-green-500" : "text-red-500"} />
+            <TabsContent value="summary" className="m-0 flex-1 p-6 space-y-6 flex flex-col justify-between overflow-hidden">
+              <div className="space-y-4">
+                <div className="bg-[#fcfcfc] border border-[oklch(0.92_0.005_240)] rounded-2xl p-6 relative overflow-hidden group">
+                   <div className="text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Total P&L</div>
+                   <div className={cn("text-5xl font-bold tabular-nums tracking-tighter", stats.profit >= 0 ? "text-[oklch(0.45_0.17_150)]" : "text-rose-500")}>
+                     {stats.profit >= 0 ? '+' : ''}{stats.profit.toFixed(2)}
                    </div>
+                   <Activity className="absolute -bottom-4 -right-4 size-20 text-slate-100 group-hover:text-emerald-50 transition-colors" />
                 </div>
-              )}
 
-              <div className="pt-6 border-t border-[#f2f3f4]">
-                <Button 
-                  variant="outline" 
-                  onClick={() => { setStats({runs:0, wins:0, losses:0, profit:0, stake:0, payout:0}); logJournal("Reset performed"); }} 
-                  className="w-full border-[#e5e5e5] font-bold text-[#333] h-11"
-                >
-                  Reset
-                </Button>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white p-4 rounded-xl border border-[oklch(0.92_0.005_240)] text-center shadow-sm">
+                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Win Rate</span>
+                    <div className="text-2xl font-bold text-blue-500">{winRate}%</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl border border-[oklch(0.92_0.005_240)] text-center shadow-sm">
+                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Trades</span>
+                    <div className="text-2xl font-bold text-[#333] font-mono">{stats.runs}</div>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-4 border-t border-[oklch(0.92_0.005_240)]">
+                  <div className="flex justify-between text-[11px] font-bold uppercase">
+                    <span className="text-[oklch(0.45_0.17_150)] flex items-center gap-1.5"><Fingerprint className="size-3"/> Wins: {stats.wins}</span>
+                    <span className="text-rose-500 flex items-center gap-1.5"><ShieldAlert className="size-3"/> Loss: {stats.losses}</span>
+                  </div>
+                  <button onClick={() => { setStats({runs:0, wins:0, losses:0, profit:0}); setCurrentStake(initialStake); logJournal("Stats reset"); }} className="w-full mt-2 text-[10px] font-bold text-blue-500 hover:underline uppercase tracking-widest flex items-center justify-center gap-2">
+                    <RotateCcw className="size-3"/> Reset Performance
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-4">
+                 <Button onClick={toggleBot} className={cn("w-full h-20 rounded-2xl text-xl font-bold transition-all hover:scale-[1.02] active:scale-95 shadow-lg", running ? "bg-rose-500 text-white" : "bg-[oklch(0.7_0.17_150)] text-white shadow-emerald-500/20")}>
+                    {running ? <><Square className="size-6 mr-3 fill-current"/> STOP BOT</> : <><Play className="size-7 mr-3 fill-current"/> START BOT</>}
+                 </Button>
+                 {!token && <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-[10px] font-bold text-rose-500 text-center uppercase">Deriv Disconnected</div>}
               </div>
             </TabsContent>
 
-            <TabsContent value="journal" className="m-0 flex-1 overflow-y-auto p-4 space-y-2 bg-[#f8f9fa]">
+            <TabsContent value="journal" className="flex-1 bg-[#fcfcfc] p-4 overflow-y-auto space-y-2">
               {journal.map((j, i) => (
-                <div key={i} className="text-[11px] font-medium text-[#666] flex gap-2">
-                   <span className="shrink-0 text-[#999]">{j.time}</span>
-                   <span className={cn(j.type === 'success' ? "text-green-600" : j.type === 'error' ? "text-red-600" : "")}>
-                     {j.msg}
-                   </span>
+                <div key={i} className={cn("p-3 rounded-lg border text-[11px] font-medium leading-relaxed", j.type === 'error' ? "bg-rose-50 border-rose-100 text-rose-600" : j.type === 'success' ? "bg-emerald-50 border-emerald-100 text-[oklch(0.4_0.15_150)]" : "bg-white border-[#e5e5e5] text-slate-600 shadow-sm")}>
+                  <div className="flex justify-between opacity-50 mb-1"><span>{j.time}</span> <Timer className="size-3"/></div>
+                  <div>{j.msg}</div>
                 </div>
               ))}
             </TabsContent>
@@ -385,37 +382,5 @@ function BotBuilder() {
         </aside>
       </div>
     </TopShell>
-  );
-}
-
-// --- SUB-COMPONENTS ---
-
-function ToolbarBtn({ icon: Icon, onClick }: { icon: any; onClick?: () => void }) {
-  return (
-    <button onClick={onClick} className="p-2 hover:bg-[#f2f3f4] rounded transition-colors text-slate-500 hover:text-[#333]">
-      <Icon className="size-4" />
-    </button>
-  );
-}
-
-function InlineSelect({ value, options, labels, onChange }: { value: string; options: string[]; labels?: any; onChange?: (v: string) => void }) {
-  return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-7 w-fit bg-white border-[#e5e5e5] rounded px-2 text-[12px] font-bold gap-2">
-        <SelectValue>{labels?.[value] ?? value}</SelectValue>
-      </SelectTrigger>
-      <SelectContent className="bg-white border-[#e5e5e5]">
-        {options.map(o => <SelectItem key={o} value={o} className="text-xs font-bold">{labels?.[o] ?? o}</SelectItem>)}
-      </SelectContent>
-    </Select>
-  );
-}
-
-function StatItem({ label, value, color = "text-[#333]" }: { label: string; value: string; color?: string }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-bold text-[#999] uppercase">{label}</span>
-      <span className={cn("text-[13px] font-black tabular-nums", color)}>{value}</span>
-    </div>
   );
 }
