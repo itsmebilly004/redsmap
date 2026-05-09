@@ -373,11 +373,11 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
-  // Deriv's public docs only require this for sign-up (`registration`), but
-  // keeping consent explicit on login helps OAuth providers that support it
-  // avoid silently reusing a cached Deriv session.
-  const prompt = options.mode === "signup" ? "registration" : "consent";
-  params.set("prompt", prompt);
+  // Deriv only documents `prompt=registration` for sign-up. Login must use
+  // the standard authorization request so Deriv can show either login or the
+  // account-access consent screen for users who already have an active session.
+  const prompt = options.mode === "signup" ? "registration" : undefined;
+  if (prompt) params.set("prompt", prompt);
 
   const requiredParams = [
     "response_type",
@@ -401,7 +401,7 @@ export async function buildOAuthUrl(
     client_id: DERIV_CLIENT_ID,
     redirect_uri: DERIV_REDIRECT_URI,
     scope: "trade account_manage",
-    prompt,
+    prompt: prompt ?? "standard-login",
     stateExists: Boolean(state),
     codeChallengeExists: Boolean(codeChallenge),
     codeVerifierStored: sessionStorage.getItem("deriv_code_verifier") === codeVerifier,
