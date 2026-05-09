@@ -33,7 +33,7 @@ type ChartType = "area" | "candle";
 
 type Props = {
   symbol: string;
-  category?: string; // Toggles Dcircles based on trade type (e.g. over_under, even_odd)
+  category?: string; // Toggles Dcircles for digit trades
   onSymbolChange?: (s: string) => void;
   onPrice?: (price: number) => void;
   height?: number;
@@ -82,11 +82,11 @@ export function DerivChart({
   const [allSymbols, setAllSymbols] =
     useState<{ symbol: string; display_name: string; market: string }[]>([]);
 
-  // Digit distribution state (1000 tick window)
+  // --- DIGIT STATE (Last 1000 Ticks) ---
   const [digitHistory, setDigitHistory] = useState<number[]>([]);
   const lastDigit = digitHistory[digitHistory.length - 1];
 
-  // Show Dcircles for these categories
+  // Logic: Show Dcircles only for Digit trades (Matches, Even/Odd, Over/Under)
   const isDigitTrade = ["even_odd", "over_under", "matches_differs"].includes(category ?? "");
 
   useEffect(() => {
@@ -104,7 +104,7 @@ export function DerivChart({
     return () => { off(); };
   }, []);
 
-  // Initialize Chart
+  // Initialize and rebuild chart when chartType or granularity changes
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -117,11 +117,11 @@ export function DerivChart({
       },
       grid: {
         vertLines: { visible: false },
-        horzLines: { color: "rgba(120,120,140,0.05)" },
+        horzLines: { color: "rgba(120,120,140,0.08)" },
       },
-      rightPriceScale: { borderColor: "rgba(120,120,140,0.1)" },
+      rightPriceScale: { borderColor: "rgba(120,120,140,0.15)" },
       timeScale: {
-        borderColor: "rgba(120,120,140,0.1)",
+        borderColor: "rgba(120,120,140,0.15)",
         timeVisible: true,
         secondsVisible: granularity < 60,
       },
@@ -142,12 +142,12 @@ export function DerivChart({
       areaSeriesRef.current   = null;
     } else {
       const series = chart.addSeries(AreaSeries, {
-        lineColor:   "#334155",
+        lineColor:   "#1f2937",
         lineWidth:   2,
-        topColor:    "rgba(51,65,85,0.1)",
-        bottomColor: "transparent",
+        topColor:    "rgba(31,41,55,0.12)",
+        bottomColor: "rgba(31,41,55,0.0)",
         priceLineVisible: true,
-        priceLineColor:   "#1e293b",
+        priceLineColor:   "#111827",
         priceLineWidth:   1,
         lastValueVisible: true,
       });
@@ -164,7 +164,7 @@ export function DerivChart({
     };
   }, [chartType, granularity]);
 
-  // Load history + tick subscription
+  // Handle data fetching and real-time tick subscriptions
   useEffect(() => {
     let cancelled = false;
     let unsubTicks: (() => void) | undefined;
@@ -199,7 +199,8 @@ export function DerivChart({
         if (cancelled) return;
         onPrice?.(price);
 
-        // Update Digit History Logic
+        // --- DIGIT LOGIC ---
+        // Get the last digit of the price (e.g. 1360.13 -> 3)
         const digit = parseInt(price.toFixed(2).slice(-1));
         setDigitHistory(prev => [...prev.slice(-999), digit]);
 
@@ -231,7 +232,7 @@ export function DerivChart({
     };
   }, [symbol, granularity, chartType]);
 
-  // Barrier lines
+  // Handle Barrier Rendering
   useEffect(() => {
     const series = areaSeriesRef.current ?? candleSeriesRef.current;
     if (!series) return;
@@ -239,17 +240,17 @@ export function DerivChart({
     if (lowLineRef.current)  { series.removePriceLine(lowLineRef.current);  lowLineRef.current  = null; }
     if (highBarrier != null && Number.isFinite(highBarrier)) {
       highLineRef.current = series.createPriceLine({
-        price: highBarrier, color: "#3b82f6", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "+",
+        price: highBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "+",
       });
     }
     if (lowBarrier != null && Number.isFinite(lowBarrier)) {
       lowLineRef.current = series.createPriceLine({
-        price: lowBarrier, color: "#3b82f6", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "−",
+        price: lowBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "−",
       });
     }
   }, [highBarrier, lowBarrier]);
 
-  // Stats Logic for Dcircles
+  // --- STATS LOGIC FOR DCIRCLES ---
   const stats = useMemo(() => {
     const counts = new Array(10).fill(0);
     digitHistory.forEach(d => counts[d]++);
@@ -258,10 +259,12 @@ export function DerivChart({
     const maxVal = Math.max(...pcts);
     const minVal = Math.min(...pcts);
 
-    return counts.map((count, i) => ({
-      digit: i, count, pct: pcts[i].toFixed(1),
+    return Array.from({ length: 10 }, (_, i) => ({
+      digit: i,
+      count: counts[i],
+      pct: pcts[i].toFixed(1),
       isMost: pcts[i] === maxVal && maxVal > 0,
-      isLeast: pcts[i] === minVal && total > 50,
+      isLeast: pcts[i] === minVal && digitHistory.length > 50
     }));
   }, [digitHistory]);
 
@@ -274,11 +277,11 @@ export function DerivChart({
   }, [allSymbols]);
 
   return (
-    <div className={cn("relative flex flex-col w-full", className)}>
+    <div className={cn("relative flex flex-col w-full h-full", className)}>
       {/* TOOLBAR */}
-      <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
+      <div className="mb-3 flex flex-wrap items-center gap-2 px-1">
         <Select value={symbol} onValueChange={(v) => onSymbolChange?.(v)}>
-          <SelectTrigger className="w-52 h-9 rounded-xl bg-white border-slate-200 font-bold text-slate-700 shadow-sm">
+          <SelectTrigger className="w-52 h-9 rounded-xl bg-white border-slate-200 font-bold text-slate-700 shadow-sm transition-all hover:border-emerald-400">
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="max-h-80">
@@ -288,15 +291,15 @@ export function DerivChart({
           </SelectContent>
         </Select>
 
-        <div className="flex overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="flex bg-white rounded-lg border border-slate-200 p-0.5 overflow-hidden">
           {TIMEFRAMES.slice(0, 4).map((tf) => (
             <button
               key={tf.value}
               type="button"
               onClick={() => setGranularity(tf.value)}
               className={cn(
-                "px-3 py-1.5 text-xs font-bold transition-all",
-                granularity === tf.value ? "bg-slate-900 text-white" : "bg-transparent text-slate-500 hover:bg-slate-50",
+                "px-3 py-1.5 text-xs font-bold rounded-md transition-all",
+                granularity === tf.value ? "bg-slate-900 text-white shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-50",
               )}
             >
               {tf.label}
@@ -304,24 +307,24 @@ export function DerivChart({
           ))}
         </div>
 
-        <div className="flex overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <button type="button" onClick={() => setChartType("area")} className={cn("px-3 py-1.5 text-xs font-bold transition", chartType === "area" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50")}>Area</button>
-          <button type="button" onClick={() => setChartType("candle")} className={cn("px-3 py-1.5 text-xs font-bold transition", chartType === "candle" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50")}>Candle</button>
+        <div className="flex bg-white rounded-lg border border-slate-200 p-0.5 overflow-hidden">
+          <button type="button" onClick={() => setChartType("area")} className={cn("px-3 py-1.5 text-xs font-bold rounded-md transition", chartType === "area" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-900")}>Area</button>
+          <button type="button" onClick={() => setChartType("candle")} className={cn("px-3 py-1.5 text-xs font-bold rounded-md transition", chartType === "candle" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-900")}>Candle</button>
         </div>
 
-        <span className={cn("ml-auto rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest border", STATUS_STYLE[status])}>
+        <span className={cn("ml-auto rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest border shadow-sm", STATUS_STYLE[status])}>
           {status}
         </span>
       </div>
 
-      {/* CHART CONTAINER */}
-      <div className="relative w-full overflow-hidden bg-white border border-slate-200 rounded-[32px] shadow-sm group">
-        <div ref={containerRef} style={{ height }} className="w-full" />
+      {/* MAIN CHART CONTAINER (Relative for floating Dcircles) */}
+      <div className="relative flex-1 min-h-0 bg-white border border-slate-200 rounded-[32px] overflow-hidden shadow-sm group">
+        <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
 
-        {/* FLOATING DCIRCLES OVERLAY (Floating inside chart container) */}
+        {/* FLOATING DCIRCLES OVERLAY (Matches exactly your image reference) */}
         {isDigitTrade && (
-          <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none z-20 animate-in fade-in slide-in-from-bottom-4">
-            <div className="flex items-center gap-3 sm:gap-5 bg-white/60 backdrop-blur-md border border-white/50 p-4 rounded-[28px] shadow-2xl pointer-events-auto">
+          <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none z-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="flex items-center gap-3 sm:gap-5 bg-white/70 backdrop-blur-md border border-white/50 p-4 rounded-[28px] shadow-2xl pointer-events-auto">
               {stats.map((s) => (
                 <div key={s.digit} className="flex flex-col items-center group relative">
                   <div className="relative">
@@ -335,16 +338,16 @@ export function DerivChart({
                       <span className="text-[8px] sm:text-[9px] font-bold text-slate-400 mt-0.5">{s.pct}%</span>
                     </div>
 
-                    {/* Color bar at bottom of circle */}
+                    {/* Freq indicator bar inside/below the circle */}
                     <div className={cn(
-                      "absolute -bottom-1 left-1/2 -translate-x-1/2 w-5 sm:w-7 h-1 rounded-full",
-                      s.isMost ? "bg-[#4bb4b3]" : s.isLeast ? "bg-[#ff444f]" : "bg-slate-300"
+                      "absolute -bottom-1 left-1/2 -translate-x-1/2 w-6 sm:w-8 h-1 rounded-full",
+                      s.isMost ? "bg-[#4bb4b3]" : s.isLeast ? "bg-[#ff444f]" : "bg-slate-200"
                     )} />
                   </div>
 
-                  {/* ORANGE TRIANGLE INDICATOR (Points to active digit) */}
+                  {/* CURRENT TICK INDICATOR (Orange Triangle) */}
                   {lastDigit === s.digit && (
-                    <div className="absolute -bottom-5 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-[#ff444f]" />
+                    <div className="absolute -bottom-5 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-[#ff444f] animate-in zoom-in duration-300" />
                   )}
                 </div>
               ))}
@@ -353,12 +356,13 @@ export function DerivChart({
         )}
       </div>
 
+      {/* FOOTER INFO */}
       <div className="mt-3 flex items-center justify-between px-2">
          <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            <Info className="size-3 text-blue-500" /> Statistical processing: 1000 tick window
+            <Info className="size-3 text-emerald-500" /> Real-time stochastic analysis active (1k ticks)
          </div>
-         <div className="text-[10px] font-black text-slate-300 uppercase">
-           ArkTrader Hub Analysis v2.1
+         <div className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">
+           ArkTrader Hub Analytics v2.4
          </div>
       </div>
     </div>
