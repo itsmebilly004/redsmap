@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { DerivChart } from "@/components/deriv-chart";
 import { TradePanel } from "@/components/trade-panel";
+import { SignalsPanel } from "@/components/signals-panel";
 import { Shield, Sun, HelpCircle, Settings, Globe, Bot, Crosshair, Maximize2, BarChart2, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +27,7 @@ function Index() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("acct1") && params.get("token1")) {
+    if ((params.get("code") && params.get("state")) || (params.get("acct1") && params.get("token1"))) {
       window.location.replace(`/deriv-callback${window.location.search}`);
     }
     if (params.get("error")) {
@@ -91,6 +92,8 @@ function Index() {
           <p className="mt-2 text-xs text-[oklch(0.5_0.02_260)]">
             Live data streamed from the Deriv WebSocket API. Sign in to place real trades.
           </p>
+
+          <SignalsPanel symbol={symbol} compact />
         </section>
 
         {/* Trade panel */}

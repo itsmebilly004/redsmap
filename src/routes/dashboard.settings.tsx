@@ -47,6 +47,10 @@ function SettingsPage() {
     else toast.success("Settings saved");
   }
 
+  async function connectDeriv() {
+    window.location.href = await buildOAuthUrl();
+  }
+
   async function deleteAccount() {
     if (!user) return;
     if (!confirm("Permanently delete your account and all data?")) return;
@@ -75,7 +79,7 @@ function SettingsPage() {
       <section className="glass-card rounded-xl p-5">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-medium">Deriv accounts</h3>
-          <Button size="sm" onClick={() => (window.location.href = buildOAuthUrl())}>
+          <Button size="sm" onClick={connectDeriv}>
             <Plug className="mr-1 size-4" /> Connect / Reconnect
           </Button>
         </div>

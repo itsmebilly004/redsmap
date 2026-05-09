@@ -3,6 +3,7 @@ import {
   createChart,
   AreaSeries,
   CandlestickSeries,
+  LineSeries,
   type IChartApi,
   type ISeriesApi,
   type LineData,
@@ -12,6 +13,7 @@ import {
 } from "lightweight-charts";
 import {
   fetchCandles,
+  fetchTicks,
   getActiveSymbols,
   onStatus,
   subscribeTicks,
@@ -29,6 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 
 type ChartType = "area" | "candle";
+type AnalysisTool = "sma" | "ema" | "bollinger" | "highlow";
 
 type Props = {
   symbol: string;
@@ -41,12 +44,26 @@ type Props = {
 };
 
 const TIMEFRAMES = [
-  { label: "1m",  value: 60 },
-  { label: "5m",  value: 300 },
+  { label: "Tick", value: 0 },
+  { label: "1m", value: 60 },
+  { label: "2m", value: 120 },
+  { label: "3m", value: 180 },
+  { label: "5m", value: 300 },
+  { label: "10m", value: 600 },
   { label: "15m", value: 900 },
-  { label: "1H",  value: 3600 },
-  { label: "4H",  value: 14400 },
-  { label: "1D",  value: 86400 },
+  { label: "30m", value: 1800 },
+  { label: "1H", value: 3600 },
+  { label: "2H", value: 7200 },
+  { label: "4H", value: 14400 },
+  { label: "8H", value: 28800 },
+  { label: "1D", value: 86400 },
+];
+
+const ANALYSIS_TOOLS: { label: string; value: AnalysisTool }[] = [
+  { label: "SMA", value: "sma" },
+  { label: "EMA", value: "ema" },
+  { label: "Bands", value: "bollinger" },
+  { label: "H/L", value: "highlow" },
 ];
 
 const STATUS_STYLE: Record<ConnectionStatus, string> = {
@@ -69,12 +86,16 @@ export function DerivChart({
   const chartRef        = useRef<IChartApi | null>(null);
   const areaSeriesRef   = useRef<ISeriesApi<"Area"> | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const indicatorSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
+  const highLowLineRefs = useRef<IPriceLine[]>([]);
   const highLineRef     = useRef<IPriceLine | null>(null);
   const lowLineRef      = useRef<IPriceLine | null>(null);
   const candleBufferRef = useRef<Map<number, Candle>>(new Map());
+  const historyRef = useRef<LineData[]>([]);
 
-  const [granularity, setGranularity] = useState(60);
+  const [granularity, setGranularity] = useState(0);
   const [chartType, setChartType] = useState<ChartType>("area");
+  const [analysisTools, setAnalysisTools] = useState<Set<AnalysisTool>>(new Set());
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [allSymbols, setAllSymbols] =
     useState<{ symbol: string; display_name: string; market: string }[]>([]);
@@ -154,6 +175,8 @@ export function DerivChart({
       chartRef.current        = null;
       areaSeriesRef.current   = null;
       candleSeriesRef.current = null;
+      indicatorSeriesRef.current = [];
+      highLowLineRefs.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType]);
@@ -163,13 +186,25 @@ export function DerivChart({
     let cancelled = false;
     let unsubTicks: (() => void) | undefined;
     candleBufferRef.current.clear();
+    historyRef.current = [];
 
     async function init() {
       try {
-        const candles = await fetchCandles(symbol, granularity, 300);
-        if (cancelled) return;
-
-        if (chartType === "candle" && candleSeriesRef.current) {
+        if (chartType === "area") {
+          const ticks = granularity === 0
+            ? await fetchTicks(symbol, 500)
+            : (await fetchCandles(symbol, granularity, 300)).map((c) => ({ time: c.time, value: c.close }));
+          if (cancelled) return;
+          const data: LineData[] = ticks.map((point) => ({
+            time: point.time as UTCTimestamp,
+            value: point.value,
+          }));
+          historyRef.current = data;
+          areaSeriesRef.current?.setData(data);
+        } else if (candleSeriesRef.current) {
+          const candleGranularity = granularity || 60;
+          const candles = await fetchCandles(symbol, candleGranularity, 300);
+          if (cancelled) return;
           const data: CandlestickData[] = candles.map((c) => ({
             time:  c.time as UTCTimestamp,
             open:  c.open,
@@ -178,15 +213,10 @@ export function DerivChart({
             close: c.close,
           }));
           candleSeriesRef.current.setData(data);
-          // Seed buffer with last candles for tick aggregation
           candles.forEach((c) => candleBufferRef.current.set(c.time, c));
-        } else if (chartType === "area" && areaSeriesRef.current) {
-          const data: LineData[] = candles.map((c) => ({
-            time:  c.time as UTCTimestamp,
-            value: c.close,
-          }));
-          areaSeriesRef.current.setData(data);
+          historyRef.current = candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.close }));
         }
+        updateAnalysisOverlays();
         chartRef.current?.timeScale().fitContent();
       } catch {
         /* network/timeout handled by status badge */
@@ -195,12 +225,14 @@ export function DerivChart({
       unsubTicks = await subscribeTicks(symbol, (price, t) => {
         if (cancelled) return;
         onPrice?.(price);
+        const tickPoint = { time: t as UTCTimestamp, value: price };
 
-        if (chartType === "area" && areaSeriesRef.current) {
-          areaSeriesRef.current.update({ time: t as UTCTimestamp, value: price });
+        if ((chartType === "area" || granularity === 0) && areaSeriesRef.current) {
+          areaSeriesRef.current.update(tickPoint);
+          historyRef.current = [...historyRef.current.slice(-499), tickPoint];
         } else if (chartType === "candle" && candleSeriesRef.current) {
-          // Aggregate ticks into candles using the current granularity
-          const barTime = Math.floor(t / granularity) * granularity;
+          const candleGranularity = granularity || 60;
+          const barTime = Math.floor(t / candleGranularity) * candleGranularity;
           const buf = candleBufferRef.current;
           const existing = buf.get(barTime);
           const bar: Candle = existing
@@ -214,7 +246,12 @@ export function DerivChart({
             low:   bar.low,
             close: bar.close,
           });
+          historyRef.current = [
+            ...historyRef.current.filter((point) => point.time !== (barTime as UTCTimestamp)).slice(-499),
+            { time: barTime as UTCTimestamp, value: bar.close },
+          ];
         }
+        updateAnalysisOverlays();
       });
     }
 
@@ -225,6 +262,11 @@ export function DerivChart({
     };
   }, [symbol, granularity, chartType, onPrice]);
 
+  useEffect(() => {
+    updateAnalysisOverlays();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisTools, chartType]);
+
   // Barrier lines.
   useEffect(() => {
     const series = areaSeriesRef.current ?? candleSeriesRef.current;
@@ -233,15 +275,74 @@ export function DerivChart({
     if (lowLineRef.current)  { series.removePriceLine(lowLineRef.current);  lowLineRef.current  = null; }
     if (highBarrier != null && Number.isFinite(highBarrier)) {
       highLineRef.current = series.createPriceLine({
-        price: highBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "+",
+        price: highBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "Upper barrier",
       });
     }
     if (lowBarrier != null && Number.isFinite(lowBarrier)) {
       lowLineRef.current = series.createPriceLine({
-        price: lowBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "−",
+        price: lowBarrier, color: "#2196f3", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "Lower barrier",
       });
     }
   }, [highBarrier, lowBarrier]);
+
+  function clearAnalysisOverlays() {
+    const chart = chartRef.current;
+    indicatorSeriesRef.current.forEach((series) => {
+      try { chart?.removeSeries(series); } catch { /* ignore */ }
+    });
+    indicatorSeriesRef.current = [];
+    const baseSeries = areaSeriesRef.current ?? candleSeriesRef.current;
+    highLowLineRefs.current.forEach((line) => {
+      try { baseSeries?.removePriceLine(line); } catch { /* ignore */ }
+    });
+    highLowLineRefs.current = [];
+  }
+
+  function updateAnalysisOverlays() {
+    const chart = chartRef.current;
+    const data = historyRef.current;
+    const baseSeries = areaSeriesRef.current ?? candleSeriesRef.current;
+    if (!chart || !baseSeries) return;
+    clearAnalysisOverlays();
+    if (!data.length || analysisTools.size === 0) return;
+
+    if (analysisTools.has("sma")) {
+      const series = chart.addSeries(LineSeries, { color: "#2563eb", lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+      series.setData(movingAverage(data, 20));
+      indicatorSeriesRef.current.push(series);
+    }
+    if (analysisTools.has("ema")) {
+      const series = chart.addSeries(LineSeries, { color: "#9333ea", lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+      series.setData(exponentialAverage(data, 20));
+      indicatorSeriesRef.current.push(series);
+    }
+    if (analysisTools.has("bollinger")) {
+      const [upper, lower] = bollingerBands(data, 20);
+      const upperSeries = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+      const lowerSeries = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+      upperSeries.setData(upper);
+      lowerSeries.setData(lower);
+      indicatorSeriesRef.current.push(upperSeries, lowerSeries);
+    }
+    if (analysisTools.has("highlow")) {
+      const values = data.map((point) => point.value);
+      const high = Math.max(...values);
+      const low = Math.min(...values);
+      highLowLineRefs.current = [
+        baseSeries.createPriceLine({ price: high, color: "#ef4444", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "High" }),
+        baseSeries.createPriceLine({ price: low, color: "#22c55e", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Low" }),
+      ];
+    }
+  }
+
+  function toggleAnalysisTool(tool: AnalysisTool) {
+    setAnalysisTools((current) => {
+      const next = new Set(current);
+      if (next.has(tool)) next.delete(tool);
+      else next.add(tool);
+      return next;
+    });
+  }
 
   const symbolOptions = useMemo(() => {
     if (allSymbols.length === 0)
@@ -268,7 +369,7 @@ export function DerivChart({
         </Select>
 
         {/* Timeframe buttons */}
-        <div className="flex overflow-hidden rounded-md border border-glass-border">
+        <div className="flex max-w-full overflow-x-auto rounded-md border border-glass-border">
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf.value}
@@ -303,7 +404,10 @@ export function DerivChart({
           </button>
           <button
             type="button"
-            onClick={() => setChartType("candle")}
+            onClick={() => {
+              if (granularity === 0) setGranularity(60);
+              setChartType("candle");
+            }}
             title="Candlestick"
             className={cn(
               "px-2.5 py-1.5 text-xs font-medium transition-colors",
@@ -314,6 +418,25 @@ export function DerivChart({
           >
             Candle
           </button>
+        </div>
+
+        <div className="flex overflow-hidden rounded-md border border-glass-border">
+          {ANALYSIS_TOOLS.map((tool) => (
+            <button
+              key={tool.value}
+              type="button"
+              onClick={() => toggleAnalysisTool(tool.value)}
+              title={`${tool.label} analysis`}
+              className={cn(
+                "px-2.5 py-1.5 text-xs font-medium transition-colors",
+                analysisTools.has(tool.value)
+                  ? "bg-[#ff444f] text-white"
+                  : "bg-transparent text-muted-foreground hover:bg-foreground/5",
+              )}
+            >
+              {tool.label}
+            </button>
+          ))}
         </div>
 
         {/* Connection status */}
@@ -330,4 +453,36 @@ export function DerivChart({
       />
     </div>
   );
+}
+
+function movingAverage(data: LineData[], period: number): LineData[] {
+  return data.map((point, index) => {
+    const window = data.slice(Math.max(0, index - period + 1), index + 1);
+    const value = window.reduce((sum, item) => sum + item.value, 0) / window.length;
+    return { time: point.time, value };
+  });
+}
+
+function exponentialAverage(data: LineData[], period: number): LineData[] {
+  const k = 2 / (period + 1);
+  let previous = data[0]?.value ?? 0;
+  return data.map((point, index) => {
+    const value = index === 0 ? point.value : point.value * k + previous * (1 - k);
+    previous = value;
+    return { time: point.time, value };
+  });
+}
+
+function bollingerBands(data: LineData[], period: number): [LineData[], LineData[]] {
+  const upper: LineData[] = [];
+  const lower: LineData[] = [];
+  data.forEach((point, index) => {
+    const window = data.slice(Math.max(0, index - period + 1), index + 1);
+    const mean = window.reduce((sum, item) => sum + item.value, 0) / window.length;
+    const variance = window.reduce((sum, item) => sum + Math.pow(item.value - mean, 2), 0) / window.length;
+    const deviation = Math.sqrt(variance);
+    upper.push({ time: point.time, value: mean + deviation * 2 });
+    lower.push({ time: point.time, value: mean - deviation * 2 });
+  });
+  return [upper, lower];
 }

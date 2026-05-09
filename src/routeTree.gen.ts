@@ -24,6 +24,7 @@ import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as StrategySlugRouteImport } from './routes/strategy.$slug'
 import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
 import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard.analytics'
+import { Route as ApiDerivTokenExchangeRouteImport } from './routes/api/deriv-token-exchange'
 
 const TradingviewRoute = TradingviewRouteImport.update({
   id: '/tradingview',
@@ -100,6 +101,11 @@ const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
   path: '/analytics',
   getParentRoute: () => DashboardRoute,
 } as any)
+const ApiDerivTokenExchangeRoute = ApiDerivTokenExchangeRouteImport.update({
+  id: '/api/deriv-token-exchange',
+  path: '/api/deriv-token-exchange',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -113,6 +119,7 @@ export interface FileRoutesByFullPath {
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
+  '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/strategy/$slug': typeof StrategySlugRoute
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
+  '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/strategy/$slug': typeof StrategySlugRoute
@@ -147,6 +155,7 @@ export interface FileRoutesById {
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
+  '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/strategy/$slug': typeof StrategySlugRoute
@@ -166,6 +175,7 @@ export interface FileRouteTypes {
     | '/strategies'
     | '/trading-bots'
     | '/tradingview'
+    | '/api/deriv-token-exchange'
     | '/dashboard/analytics'
     | '/dashboard/settings'
     | '/strategy/$slug'
@@ -182,6 +192,7 @@ export interface FileRouteTypes {
     | '/strategies'
     | '/trading-bots'
     | '/tradingview'
+    | '/api/deriv-token-exchange'
     | '/dashboard/analytics'
     | '/dashboard/settings'
     | '/strategy/$slug'
@@ -199,6 +210,7 @@ export interface FileRouteTypes {
     | '/strategies'
     | '/trading-bots'
     | '/tradingview'
+    | '/api/deriv-token-exchange'
     | '/dashboard/analytics'
     | '/dashboard/settings'
     | '/strategy/$slug'
@@ -217,6 +229,7 @@ export interface RootRouteChildren {
   StrategiesRoute: typeof StrategiesRoute
   TradingBotsRoute: typeof TradingBotsRoute
   TradingviewRoute: typeof TradingviewRoute
+  ApiDerivTokenExchangeRoute: typeof ApiDerivTokenExchangeRoute
   StrategySlugRoute: typeof StrategySlugRoute
 }
 
@@ -327,6 +340,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAnalyticsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/api/deriv-token-exchange': {
+      id: '/api/deriv-token-exchange'
+      path: '/api/deriv-token-exchange'
+      fullPath: '/api/deriv-token-exchange'
+      preLoaderRoute: typeof ApiDerivTokenExchangeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -358,6 +378,7 @@ const rootRouteChildren: RootRouteChildren = {
   StrategiesRoute: StrategiesRoute,
   TradingBotsRoute: TradingBotsRoute,
   TradingviewRoute: TradingviewRoute,
+  ApiDerivTokenExchangeRoute: ApiDerivTokenExchangeRoute,
   StrategySlugRoute: StrategySlugRoute,
 }
 export const routeTree = rootRouteImport

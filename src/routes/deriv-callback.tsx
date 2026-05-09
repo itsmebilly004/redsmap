@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { send } from "@/lib/deriv";
+import { DERIV_APP_ID_VALUE } from "@/lib/deriv";
 import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -10,26 +10,7 @@ export const Route = createFileRoute("/deriv-callback")({
   component: DerivCallback,
 });
 
-// Deriv OAuth returns ?acct1=...&token1=...&cur1=...&acct2=...&token2=...
-function parseAccounts(search: string) {
-  const params = new URLSearchParams(search);
-  const out: { account: string; token: string; currency: string }[] = [];
-  let i = 1;
-  while (params.get(`acct${i}`)) {
-    out.push({
-      account: params.get(`acct${i}`)!,
-      token: params.get(`token${i}`)!,
-      currency: params.get(`cur${i}`) ?? "",
-    });
-    i++;
-  }
-  return out;
-}
-
 async function ensureSupabaseSession(primaryAccountId: string) {
-  // We treat the Deriv account as the source of identity. Derive a stable
-  // email + password and try to sign in; if the user doesn't exist yet,
-  // sign them up (auth is configured to auto-confirm).
   const { email, password } = await derivCredentials(primaryAccountId);
 
   const { data: signIn, error: signInError } = await supabase.auth.signInWithPassword({
@@ -48,8 +29,6 @@ async function ensureSupabaseSession(primaryAccountId: string) {
   if (signUpError) throw signUpError;
 
   if (!signUp.session) {
-    // Auto-confirm should grant a session immediately, but fall back to a
-    // password sign-in just in case.
     const { data: retry, error: retryErr } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -62,7 +41,7 @@ async function ensureSupabaseSession(primaryAccountId: string) {
 
 function DerivCallback() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState("Connecting your Deriv account…");
+  const [status, setStatus] = useState("Connecting your Deriv account...");
   const ran = useRef(false);
 
   useEffect(() => {
@@ -70,41 +49,78 @@ function DerivCallback() {
     ran.current = true;
     (async () => {
       try {
-        const accounts = parseAccounts(window.location.search);
-        if (!accounts.length) throw new Error("No tokens returned from Deriv.");
+        const params = new URLSearchParams(window.location.search);
+        const error = params.get("error");
+        if (error) throw new Error(params.get("error_description") ?? error);
 
-        // Prefer a real (CR) account as the identity, fall back to the first.
-        const primary = accounts.find((a) => !a.account.startsWith("VR")) ?? accounts[0];
+        const code = params.get("code");
+        const state = params.get("state");
+        if (!code) throw new Error("No authorization code returned");
 
-        setStatus("Creating your ArkTrader session…");
-        const sessionUser = await ensureSupabaseSession(primary.account);
+        const expectedState = sessionStorage.getItem("deriv_oauth_state");
+        if (!expectedState || expectedState !== state) throw new Error("State mismatch");
 
-        for (const acc of accounts) {
-          setStatus(`Authorizing ${acc.account}…`);
-          let balance = 0;
-          let currency = acc.currency;
-          try {
-            const auth = await send({ authorize: acc.token });
-            balance = Number(auth.authorize?.balance ?? 0);
-            currency = auth.authorize?.currency ?? currency;
-          } catch (e) {
-            console.error("Authorize failed", e);
-          }
+        const codeVerifier = sessionStorage.getItem("deriv_code_verifier");
+        if (!codeVerifier) throw new Error("Missing PKCE code verifier");
+
+        sessionStorage.removeItem("deriv_oauth_state");
+        sessionStorage.removeItem("deriv_code_verifier");
+
+        setStatus("Exchanging Deriv authorization code...");
+        const tokenResponse = await fetch("/api/deriv-token-exchange", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, codeVerifier }),
+        });
+        const tokenData = await tokenResponse.json();
+        if (!tokenResponse.ok) {
+          throw new Error(tokenData?.error_description ?? tokenData?.error ?? "Deriv token exchange failed");
+        }
+
+        const accessToken = tokenData.access_token;
+        const expiresIn = Number(tokenData.expires_in ?? 0);
+        if (!accessToken) throw new Error("No access token returned");
+
+        setStatus("Loading Deriv accounts...");
+        const accountsResponse = await fetch("https://api.derivws.com/trading/v1/options/accounts", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Deriv-App-ID": DERIV_APP_ID_VALUE,
+          },
+        });
+        const accountsData = await accountsResponse.json();
+        if (!accountsResponse.ok) {
+          throw new Error(accountsData?.message ?? accountsData?.error?.message ?? "Could not load Deriv accounts");
+        }
+
+        const accounts = accountsData?.data ?? [];
+        if (!accounts.length) throw new Error("No Deriv accounts returned");
+
+        const primary = accounts.find((account: any) => !String(account.account_id).startsWith("VR")) ?? accounts[0];
+
+        setStatus("Creating your ArkTrader session...");
+        const sessionUser = await ensureSupabaseSession(primary.account_id);
+        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+        for (const account of accounts) {
+          const accountId = String(account.account_id);
+          setStatus(`Linking ${accountId}...`);
           const { error: upsertErr } = await supabase.from("sessions").upsert(
             {
               user_id: sessionUser.id,
-              account_id: acc.account,
-              deriv_token: acc.token,
-              currency,
-              balance,
-              is_demo: acc.account.startsWith("VR"),
+              account_id: accountId,
+              deriv_token: accessToken,
+              currency: account.currency ?? "",
+              balance: Number(account.balance ?? 0),
+              is_demo: accountId.startsWith("VR"),
               is_active: true,
+              expires_at: expiresAt,
             },
             { onConflict: "user_id,account_id" },
           );
           if (upsertErr) throw upsertErr;
         }
-        toast.success(`Welcome — ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`);
+        toast.success(`Welcome - ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`);
         navigate({ to: "/" });
       } catch (e: any) {
         console.error(e);

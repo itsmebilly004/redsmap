@@ -1,7 +1,8 @@
 // src/lib/deriv.ts
 
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
-const WS_URL = `wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}&l=EN`;
+const DERIV_REDIRECT_URI = import.meta.env.VITE_DERIV_REDIRECT_URI;
+const PUBLIC_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 
@@ -23,6 +24,7 @@ let reqId = 1;
 let connecting: Promise<WebSocket> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
 let reconnectAttempts = 0;
+let wsUrl: string | null = null;
 
 const isBrowser = typeof window !== "undefined";
 
@@ -44,6 +46,18 @@ export function onStatus(fn: StatusListener) {
 
 export function getStatus() {
   return status;
+}
+
+export function setWsUrl(url: string) {
+  if (wsUrl === url) return;
+  wsUrl = url;
+  if (socket) {
+    try {
+      socket.close();
+    } catch { /* ignore */ }
+    socket = null;
+  }
+  connecting = null;
 }
 
 function startKeepalive() {
@@ -69,13 +83,16 @@ function connect(): Promise<WebSocket> {
   if (!isBrowser) {
     return new Promise((_, reject) => reject(new Error("WebSocket unavailable on server")));
   }
+  if (!wsUrl) {
+    return Promise.reject(new Error("Authenticated Deriv WebSocket URL has not been set."));
+  }
   if (socket && socket.readyState === 1) return Promise.resolve(socket);
   if (connecting) return connecting;
 
   setStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
   connecting = new Promise((resolve, reject) => {
     try {
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
       ws.onopen = () => {
         socket = ws;
         connecting = null;
@@ -140,27 +157,32 @@ export async function send(payload: Record<string, any>): Promise<any> {
 
 export async function subscribeTicks(symbol: string, onTick: (price: number, time: number) => void) {
   if (!isBrowser) return () => {};
-  await connect();
-  const key = `ticks:${symbol}`;
-  const sub = { send: { ticks: symbol, subscribe: 1 }, key };
-  activeSubs.set(key, sub);
-  const off = onMessage((msg) => {
-    if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
-      onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
+  const ws = await connectPublic();
+  const sub = { send: { ticks: symbol, subscribe: 1 } };
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
+        onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
+      }
+    } catch {
+      /* ignore */
     }
-  });
-  if (socket?.readyState === 1) socket.send(JSON.stringify(sub.send));
+  };
+  ws.send(JSON.stringify(sub.send));
   return () => {
-    off();
-    activeSubs.delete(key);
-    if (socket?.readyState === 1) socket.send(JSON.stringify({ forget_all: "ticks" }));
+    try {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ forget_all: "ticks" }));
+      ws.close();
+    } catch {
+      /* ignore */
+    }
   };
 }
 
 export async function subscribeBalance(token: string, onBalance: (b: any) => void) {
   if (!isBrowser) return () => {};
   await connect();
-  await send({ authorize: token });
   const key = `balance:${token.slice(-6)}`;
   const sub = { send: { balance: 1, subscribe: 1 }, key };
   activeSubs.set(key, sub);
@@ -182,19 +204,31 @@ export async function subscribeBalance(token: string, onBalance: (b: any) => voi
 }
 
 export type Candle = { time: number; open: number; high: number; low: number; close: number };
+export type TickPoint = { time: number; value: number };
 
 export async function fetchCandles(symbol: string, granularity: number, count = 500): Promise<Candle[]> {
   if (!isBrowser) return [];
-  const res = await send({ ticks_history: symbol, style: "candles", granularity, count, end: "latest", adjust_start_time: 1 });
+  const res = await publicSend({ ticks_history: symbol, style: "candles", granularity, count, end: "latest", adjust_start_time: 1 });
   return (res?.candles ?? []).map((c: any) => ({
     time: Number(c.epoch), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close),
   }));
 }
 
+export async function fetchTicks(symbol: string, count = 500): Promise<TickPoint[]> {
+  if (!isBrowser) return [];
+  const res = await publicSend({ ticks_history: symbol, style: "ticks", count, end: "latest", adjust_start_time: 1 });
+  const prices = res?.history?.prices ?? [];
+  const times = res?.history?.times ?? [];
+  return prices.map((price: any, index: number) => ({
+    time: Number(times[index]),
+    value: Number(price),
+  })).filter((point: TickPoint) => Number.isFinite(point.time) && Number.isFinite(point.value));
+}
+
 export async function getActiveSymbols() {
   if (!isBrowser) return [];
   if (symbolsCache) return symbolsCache;
-  const res = await send({ active_symbols: "brief", product_type: "basic" });
+  const res = await publicSend({ active_symbols: "brief", product_type: "basic" });
   symbolsCache = (res?.active_symbols ?? []).map((s: any) => ({
     symbol: s.symbol, display_name: s.display_name, market: s.market,
   }));
@@ -212,15 +246,99 @@ export function disconnectAll(): void {
   setStatus("disconnected");
 }
 
-export function buildOAuthUrl() {
-  if (!isBrowser) return "";
-  const params = new URLSearchParams({
-    app_id: DERIV_APP_ID,
-    l: "EN",
-    brand: "deriv",
-    redirect_uri: "https://www.arktradershub.com",
+function base64UrlEncode(bytes: ArrayBuffer | Uint8Array) {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let binary = "";
+  arr.forEach((byte) => {
+    binary += String.fromCharCode(byte);
   });
-  return `https://oauth.deriv.com/oauth2/authorize?${params.toString()}`;
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function sha256(value: string) {
+  const data = new TextEncoder().encode(value);
+  return crypto.subtle.digest("SHA-256", data);
+}
+
+export async function buildOAuthUrl() {
+  if (!isBrowser) return "";
+  const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
+  const codeVerifier = base64UrlEncode(verifierBytes);
+  const codeChallenge = base64UrlEncode(await sha256(codeVerifier));
+  const state = crypto.randomUUID();
+
+  sessionStorage.setItem("deriv_code_verifier", codeVerifier);
+  sessionStorage.setItem("deriv_oauth_state", state);
+
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: DERIV_APP_ID,
+    redirect_uri: DERIV_REDIRECT_URI,
+    scope: "trade account_manage",
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+  });
+  return `https://auth.deriv.com/oauth2/auth?${params.toString()}`;
+}
+
+export async function getAuthenticatedWsUrl(accessToken: string, accountId: string): Promise<string> {
+  const response = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Deriv-App-ID": DERIV_APP_ID,
+    },
+  });
+  const otpData = await response.json();
+  if (!response.ok) {
+    throw new Error(otpData?.message ?? otpData?.error?.message ?? "Failed to get authenticated Deriv WebSocket URL");
+  }
+  const url = otpData?.data?.url;
+  if (!url) throw new Error("Deriv OTP response did not include a WebSocket URL");
+  return url;
+}
+
+function connectPublic(): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    try {
+      const ws = new WebSocket(PUBLIC_WS_URL);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error("Could not connect to Deriv public WebSocket"));
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+async function publicSend(payload: Record<string, any>): Promise<any> {
+  const ws = await connectPublic();
+  const id = reqId++;
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      try { ws.close(); } catch { /* ignore */ }
+      reject(new Error("Deriv public request timed out"));
+    }, 15000);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.req_id === id) {
+          clearTimeout(timeoutId);
+          try { ws.close(); } catch { /* ignore */ }
+          if (msg.error) reject(new Error(msg.error.message));
+          else resolve(msg);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    ws.onerror = () => {
+      clearTimeout(timeoutId);
+      try { ws.close(); } catch { /* ignore */ }
+      reject(new Error("Deriv public request failed"));
+    };
+    ws.send(JSON.stringify({ ...payload, req_id: id }));
+  });
 }
 
 export const SYNTHETIC_MARKETS = [

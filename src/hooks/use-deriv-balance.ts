@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { subscribeBalance } from "@/lib/deriv";
+import { getAuthenticatedWsUrl, setWsUrl, subscribeBalance } from "@/lib/deriv";
 
 export type DerivAccount = {
   account_id: string;
@@ -75,6 +75,8 @@ export function useDerivBalance(): LiveBalance {
     
     (async () => {
       try {
+        const wsUrl = await getAuthenticatedWsUrl(active.deriv_token, active.account_id);
+        setWsUrl(wsUrl);
         unsub = await subscribeBalance(active.deriv_token, async (b) => {
           setBalance(b.balance);
           if (b.currency) setCurrency(b.currency);

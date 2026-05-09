@@ -27,12 +27,15 @@ function AuthPage() {
 
   const isSignup = mode === "signup";
 
-  function handleDeriv() {
+  async function handleDeriv() {
     setBusy(true);
-    // Send the trader to Deriv's official OAuth endpoint. Deriv handles the
-    // sign-up / sign-in flow on their domain and redirects back to
-    // /deriv-callback with account tokens.
-    window.location.href = buildOAuthUrl();
+    try {
+      const url = await buildOAuthUrl();
+      window.location.href = url;
+    } catch (error) {
+      console.error("Could not build Deriv OAuth URL", error);
+      setBusy(false);
+    }
   }
 
   return (

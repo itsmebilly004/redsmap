@@ -63,6 +63,9 @@ function DashboardHome() {
   const wins = trades.filter((t) => t.status === "won").length;
   const losses = trades.filter((t) => t.status === "lost").length;
   const winRate = wins + losses ? Math.round((wins / (wins + losses)) * 100) : 0;
+  const connectDeriv = async () => {
+    window.location.href = await buildOAuthUrl();
+  };
 
   return (
     <div className="space-y-8">
@@ -84,7 +87,7 @@ function DashboardHome() {
             </p>
           </div>
           <Button
-            onClick={() => (window.location.href = buildOAuthUrl())}
+            onClick={connectDeriv}
             className="shrink-0 bg-[oklch(0.7_0.17_150)] text-white hover:bg-[oklch(0.65_0.17_150)]"
           >
             <Plug className="mr-1 size-4" /> Connect Deriv

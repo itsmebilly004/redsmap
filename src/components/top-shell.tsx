@@ -92,6 +92,10 @@ export function TopShell({ children }: { children: ReactNode }) {
     navigate({ to: "/auth", search: { mode: "signin" } });
   }
 
+  async function handleConnectDeriv() {
+    window.location.href = await buildOAuthUrl();
+  }
+
   return (
     <div className="flex min-h-dvh flex-col bg-[#f2f3f4] text-[#333333]">
       <header className="flex h-14 items-center justify-between border-b border-[#e5e5e5] bg-white px-4 md:px-6">
@@ -222,7 +226,7 @@ export function TopShell({ children }: { children: ReactNode }) {
 
           {user && !account && (
             <Button
-              onClick={() => (window.location.href = buildOAuthUrl())}
+              onClick={handleConnectDeriv}
               className="h-9 rounded-md bg-[#ff444f] px-4 text-white hover:bg-[#eb3e48]"
             >
               <Plug className="mr-1 size-4" /> Connect Deriv

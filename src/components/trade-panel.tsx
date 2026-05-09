@@ -49,6 +49,13 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
   const [takeProfit, setTakeProfit] = useState<number>(0);
   const [busy, setBusy] = useState(false);
+  const [openAccumulator, setOpenAccumulator] = useState<{
+    contractId: string;
+    tradeId?: string;
+    buyPrice: number;
+    bidPrice: number | null;
+    profit: number | null;
+  } | null>(null);
   const [payouts, setPayouts] = useState<Record<string, { payout: number; pct: number }>>({});
   const activePollsRef = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
 
@@ -81,6 +88,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const showDuration = !isAccumulator && !isMultiplier;
   const sides = SIDES_BY_CATEGORY[category];
   const catIdx = TRADE_CATEGORIES.findIndex((c) => c.value === category);
+  const currentDigit = lastPrice != null && Number.isFinite(lastPrice)
+    ? Number(lastPrice.toFixed(2).slice(-1))
+    : null;
   const cycleCategory = useCallback(
     (dir: -1 | 1) => {
       const next = (catIdx + dir + TRADE_CATEGORIES.length) % TRADE_CATEGORIES.length;
@@ -94,7 +104,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     let cancelled = false;
     const run = async () => {
       try {
-        if (token) await send({ authorize: token });
         const next: Record<string, { payout: number; pct: number }> = {};
         let accuInfo: typeof accuMeta | null = null;
         for (const s of sides) {
@@ -166,18 +175,26 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   // own chart does.
   useEffect(() => {
     if (!isAccumulator) return;
-    if (lastPrice == null || !Number.isFinite(lastPrice)) return;
+    if (lastPrice == null || !Number.isFinite(lastPrice)) {
+      onAccumulatorBarriers?.({ high: null, low: null });
+      return;
+    }
     const tsb = accuMeta.tickSize;
     if (tsb != null && Number.isFinite(tsb) && tsb > 0) {
       const high = lastPrice * (1 + tsb);
       const low = lastPrice * (1 - tsb);
+      onAccumulatorBarriers?.({ high, low });
+    } else if (growthRate > 0) {
+      const estimatedTickSize = Math.max(0.0005, growthRate / 10);
+      const high = lastPrice * (1 + estimatedTickSize);
+      const low = lastPrice * (1 - estimatedTickSize);
       onAccumulatorBarriers?.({ high, low });
     } else if (accuMeta.high != null && accuMeta.low != null) {
       // Until we receive proposal metadata, fall back to the absolute barriers
       // returned by the most recent proposal.
       onAccumulatorBarriers?.({ high: accuMeta.high, low: accuMeta.low });
     }
-  }, [isAccumulator, lastPrice, accuMeta.tickSize, accuMeta.high, accuMeta.low, onAccumulatorBarriers]);
+  }, [isAccumulator, lastPrice, accuMeta.tickSize, accuMeta.high, accuMeta.low, growthRate, onAccumulatorBarriers]);
 
   async function handleBuy(sideOverride?: string) {
     const activeSide = sideOverride ?? side;
@@ -197,7 +214,6 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     }
     setBusy(true);
     try {
-      await send({ authorize: token });
       const contract_type = contractTypeFor(category, activeSide);
       const proposal: any = {
         proposal: 1,
@@ -242,14 +258,36 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         .select()
         .single();
 
+      if (isAccumulator) {
+        setOpenAccumulator({
+          contractId: String(contract.contract_id),
+          tradeId: trade?.id,
+          buyPrice: Number(contract.buy_price ?? stake),
+          bidPrice: null,
+          profit: 0,
+        });
+      }
+
       const poll = setInterval(async () => {
         try {
           const res = await send({ proposal_open_contract: 1, contract_id: contract.contract_id });
           const c = res.proposal_open_contract;
+          if (isAccumulator && !c?.is_sold) {
+            setOpenAccumulator((current) =>
+              current?.contractId === String(contract.contract_id)
+                ? {
+                    ...current,
+                    bidPrice: c?.bid_price != null ? Number(c.bid_price) : current.bidPrice,
+                    profit: c?.profit != null ? Number(c.profit) : current.profit,
+                  }
+                : current,
+            );
+          }
           if (c?.is_sold) {
             clearInterval(poll);
             activePollsRef.current.delete(poll);
             const profit = Number(c.profit ?? 0);
+            if (isAccumulator) setOpenAccumulator(null);
             if (trade?.id) {
               await supabase
                 .from("trades")
@@ -271,6 +309,34 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       }, 120000);
     } catch (e: any) {
       toast.error(e.message ?? "Trade failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSellAccumulator() {
+    if (!openAccumulator) return;
+    setBusy(true);
+    try {
+      const response = await send({ sell: openAccumulator.contractId, price: 0 });
+      const sold = response.sell;
+      const profit = Number(sold?.profit ?? openAccumulator.profit ?? 0);
+      if (openAccumulator.tradeId) {
+        await supabase
+          .from("trades")
+          .update({
+            profit_loss: profit,
+            status: profit >= 0 ? "won" : "lost",
+            closed_at: new Date().toISOString(),
+          })
+          .eq("id", openAccumulator.tradeId);
+      }
+      toast[profit >= 0 ? "success" : "error"](
+        `Sold accumulator ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${currency}`,
+      );
+      setOpenAccumulator(null);
+    } catch (error: any) {
+      toast.error(error?.message ?? "Could not sell accumulator");
     } finally {
       setBusy(false);
     }
@@ -343,26 +409,14 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         </div>
       )}
 
-      {needsDigit && (
-        <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
-          <div className="text-center text-sm">Last Digit Prediction</div>
-          <div className="mt-3 grid grid-cols-5 gap-2">
-            {Array.from({ length: 10 }).map((_, d) => (
-              <button
-                key={d}
-                onClick={() => setBarrierDigit(d)}
-                className={cn(
-                  "rounded-md border py-2 text-sm font-medium transition",
-                  barrierDigit === d
-                    ? "border-[oklch(0.7_0.17_150)] bg-[oklch(0.7_0.17_150)]/10"
-                    : "border-[oklch(0.92_0.005_240)] bg-white text-[oklch(0.45_0.02_260)] hover:bg-[oklch(0.96_0.005_240)]",
-                )}
-              >
-                {d}
-              </button>
-            ))}
-          </div>
-        </div>
+      {isDigit && (
+        <DigitWheel
+          category={category}
+          currentDigit={currentDigit}
+          selectedDigit={barrierDigit}
+          selectedSide={side}
+          onDigitChange={needsDigit ? setBarrierDigit : undefined}
+        />
       )}
 
       {needsBarrierOffset && (
@@ -510,7 +564,11 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
 
       {/* Accumulator stat rows (mirrors Deriv's proposal summary) */}
       {isAccumulator && (
-        <div className="rounded-xl bg-white p-3 text-sm">
+        <div className="rounded-xl border border-[#d8edf7] bg-[#f7fcff] p-3 text-sm">
+          <div className="mb-2 flex items-center justify-between rounded-md bg-white px-3 py-2 text-xs">
+            <span className="font-semibold text-[#147a78]">Accumulator barrier corridor</span>
+            <span className="font-mono text-[#555555]">{lastPrice != null ? lastPrice.toFixed(4) : "-"}</span>
+          </div>
           <div className="flex items-center justify-between py-1">
             <span className="text-[oklch(0.4_0.02_260)]">Max. payout</span>
             <span className="font-medium underline decoration-dotted">
@@ -545,6 +603,23 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
               </span>
             </div>
           )}
+          {openAccumulator && (
+            <div className="mt-2 rounded-md border border-[#cce9e7] bg-white p-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-[#147a78]">Open accumulator</span>
+                <span className={cn("font-mono font-bold", (openAccumulator.profit ?? 0) >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                  {(openAccumulator.profit ?? 0) >= 0 ? "+" : ""}
+                  {(openAccumulator.profit ?? 0).toFixed(2)} {currency}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px] text-[#666666]">
+                <span>Sell price</span>
+                <span className="font-mono">
+                  {openAccumulator.bidPrice != null ? `${openAccumulator.bidPrice.toFixed(2)} ${currency}` : "Pending"}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -565,7 +640,9 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                   }
                   if (!token) {
                     toast.message("Connect your Deriv account to trade.");
-                    window.location.href = buildOAuthUrl();
+                    buildOAuthUrl().then((url) => {
+                      window.location.href = url;
+                    });
                     return;
                   }
                   if (!busy) void handleBuy(s.value);
@@ -595,12 +672,18 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       {(isAccumulator || isMultiplier) && (
         <Button
           onClick={() => {
+            if (isAccumulator && openAccumulator) {
+              void handleSellAccumulator();
+              return;
+            }
             if (!user) {
               toast.error("Sign in to place trades.");
               return;
             }
             if (!token) {
-              window.location.href = buildOAuthUrl();
+              buildOAuthUrl().then((url) => {
+                window.location.href = url;
+              });
               return;
             }
             void handleBuy();
@@ -608,20 +691,98 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           disabled={busy}
           className={cn(
             "h-12 w-full rounded-xl text-base font-semibold text-white",
-            isAccumulator ? accentBuy : "",
+            isAccumulator ? (openAccumulator ? "bg-[#ff444f] hover:bg-[#eb3e48]" : accentBuy) : "",
           )}
         >
           {busy
             ? "Submitting…"
-            : token
-              ? `Buy ${sides.find((s) => s.value === side)?.label ?? ""} (${isDemo ? "Demo" : "Live"})`
-              : "Sign in & connect Deriv to trade"}
+            : openAccumulator
+              ? `Sell ${openAccumulator.bidPrice != null ? openAccumulator.bidPrice.toFixed(2) : ""} ${currency}`
+              : token
+                ? `Buy ${sides.find((s) => s.value === side)?.label ?? ""} (${isDemo ? "Demo" : "Live"})`
+                : "Sign in & connect Deriv to trade"}
         </Button>
       )}
 
       <p className="text-[11px] text-[oklch(0.5_0.02_260)]">
         Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "—"}</span>. You can lose money rapidly.
       </p>
+    </div>
+  );
+}
+
+function DigitWheel({
+  category,
+  currentDigit,
+  onDigitChange,
+  selectedDigit,
+  selectedSide,
+}: {
+  category: TradeCategory;
+  currentDigit: number | null;
+  onDigitChange?: (digit: number) => void;
+  selectedDigit: number;
+  selectedSide: string;
+}) {
+  const digits = Array.from({ length: 10 }, (_, digit) => digit);
+  const isReadOnly = !onDigitChange;
+  const title = category === "even_odd" ? "Last digit" : "Prediction digit";
+
+  return (
+    <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold">{title}</div>
+          <div className="text-[11px] text-[oklch(0.5_0.02_260)]">
+            {category === "over_under"
+              ? `${selectedSide === "over" ? "Over" : "Under"} ${selectedDigit}`
+              : category === "matches_differs"
+                ? `${selectedSide === "matches" ? "Matches" : "Differs"} ${selectedDigit}`
+                : selectedSide === "even" ? "Even digits" : "Odd digits"}
+          </div>
+        </div>
+        <div className="rounded-md bg-[#ff444f] px-2.5 py-1 text-xs font-bold text-white">
+          {currentDigit ?? "-"}
+        </div>
+      </div>
+
+      <div className="relative mx-auto size-56">
+        <div className="absolute inset-7 rounded-full border border-[#ececec] bg-[#fafafa]" />
+        <div className="absolute left-1/2 top-1/2 flex size-20 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-[#dedede] bg-white shadow-sm">
+          <span className="text-[10px] font-bold uppercase text-[#777777]">Spot</span>
+          <span className="font-mono text-2xl font-bold text-[#333333]">{currentDigit ?? "-"}</span>
+        </div>
+
+        {digits.map((digit, index) => {
+          const angle = (index / digits.length) * Math.PI * 2 - Math.PI / 2;
+          const radius = 86;
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+          const selected = !isReadOnly && selectedDigit === digit;
+          const live = currentDigit === digit;
+          const evenOddMatch = category === "even_odd" && ((selectedSide === "even" && digit % 2 === 0) || (selectedSide === "odd" && digit % 2 === 1));
+          return (
+            <button
+              key={digit}
+              type="button"
+              disabled={isReadOnly}
+              onClick={() => onDigitChange?.(digit)}
+              className={cn(
+                "absolute flex size-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold transition",
+                selected && "border-[#ff444f] bg-[#ff444f] text-white shadow-md",
+                !selected && evenOddMatch && "border-[#4bb4b3] bg-[#e5f7f6] text-[#147a78]",
+                !selected && !evenOddMatch && "border-[#dedede] bg-white text-[#555555]",
+                live && "ring-2 ring-[#ff444f]/40",
+                !isReadOnly && "hover:border-[#ff444f]",
+              )}
+              style={{ left: `calc(50% + ${x}px)`, top: `calc(50% + ${y}px)` }}
+              aria-label={`Digit ${digit}`}
+            >
+              {digit}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
