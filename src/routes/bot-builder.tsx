@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { TopShell } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
@@ -23,37 +23,27 @@ import {
   Square,
   RotateCcw,
   Download,
-  GripVertical,
   Save,
   Activity,
   Target,
   ShieldAlert,
   Wallet,
-  TrendingUp,
   Settings2,
   Layers,
   ChevronRight,
   Info,
   History,
-  FileCode,
+  Timer,
+  Fingerprint,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BOT_PRESETS } from "./trading-bots";
 
-const searchSchema = z.object({
-  preset: z.string().optional(),
-});
-
 export const Route = createFileRoute("/bot-builder")({
-  validateSearch: searchSchema,
+  validateSearch: z.object({ preset: z.string().optional() }),
   component: BotBuilder,
 });
-
-const BLOCK_META = [
-  { id: "trade_params", title: "Trade Parameters", icon: Settings2, color: "text-sky-400" },
-  { id: "purchase_logic", title: "Purchase Logic", icon: Target, color: "text-emerald-400" },
-  { id: "restart_cond", title: "Restart Conditions", icon: RotateCcw, color: "text-orange-400" },
-];
 
 const MARKETS = {
   "R_10": "Volatility 10 Index",
@@ -68,28 +58,37 @@ const MARKETS = {
 function BotBuilder() {
   const { user } = useAuth();
   const { preset } = Route.useSearch();
-
-  // Bot Configuration State
-  const [symbol, setSymbol] = useState("R_100");
-  const [tradeType] = useState<TradeCategory>("even_odd");
-  const [contractType] = useState("even");
-  const [initialStake, setInitialStake] = useState(1);
-  const [currentStake, setCurrentStake] = useState(1);
-  const [stopLoss, setStopLoss] = useState(10);
-  const [takeProfit, setTakeProfit] = useState(10);
-  const [martingale, setMartingale] = useState(2.0);
-  const [botName, setBotName] = useState("New Strategy");
-
-  // UI / Runtime State
-  const [running, setRunning] = useState(false);
-  const [tab, setTab] = useState("summary");
-  const [stats, setStats] = useState({ runs: 0, wins: 0, losses: 0, profit: 0 });
-  const [journal, setJournal] = useState<{ time: string; msg: string; type?: 'info' | 'error' | 'success' }[]>([]);
-
   const { account: derivAccount, currency: derivCurrency } = useDerivBalanceContext();
   const token = derivAccount?.deriv_token ?? null;
 
-  // 1. Load Presets
+  // --- BOT CONFIGURATION STATE ---
+  const [botName, setBotName] = useState("ArkTrader Strategy");
+  const [symbol, setSymbol] = useState("R_100");
+  const [tradeType, setTradeType] = useState<TradeCategory>("over_under");
+  const [contractType, setContractType] = useState("over");
+  
+  // New Manual Inputs
+  const [initialStake, setInitialStake] = useState(1);
+  const [currentStake, setCurrentStake] = useState(1);
+  const [martingale, setMartingale] = useState(2.0);
+  const [maxSteps, setMaxSteps] = useState(5); // Stop after X losses
+  const [currentStep, setCurrentStep] = useState(0);
+  const [duration, setDuration] = useState(1);
+  const [durationUnit, setDurationUnit] = useState("t");
+  const [prediction, setPrediction] = useState(5);
+  const [cooldown, setCooldown] = useState(1); // Seconds between cycles
+
+  // Session Limits
+  const [stopLoss, setStopLoss] = useState(50);
+  const [takeProfit, setTakeProfit] = useState(50);
+
+  // --- RUNTIME STATE ---
+  const [running, setRunning] = useState(false);
+  const runningRef = useRef(false);
+  const [tab, setTab] = useState("summary");
+  const [stats, setStats] = useState({ runs: 0, wins: 0, losses: 0, profit: 0 });
+  const [journal, setJournal] = useState<{ time: string; msg: string; type?: string }[]>([]);
+
   useEffect(() => {
     if (preset) {
       const config = BOT_PRESETS.find(b => b.id === preset);
@@ -101,281 +100,307 @@ function BotBuilder() {
         setStopLoss(config.sl);
         setMartingale(config.martingale);
         setBotName(config.name);
-        toast.success(`Preset "${config.name}" deployed`);
+        setTradeType(config.tradeType as TradeCategory);
+        setContractType(config.contractType);
       }
     }
   }, [preset]);
 
-  // 2. Journaling
-  const logJournal = (msg: string, type: any = 'info') => {
+  const logJournal = (msg: string, type = 'info') => {
     setJournal(prev => [{ time: new Date().toLocaleTimeString(), msg, type }, ...prev].slice(0, 50));
   };
 
-  // 3. Save Functionality
   const saveBot = async () => {
-    if (!user) return toast.error("Please sign in to save.");
+    if (!user) return toast.error("Sign in to save strategies.");
     const { error } = await supabase.from("bots").upsert({
       user_id: user.id,
       name: botName,
-      strategy: { symbol, initialStake, martingale, stopLoss, takeProfit },
+      strategy: { symbol, initialStake, martingale, stopLoss, takeProfit, duration, prediction, maxSteps },
       status: running ? "running" : "stopped"
     });
-    if (error) toast.error("Save failed: " + error.message);
-    else toast.success("Strategy saved to Cloud");
+    if (error) toast.error("Error: " + error.message);
+    else toast.success("Strategy stored in Cloud");
   };
 
-  // 4. XML Export Functionality
-  const exportXML = () => {
-    const xmlContent = `<xml><strategy name="${botName}"><market>${symbol}</market><stake>${initialStake}</stake></strategy></xml>`;
-    const blob = new Blob([xmlContent], { type: "text/xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${botName.replace(/\s+/g, "_")}.xml`;
-    a.click();
-    toast.success("XML Strategy Exported");
+  const toggleBot = () => {
+    if (!token) return toast.error("Connect Deriv first.");
+    const next = !running;
+    setRunning(next);
+    runningRef.current = next;
+    if (next) {
+      logJournal("▶️ Execution sequence initiated", "success");
+      runCycle();
+    } else {
+      logJournal("⏹️ Execution sequence halted", "error");
+    }
   };
 
-  // 5. Trading Execution Loop
   async function runCycle() {
-    if (!token || !running) return;
+    if (!token || !runningRef.current) return;
 
-    if (stats.profit >= takeProfit || (stats.profit <= -stopLoss)) {
-      const result = stats.profit >= takeProfit ? "TARGET REACHED" : "STOP LOSS HIT";
-      logJournal(`🛑 Bot Stopped: ${result}`, stats.profit >= takeProfit ? 'success' : 'error');
+    // 1. Safety & Recovery Limit Checks
+    if (stats.profit >= takeProfit || stats.profit <= -stopLoss) {
+      logJournal("🏁 Target Threshold Reached. Stopping.", "info");
       setRunning(false);
+      runningRef.current = false;
       return;
+    }
+
+    if (currentStep >= maxSteps) {
+      logJournal("⚠️ Max Martingale Steps Exceeded. Resetting.", "error");
+      setCurrentStake(initialStake);
+      setCurrentStep(0);
     }
 
     try {
       await send({ authorize: token });
       const ct = contractTypeFor(tradeType, contractType);
+      
       const proposal = await send({
-        proposal: 1, amount: currentStake, basis: "stake", contract_type: ct,
-        currency: derivCurrency, symbol: symbol, duration: 1, duration_unit: "t"
+        proposal: 1,
+        amount: currentStake,
+        basis: "stake",
+        contract_type: ct,
+        currency: derivCurrency,
+        symbol: symbol,
+        duration: duration,
+        duration_unit: durationUnit,
+        ...(tradeType === 'over_under' || tradeType === 'matches_differs' ? { barrier: String(prediction) } : {})
       });
 
       const buy = await send({ buy: proposal.proposal.id, price: currentStake });
-      logJournal(`Order Placed: ${currentStake} ${derivCurrency}`);
+      logJournal(`Order: ${currentStake} ${derivCurrency} on ${ct}`);
 
       const poll = setInterval(async () => {
+        if (!runningRef.current) { clearInterval(poll); return; }
         const res = await send({ proposal_open_contract: 1, contract_id: buy.buy.contract_id });
         const c = res.proposal_open_contract;
+        
         if (c.is_sold) {
           clearInterval(poll);
           const pnl = Number(c.profit);
           const won = pnl > 0;
+
           setStats(s => ({ runs: s.runs + 1, wins: s.wins + (won ? 1 : 0), losses: s.losses + (won ? 0 : 1), profit: s.profit + pnl }));
-          logJournal(`${won ? 'WIN' : 'LOSS'}: ${pnl.toFixed(2)}`, won ? 'success' : 'error');
-          if (won) setCurrentStake(initialStake);
-          else setCurrentStake(prev => Number((prev * martingale).toFixed(2)));
-          if (running) setTimeout(runCycle, 800);
+          logJournal(`${won ? 'WIN' : 'LOSS'} | P&L: ${pnl.toFixed(2)}`, won ? 'success' : 'error');
+
+          if (won) {
+            setCurrentStake(initialStake);
+            setCurrentStep(0);
+          } else {
+            setCurrentStake(prev => Number((prev * martingale).toFixed(2)));
+            setCurrentStep(prev => prev + 1);
+          }
+
+          // Respect Cooldown
+          if (runningRef.current) setTimeout(runCycle, cooldown * 1000);
         }
       }, 1000);
+
     } catch (e: any) {
-      logJournal(`Critical Error: ${e.message}`, 'error');
+      logJournal(`API Error: ${e.message}`, 'error');
       setRunning(false);
+      runningRef.current = false;
     }
   }
 
-  useEffect(() => { if (running) runCycle(); }, [running]);
-
   return (
     <TopShell>
-      <div className="flex h-[calc(100vh-64px)] flex-col lg:grid lg:grid-cols-[240px_1fr_340px] overflow-hidden bg-slate-950">
+      <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-background lg:grid lg:grid-cols-[240px_1fr_360px]">
         
-        {/* LEFT: WORKSPACE BLOCKS */}
-        <aside className="hidden flex-col border-r border-white/5 bg-slate-900/30 lg:flex">
-          <div className="p-4 flex items-center gap-2 border-b border-white/5">
-            <Layers className="size-4 text-sky-400" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Logic Workspace</span>
+        {/* LEFT: WORKSPACE BLOCKS (Branded) */}
+        <aside className="hidden border-r border-border/40 bg-card/30 lg:flex flex-col p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-4 text-primary font-black uppercase text-[10px] tracking-widest opacity-70">
+            <Layers className="size-4" /> Workspace
           </div>
-          <div className="p-3 space-y-2">
-            {BLOCK_META.map((b) => (
-              <button 
-                key={b.id} 
-                onClick={() => toast.info(`Adding ${b.title} to flow...`)}
-                className="w-full group flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 transition hover:bg-white/[0.06] active:scale-95"
-              >
-                <div className={cn("rounded-lg bg-slate-950 p-2 border border-white/5", b.color)}>
-                  <b.icon className="size-4" />
-                </div>
-                <span className="text-[11px] font-bold text-slate-300">{b.title}</span>
-              </button>
-            ))}
-          </div>
+          {[
+            { n: 'Parameters', c: 'text-sky-400' },
+            { n: 'Purchase Logic', c: 'text-emerald-400' },
+            { n: 'Risk Manager', c: 'text-destructive' }
+          ].map(b => (
+            <button key={b.n} onClick={() => toast.info(`${b.n} block active`)} className="p-3 bg-white/[0.03] border border-white/5 rounded-xl text-[11px] font-bold text-slate-300 flex items-center gap-3 transition hover:bg-white/[0.08]">
+              <div className={cn("size-2 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.5)]", b.c.replace('text-', 'bg-'))} /> {b.n}
+            </button>
+          ))}
         </aside>
 
-        {/* CENTER: MAIN BUILDER */}
-        <main className="flex flex-col flex-1 min-w-0">
-          {/* Internal Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-slate-900/20">
+        {/* CENTER: MAIN INTERFACE */}
+        <main className="flex flex-col min-w-0 border-r border-border/40 overflow-hidden">
+          <header className="flex items-center justify-between p-5 border-b border-border/40 bg-card/20">
             <div className="flex items-center gap-4">
-              <div className="size-10 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400 border border-sky-500/30">
-                <FileCode className="size-5" />
-              </div>
-              <div>
-                <h1 className="text-lg font-black text-white tracking-tight">{botName}</h1>
-                <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                  <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live</span>
-                  <ChevronRight className="size-3" />
-                  <span>{symbol}</span>
-                </div>
-              </div>
+               <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary border border-primary/30 shadow-[0_0_20px_rgba(255,68,79,0.1)]">
+                 <Zap className="size-5 fill-current" />
+               </div>
+               <div>
+                 <h1 className="font-black text-white text-lg tracking-tight">{botName}</h1>
+                 <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                   <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-primary animate-pulse" /> Live</span>
+                   <ChevronRight className="size-3" />
+                   <span>{symbol}</span>
+                 </div>
+               </div>
             </div>
             <div className="flex gap-2">
-              <Button onClick={saveBot} variant="outline" size="sm" className="bg-slate-800 border-white/10 hover:bg-slate-700 text-xs h-8">
-                <Save className="size-3.5 mr-2" /> Save
-              </Button>
-              <Button onClick={exportXML} variant="outline" size="sm" className="bg-slate-800 border-white/10 hover:bg-slate-700 text-xs h-8">
-                <Download className="size-3.5 mr-2" /> XML
-              </Button>
+               <Button variant="outline" size="sm" className="bg-white/5 border-white/10 hover:bg-white/10 text-xs font-bold" onClick={saveBot}><Save className="size-3.5 mr-2 text-primary"/> Save Strategy</Button>
+               <Button variant="outline" size="sm" className="bg-white/5 border-white/10 hover:bg-white/10 text-xs font-bold"><Download className="size-3.5 mr-2 text-sky-400"/> Export XML</Button>
             </div>
-          </div>
+          </header>
 
-          {/* Config Grid */}
-          <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
-            <div className="grid gap-6">
-              {/* Row 1: Market */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-5 space-y-4">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                    <Wallet className="size-3.5 text-sky-400" /> Market Configuration
-                  </h3>
-                  <div className="space-y-3">
-                    <Label className="text-[11px] text-slate-400 uppercase font-bold">Select Asset</Label>
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
+            <div className="grid gap-6 md:grid-cols-2">
+              
+              {/* Card: Trade Setup */}
+              <div className="bg-card border border-border/60 rounded-[24px] p-6 space-y-6 shadow-xl">
+                <h3 className="text-xs font-black uppercase text-primary flex items-center gap-2 tracking-widest"><Wallet className="size-4"/> Trade Setup</h3>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Asset Index</Label>
                     <Select value={symbol} onValueChange={setSymbol}>
-                      <SelectTrigger className="bg-slate-950 border-white/10 h-10 rounded-lg">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-900 border-white/10">
-                        {Object.entries(MARKETS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
-                      </SelectContent>
+                      <SelectTrigger className="bg-background border-white/10 h-11 rounded-xl font-bold"><SelectValue/></SelectTrigger>
+                      <SelectContent className="bg-card border-white/10">{Object.entries(MARKETS).map(([v,l]) => <SelectItem key={v} value={v} className="font-bold">{l}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-[11px] text-slate-400 uppercase font-bold">Base Stake</Label>
-                      <Input type="number" value={initialStake} onChange={e => setInitialStake(Number(e.target.value))} className="bg-slate-950 border-white/10 h-10 rounded-lg font-mono text-white" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[11px] text-slate-400 uppercase font-bold">Martingale</Label>
-                      <Input type="number" value={martingale} onChange={e => setMartingale(Number(e.target.value))} className="bg-slate-950 border-white/10 h-10 rounded-lg font-mono text-white" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-5 space-y-6">
-                   <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                    <ShieldAlert className="size-3.5 text-orange-400" /> Session Limits
-                  </h3>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase">Take Profit</span>
-                      <span className="text-emerald-400 font-black text-sm font-mono">+{takeProfit} {derivCurrency || 'USD'}</span>
-                    </div>
-                    <input type="range" min="1" max="1000" className="w-full accent-emerald-500 bg-slate-950 h-1.5 rounded-full" value={takeProfit} onChange={e => setTakeProfit(Number(e.target.value))} />
-                    
-                    <div className="flex justify-between items-center pt-2">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase">Stop Loss</span>
-                      <span className="text-rose-500 font-black text-sm font-mono">-{stopLoss} {derivCurrency || 'USD'}</span>
-                    </div>
-                    <input type="range" min="1" max="1000" className="w-full accent-rose-500 bg-slate-950 h-1.5 rounded-full" value={stopLoss} onChange={e => setStopLoss(Number(e.target.value))} />
+                     <div className="space-y-1.5">
+                       <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Stake ($)</Label>
+                       <Input type="number" value={initialStake} onChange={e=>setInitialStake(Number(e.target.value))} className="bg-background border-white/10 h-11 rounded-xl font-black text-white focus:border-primary"/>
+                     </div>
+                     <div className="space-y-1.5">
+                       <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Martingale (x)</Label>
+                       <Input type="number" value={martingale} onChange={e=>setMartingale(Number(e.target.value))} className="bg-background border-white/10 h-11 rounded-xl font-black text-white focus:border-sky-400"/>
+                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Bot Info Message */}
-              <div className="bg-sky-500/5 border border-sky-500/10 rounded-xl p-4 flex gap-4">
-                <Info className="size-5 text-sky-400 shrink-0" />
-                <p className="text-[11px] text-slate-400 leading-normal">
-                  The bot uses a **Dynamic Martingale** engine. On every loss, the next stake is multiplied by <span className="text-white font-bold">{martingale}x</span>. 
-                  On a win, the stake resets to <span className="text-white font-bold">${initialStake}</span>.
-                </p>
+              {/* Card: Dynamic Parameters */}
+              <div className="bg-card border border-border/60 rounded-[24px] p-6 space-y-6 shadow-xl">
+                <h3 className="text-xs font-black uppercase text-sky-400 flex items-center gap-2 tracking-widest"><Settings2 className="size-4"/> Parameters</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Duration ({durationUnit})</Label>
+                    <div className="flex gap-1">
+                      <Input type="number" value={duration} onChange={e=>setDuration(Number(e.target.value))} className="bg-background border-white/10 h-11 rounded-xl font-black text-white w-16 text-center"/>
+                      <Select value={durationUnit} onValueChange={setDurationUnit}>
+                        <SelectTrigger className="bg-background border-white/10 h-11 rounded-xl font-bold flex-1 text-xs"><SelectValue/></SelectTrigger>
+                        <SelectContent className="bg-card border-white/10">
+                          <SelectItem value="t">Ticks</SelectItem>
+                          <SelectItem value="s">Sec</SelectItem>
+                          <SelectItem value="m">Min</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Prediction Digit</Label>
+                    <Select value={String(prediction)} onValueChange={v => setPrediction(Number(v))}>
+                      <SelectTrigger className="bg-background border-white/10 h-11 rounded-xl font-bold"><SelectValue/></SelectTrigger>
+                      <SelectContent className="bg-card border-white/10">
+                        {[0,1,2,3,4,5,6,7,8,9].map(d => <SelectItem key={d} value={String(d)} className="font-mono">{d}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-1.5">
+                     <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Recovery Limit (Steps)</Label>
+                     <Input type="number" value={maxSteps} onChange={e=>setMaxSteps(Number(e.target.value))} className="bg-background border-white/10 h-11 rounded-xl font-black text-white" placeholder="Steps"/>
+                   </div>
+                   <div className="space-y-1.5">
+                     <Label className="text-[10px] uppercase font-black text-muted-foreground ml-1">Cycle Cooldown (s)</Label>
+                     <Input type="number" value={cooldown} onChange={e=>setCooldown(Number(e.target.value))} className="bg-background border-white/10 h-11 rounded-xl font-black text-white"/>
+                   </div>
+                </div>
+              </div>
+
+              {/* Card: Risk Limits */}
+              <div className="bg-card border border-border/60 rounded-[24px] p-6 space-y-6 shadow-xl md:col-span-2">
+                <h3 className="text-xs font-black uppercase text-emerald-400 flex items-center gap-2 tracking-widest"><ShieldAlert className="size-4"/> Risk Management</h3>
+                <div className="grid gap-8 md:grid-cols-2">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-end">
+                      <span className="text-[10px] font-black uppercase text-muted-foreground tracking-tighter">Profit Target</span>
+                      <span className="text-xl font-black text-emerald-400">+{takeProfit} <span className="text-[10px] opacity-50 uppercase">{derivCurrency || 'USD'}</span></span>
+                    </div>
+                    <input type="range" min="1" max="2000" step="5" className="w-full accent-emerald-500 bg-background h-1.5 rounded-full appearance-none cursor-pointer border border-white/5" value={takeProfit} onChange={e=>setTakeProfit(Number(e.target.value))}/>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-end">
+                      <span className="text-[10px] font-black uppercase text-muted-foreground tracking-tighter">Stop Loss Limit</span>
+                      <span className="text-xl font-black text-primary">-{stopLoss} <span className="text-[10px] opacity-50 uppercase">{derivCurrency || 'USD'}</span></span>
+                    </div>
+                    <input type="range" min="1" max="2000" step="5" className="w-full accent-primary bg-background h-1.5 rounded-full appearance-none cursor-pointer border border-white/5" value={stopLoss} onChange={e=>setStopLoss(Number(e.target.value))}/>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </main>
 
-        {/* RIGHT: ANALYTICS & LOGS */}
-        <aside className="flex flex-col border-l border-white/5 bg-slate-900/40">
+        {/* RIGHT: ANALYTICS & CONTROLS */}
+        <aside className="flex flex-col bg-card/60 backdrop-blur-2xl shadow-2xl border-l border-border/40">
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
-            <TabsList className="grid grid-cols-2 h-12 bg-slate-950 rounded-none border-b border-white/5">
-              <TabsTrigger value="summary" className="text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-sky-500 data-[state=active]:text-white">Performance</TabsTrigger>
-              <TabsTrigger value="journal" className="text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-sky-500 data-[state=active]:text-white">Live Logs</TabsTrigger>
+            <TabsList className="grid grid-cols-2 h-14 bg-background/50 border-b border-white/10 rounded-none">
+              <TabsTrigger value="summary" className="text-[10px] font-black uppercase tracking-widest data-[state=active]:text-primary">Performance</TabsTrigger>
+              <TabsTrigger value="journal" className="text-[10px] font-black uppercase tracking-widest data-[state=active]:text-sky-400">Live Logs</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="summary" className="m-0 flex-1 p-5 flex flex-col justify-between overflow-hidden">
+            <TabsContent value="summary" className="m-0 flex-1 p-6 space-y-6 flex flex-col justify-between overflow-hidden">
               <div className="space-y-4">
-                <div className="bg-slate-950 border border-white/5 rounded-2xl p-5 shadow-inner">
-                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Total Net Profit</span>
-                  <div className={cn("text-4xl font-black tabular-nums mt-1", stats.profit >= 0 ? "text-emerald-400" : "text-rose-500")}>
-                    {stats.profit >= 0 ? '+' : ''}{stats.profit.toFixed(2)}
-                  </div>
+                <div className="bg-background border border-white/5 rounded-3xl p-6 shadow-inner relative overflow-hidden group">
+                   <div className="text-[9px] font-black text-muted-foreground uppercase mb-1 tracking-widest">Total Net Profit</div>
+                   <div className={cn("text-5xl font-black tabular-nums tracking-tighter", stats.profit >= 0 ? "text-emerald-400" : "text-primary")}>
+                     {stats.profit >= 0 ? '+' : ''}{stats.profit.toFixed(2)}
+                   </div>
+                   <Activity className="absolute -bottom-4 -right-4 size-20 text-white/5 group-hover:text-primary/10 transition-colors" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                   <div className="bg-slate-950 border border-white/5 rounded-xl p-3 text-center">
-                    <span className="text-[8px] font-bold text-slate-500 uppercase">Win Rate</span>
-                    <div className="text-xl font-black text-sky-400 font-mono">{stats.runs > 0 ? Math.round((stats.wins/stats.runs)*100) : 0}%</div>
+                  <div className="bg-background/80 p-4 rounded-2xl border border-white/5 text-center">
+                    <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">Accuracy</span>
+                    <div className="text-2xl font-black text-sky-400">
+                      {stats.runs > 0 ? Math.round((stats.wins/stats.runs)*100) : 0}%
+                    </div>
                   </div>
-                  <div className="bg-slate-950 border border-white/5 rounded-xl p-3 text-center">
-                    <span className="text-[8px] font-bold text-slate-500 uppercase">Cycles</span>
-                    <div className="text-xl font-black text-white font-mono">{stats.runs}</div>
+                  <div className="bg-background/80 p-4 rounded-2xl border border-white/5 text-center">
+                    <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">Cycles</span>
+                    <div className="text-2xl font-black text-white font-mono">{stats.runs}</div>
                   </div>
                 </div>
 
-                <div className="space-y-2 pt-2 text-[11px] font-bold">
-                  <div className="flex justify-between text-emerald-400/80 uppercase"><span>Profit Wins</span> <span>{stats.wins}</span></div>
-                  <div className="flex justify-between text-rose-500/80 uppercase"><span>Martingale Losses</span> <span>{stats.losses}</span></div>
+                <div className="space-y-2 pt-4">
+                  <div className="flex justify-between text-[11px] font-black uppercase border-b border-white/5 pb-2">
+                    <span className="text-emerald-400/70 flex items-center gap-1.5"><Fingerprint className="size-3"/> Wins: {stats.wins}</span>
+                    <span className="text-primary/70 flex items-center gap-1.5"><ShieldAlert className="size-3"/> Loss: {stats.losses}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase pt-1">
+                    <span>Recovery Step</span>
+                    <span>{currentStep} / {maxSteps}</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="pt-4 space-y-4">
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[9px] font-black uppercase text-slate-500">
-                    <span>Session Progress</span>
-                    <span>{stats.runs}%</span>
-                  </div>
-                  <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
-                    <div className="h-full bg-sky-500 transition-all duration-700" style={{ width: `${Math.min(stats.runs, 100)}%` }} />
-                  </div>
-                </div>
-
-                {!running ? (
-                  <Button 
-                    onClick={() => setRunning(true)} 
-                    className="w-full h-16 rounded-2xl bg-sky-500 text-white font-black text-lg shadow-[0_10px_30px_-10px_rgba(14,165,233,0.5)] hover:bg-sky-400 transition-all active:scale-95"
-                    disabled={!token}
-                  >
-                    <Play className="size-6 mr-3 fill-current" /> START BOT
-                  </Button>
-                ) : (
-                  <Button 
-                    onClick={() => setRunning(false)} 
-                    variant="destructive" 
-                    className="w-full h-16 rounded-2xl font-black text-lg shadow-[0_10px_30px_-10px_rgba(225,29,72,0.5)] active:scale-95"
-                  >
-                    <Square className="size-5 mr-3 fill-current" /> STOP BOT
-                  </Button>
-                )}
+              <div className="space-y-4 pt-4 border-t border-white/10">
+                 <Button onClick={toggleBot} className={cn("w-full h-20 rounded-[32px] text-xl font-black transition-all hover:scale-[1.02] active:scale-95 shadow-2xl", running ? "bg-primary text-white shadow-primary/30" : "bg-sky-500 text-white shadow-sky-500/30")}>
+                    {running ? <><Square className="size-6 mr-3 fill-current animate-pulse"/> STOP TRADING</> : <><Play className="size-7 mr-3 fill-current"/> START ENGINE</>}
+                 </Button>
+                 <button onClick={() => { setStats({runs:0, wins:0, losses:0, profit:0}); setCurrentStake(initialStake); setCurrentStep(0); logJournal("Performance log cleared"); }} className="w-full text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest flex items-center justify-center gap-2"><RotateCcw className="size-3"/> Clear Performance History</button>
               </div>
             </TabsContent>
 
-            <TabsContent value="journal" className="m-0 flex-1 bg-slate-950/50 flex flex-col">
-              <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
-                {journal.map((j, i) => (
-                  <div key={i} className={cn(
-                    "p-3 rounded-lg border-l-2 text-[10px] font-mono leading-tight",
-                    j.type === 'error' ? "bg-rose-500/5 border-rose-500/50 text-rose-300" :
-                    j.type === 'success' ? "bg-emerald-500/5 border-emerald-500/50 text-emerald-300" :
-                    "bg-white/[0.02] border-white/5 text-slate-400"
-                  )}>
-                    <div className="flex justify-between mb-1 opacity-30"><span>EVENT</span> <span>{j.time}</span></div>
-                    <div className="font-bold">{j.msg}</div>
-                  </div>
-                ))}
-              </div>
+            <TabsContent value="journal" className="flex-1 bg-background/50 p-4 overflow-y-auto space-y-2 scrollbar-hide">
+              {journal.map((j, i) => (
+                <div key={i} className={cn("p-4 rounded-2xl border-l-4 text-[10px] font-bold font-mono shadow-sm", j.type === 'error' ? "bg-primary/5 border-primary text-primary" : j.type === 'success' ? "bg-emerald-500/5 border-emerald-500 text-emerald-300" : "bg-white/[0.03] border-sky-500 text-slate-300")}>
+                  <div className="flex justify-between opacity-30 mb-1 border-b border-white/5 pb-1"><span>{j.time}</span> <Timer className="size-3"/></div>
+                  <div className="leading-relaxed">{j.msg}</div>
+                </div>
+              ))}
+              {journal.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-slate-800 uppercase tracking-widest font-black opacity-20">
+                  <Activity className="size-16 mb-4" />
+                  <p>Feed Idle</p>
+                </div>
+              )}
             </TabsContent>
           </Tabs>
         </aside>
