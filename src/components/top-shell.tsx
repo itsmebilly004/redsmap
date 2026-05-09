@@ -94,7 +94,7 @@ export function TopShell({ children }: { children: ReactNode }) {
   }
 
   async function handleConnectDeriv() {
-    const url = await buildOAuthUrl();
+    const url = await buildOAuthUrl({ returnTo: "/dashboard/settings" });
     console.log("Deriv OAuth URL:", url);
     window.location.href = url;
   }

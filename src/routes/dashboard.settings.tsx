@@ -79,7 +79,7 @@ function SettingsPage() {
   }
 
   async function connectDeriv() {
-    const url = await buildOAuthUrl();
+    const url = await buildOAuthUrl({ returnTo: "/dashboard/settings" });
     console.log("Deriv OAuth URL:", url);
     window.location.href = url;
   }

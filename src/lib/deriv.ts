@@ -2,7 +2,8 @@
 
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
 const DERIV_CLIENT_ID = import.meta.env.VITE_DERIV_CLIENT_ID ?? DERIV_APP_ID;
-const DERIV_REDIRECT_URI = import.meta.env.VITE_DERIV_REDIRECT_URI;
+const DERIV_REDIRECT_URI =
+  import.meta.env.VITE_DERIV_REDIRECT_URI ?? "https://www.arktradershub.com/deriv-callback";
 const PUBLIC_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
@@ -341,7 +342,9 @@ async function sha256(value: string) {
   return crypto.subtle.digest("SHA-256", data);
 }
 
-export async function buildOAuthUrl(options: { mode?: "signin" | "signup" } = {}) {
+export async function buildOAuthUrl(
+  options: { mode?: "signin" | "signup"; returnTo?: string } = {},
+) {
   if (!isBrowser) return "";
   if (!DERIV_CLIENT_ID) throw new Error("Missing required OAuth parameter: client_id");
   if (!DERIV_REDIRECT_URI) throw new Error("Missing required OAuth parameter: redirect_uri");
@@ -353,6 +356,11 @@ export async function buildOAuthUrl(options: { mode?: "signin" | "signup" } = {}
 
   sessionStorage.setItem("deriv_code_verifier", codeVerifier);
   sessionStorage.setItem("deriv_oauth_state", state);
+  sessionStorage.setItem(
+    "deriv_oauth_return_to",
+    options.returnTo ??
+      (options.mode === "signup" ? "/dashboard" : window.location.pathname || "/dashboard"),
+  );
 
   const params = new URLSearchParams({
     response_type: "code",
@@ -381,8 +389,18 @@ export async function buildOAuthUrl(options: { mode?: "signin" | "signup" } = {}
   }
   if (options.mode === "signup") {
     params.set("prompt", "registration");
+  } else {
+    params.set("prompt", "consent");
   }
-  return `https://auth.deriv.com/oauth2/auth?${params.toString()}`;
+  const url = `https://auth.deriv.com/oauth2/auth?${params.toString()}`;
+  console.log("Deriv OAuth diagnostics", {
+    finalOAuthUrl: url,
+    client_id: DERIV_CLIENT_ID,
+    redirect_uri: DERIV_REDIRECT_URI,
+    stateExists: Boolean(state),
+    codeChallengeExists: Boolean(codeChallenge),
+  });
+  return url;
 }
 
 export async function getAuthenticatedWsUrl(

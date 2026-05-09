@@ -30,7 +30,7 @@ function AuthPage() {
   async function handleDeriv() {
     setBusy(true);
     try {
-      const url = await buildOAuthUrl({ mode });
+      const url = await buildOAuthUrl({ mode, returnTo: "/dashboard" });
       console.log("Deriv OAuth URL:", url);
       window.location.href = url;
     } catch (error) {
@@ -69,7 +69,11 @@ function AuthPage() {
             disabled={busy}
             className="mt-6 h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
           >
-            {busy ? "Redirecting…" : isSignup ? "Sign up with Deriv" : "Sign in with Deriv"}
+            {busy
+              ? "Connecting to Deriv..."
+              : isSignup
+                ? "Sign up with Deriv"
+                : "Sign in with Deriv"}
             <ArrowRight className="ml-1 size-4" />
           </Button>
 

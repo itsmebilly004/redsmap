@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 type DerivTokenResponse = {
   access_token?: string;
   expires_in?: string | number;
+  token_type?: string;
   error?: string;
   error_description?: string;
 };
@@ -61,6 +62,7 @@ async function ensureSupabaseSession(primaryAccountId: string) {
 function DerivCallback() {
   const navigate = useNavigate();
   const [status, setStatus] = useState("Connecting your Deriv account...");
+  const [failed, setFailed] = useState(false);
   const ran = useRef(false);
 
   useEffect(() => {
@@ -70,11 +72,19 @@ function DerivCallback() {
       try {
         const params = new URLSearchParams(window.location.search);
         const error = params.get("error");
-        if (error) throw new Error(params.get("error_description") ?? error);
+        const errorDescription = params.get("error_description");
+        if (error) {
+          const detail = errorDescription ? `${error}: ${errorDescription}` : error;
+          if (error === "invalid_request") {
+            throw new Error(`Authorization failed: ${detail}`);
+          }
+          throw new Error(`Authorization failed: ${detail}`);
+        }
 
         const code = params.get("code");
         const state = params.get("state");
-        if (!code) throw new Error("No authorization code returned");
+        if (!code) throw new Error("Missing authorization code");
+        if (!state) throw new Error("State mismatch");
 
         const expectedState = sessionStorage.getItem("deriv_oauth_state");
         if (!expectedState || expectedState !== state) throw new Error("State mismatch");
@@ -94,7 +104,11 @@ function DerivCallback() {
         const tokenData = (await tokenResponse.json()) as DerivTokenResponse;
         if (!tokenResponse.ok) {
           throw new Error(
-            tokenData?.error_description ?? tokenData?.error ?? "Deriv token exchange failed",
+            tokenData?.error_description
+              ? `Token exchange failed: ${tokenData.error_description}`
+              : tokenData?.error
+                ? `Token exchange failed: ${tokenData.error}`
+                : "Token exchange failed",
           );
         }
 
@@ -152,11 +166,18 @@ function DerivCallback() {
         toast.success(
           `Welcome - ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`,
         );
-        navigate({ to: "/" });
+        const returnTo = sessionStorage.getItem("deriv_oauth_return_to") ?? "/dashboard";
+        sessionStorage.removeItem("deriv_oauth_return_to");
+        window.location.replace(returnTo.startsWith("/") ? returnTo : "/dashboard");
       } catch (e: unknown) {
         console.error(e);
-        toast.error(e instanceof Error ? e.message : "Connection failed");
-        navigate({ to: "/auth", search: { mode: "signin" } });
+        const message = e instanceof Error ? e.message : "Authorization failed";
+        setFailed(true);
+        setStatus(message);
+        toast.error(message);
+        window.setTimeout(() => {
+          navigate({ to: "/auth", search: { mode: "signin" } });
+        }, 3500);
       }
     })();
   }, [navigate]);
@@ -164,7 +185,7 @@ function DerivCallback() {
   return (
     <div className="grid min-h-dvh place-items-center">
       <div className="glass-card flex items-center gap-3 rounded-xl p-6">
-        <Loader2 className="size-5 animate-spin text-primary" />
+        {!failed && <Loader2 className="size-5 animate-spin text-primary" />}
         <span className="text-sm">{status}</span>
       </div>
     </div>

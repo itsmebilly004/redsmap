@@ -101,7 +101,7 @@ function DashboardHome() {
   const losses = trades.filter((t) => t.status === "lost").length;
   const winRate = wins + losses ? Math.round((wins / (wins + losses)) * 100) : 0;
   const connectDeriv = async () => {
-    const url = await buildOAuthUrl();
+    const url = await buildOAuthUrl({ returnTo: "/dashboard" });
     console.log("Deriv OAuth URL:", url);
     window.location.href = url;
   };

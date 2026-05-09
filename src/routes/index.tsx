@@ -45,10 +45,7 @@ function Index() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (
-      (params.get("code") && params.get("state")) ||
-      (params.get("acct1") && params.get("token1"))
-    ) {
+    if (params.get("code") && params.get("state")) {
       window.location.replace(`/deriv-callback${window.location.search}`);
     }
     if (params.get("error")) {

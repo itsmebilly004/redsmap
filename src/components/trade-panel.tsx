@@ -743,7 +743,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                   }
                   if (!token) {
                     toast.message("Connect your Deriv account to trade.");
-                    buildOAuthUrl().then((url) => {
+                    buildOAuthUrl({ returnTo: "/" }).then((url) => {
                       console.log("Deriv OAuth URL:", url);
                       window.location.href = url;
                     });
@@ -794,7 +794,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
               return;
             }
             if (!token) {
-              buildOAuthUrl().then((url) => {
+              buildOAuthUrl({ returnTo: "/" }).then((url) => {
                 console.log("Deriv OAuth URL:", url);
                 window.location.href = url;
               });
