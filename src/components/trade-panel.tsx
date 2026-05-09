@@ -58,6 +58,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const { account, balance: accountBalance, currency } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const isDemo = account?.is_demo ?? true;
+  const tradeCurrency = currency || account?.currency || "";
 
   const [category, setCategory] = useState<TradeCategory>("accumulator");
   const [side, setSide] = useState("buy");
@@ -133,6 +134,11 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
   const currentCategory = TRADE_CATEGORIES[catIdx];
 
   useEffect(() => {
+    if (!token || !tradeCurrency) {
+      setPayouts({});
+      return;
+    }
+
     let cancelled = false;
     const run = async () => {
       try {
@@ -145,7 +151,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             amount: stake,
             basis: payoutMode,
             contract_type: ct,
-            currency,
+            currency: tradeCurrency,
             symbol: market,
           };
           if (showDuration) {
@@ -212,7 +218,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
     multiplier,
     market,
     payoutMode,
-    currency,
+    tradeCurrency,
   ]);
 
   // Deriv accumulator barriers are recomputed on every tick from the current
@@ -260,9 +266,17 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       toast.error("Connect your Deriv account first.");
       return;
     }
+    if (!tradeCurrency) {
+      toast.error("Account currency is missing. Reconnect your Deriv account.");
+      return;
+    }
+    if (!Number.isFinite(stake) || stake <= 0) {
+      toast.error("Enter a valid stake.");
+      return;
+    }
     if (accountBalance !== null && accountBalance < stake) {
       toast.error(
-        `Insufficient balance: ${accountBalance.toFixed(2)} ${currency} available, need ${stake.toFixed(2)} ${currency}.`,
+        `Insufficient balance: ${accountBalance.toFixed(2)} ${tradeCurrency} available, need ${stake.toFixed(2)} ${tradeCurrency}.`,
       );
       return;
     }
@@ -274,7 +288,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         amount: stake,
         basis: "stake",
         contract_type,
-        currency,
+        currency: tradeCurrency,
         symbol: market,
       };
       if (showDuration) {
@@ -300,7 +314,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       if (!contract || !contractId) throw new Error("No contract returned");
       toast.success(`Bought contract ${contractId}`);
 
-      const { data: trade } = await supabase
+      const { data: trade, error: tradeInsertError } = await supabase
         .from("trades")
         .insert({
           user_id: user.id,
@@ -313,6 +327,10 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         })
         .select()
         .single();
+      if (tradeInsertError) {
+        console.error("Could not save trade history", tradeInsertError);
+        toast.error("Trade placed, but history could not be saved.");
+      }
 
       if (isAccumulator) {
         setOpenAccumulator({
@@ -345,7 +363,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             const profit = Number(c.profit ?? 0);
             if (isAccumulator) setOpenAccumulator(null);
             if (trade?.id) {
-              await supabase
+              const { error: tradeUpdateError } = await supabase
                 .from("trades")
                 .update({
                   profit_loss: profit,
@@ -353,9 +371,12 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                   closed_at: new Date().toISOString(),
                 })
                 .eq("id", trade.id);
+              if (tradeUpdateError) {
+                console.error("Could not update closed trade", tradeUpdateError);
+              }
             }
             toast[profit >= 0 ? "success" : "error"](
-              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} ${currency}`,
+              `${profit >= 0 ? "Won" : "Lost"} ${Math.abs(profit).toFixed(2)} ${tradeCurrency}`,
             );
           }
         } catch {
@@ -368,6 +389,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         activePollsRef.current.delete(poll);
       }, 120000);
     } catch (e: unknown) {
+      console.error("Trade failed", e);
       toast.error(e instanceof Error ? e.message : "Trade failed");
     } finally {
       setBusy(false);
@@ -382,7 +404,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
       const sold = response.sell;
       const profit = Number(sold?.profit ?? openAccumulator.profit ?? 0);
       if (openAccumulator.tradeId) {
-        await supabase
+        const { error: tradeUpdateError } = await supabase
           .from("trades")
           .update({
             profit_loss: profit,
@@ -390,12 +412,17 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             closed_at: new Date().toISOString(),
           })
           .eq("id", openAccumulator.tradeId);
+        if (tradeUpdateError) {
+          console.error("Could not update sold accumulator", tradeUpdateError);
+          toast.error("Accumulator sold, but history could not be updated.");
+        }
       }
       toast[profit >= 0 ? "success" : "error"](
-        `Sold accumulator ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${currency}`,
+        `Sold accumulator ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${tradeCurrency}`,
       );
       setOpenAccumulator(null);
     } catch (error: unknown) {
+      console.error("Could not sell accumulator", error);
       toast.error(error instanceof Error ? error.message : "Could not sell accumulator");
     } finally {
       setBusy(false);
@@ -601,7 +628,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             <Plus className="h-4 w-4" />
           </button>
           <span className="w-14 text-center text-sm font-medium text-[oklch(0.45_0.02_260)]">
-            {currency}
+            {tradeCurrency}
           </span>
         </div>
       </div>
@@ -636,7 +663,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                 value={takeProfit}
                 onChange={(e) => setTakeProfit(Number(e.target.value))}
                 className="text-center font-mono"
-                placeholder={`Amount (${currency})`}
+                placeholder={`Amount (${tradeCurrency})`}
               />
               <button
                 onClick={() => setTakeProfit((v) => +(v + 1).toFixed(2))}
@@ -646,7 +673,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                 <Plus className="h-4 w-4" />
               </button>
               <span className="w-12 text-center text-xs text-[oklch(0.45_0.02_260)]">
-                {currency}
+                {tradeCurrency}
               </span>
             </div>
           )}
@@ -666,8 +693,8 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             <span className="text-[oklch(0.4_0.02_260)]">Max. payout</span>
             <span className="font-medium underline decoration-dotted">
               {accuMeta.maxPayout != null
-                ? `${accuMeta.maxPayout.toFixed(2)} ${currency}`
-                : `6,000.00 ${currency}`}
+                ? `${accuMeta.maxPayout.toFixed(2)} ${tradeCurrency}`
+                : `6,000.00 ${tradeCurrency}`}
             </span>
           </div>
           <div className="flex items-center justify-between py-1">
@@ -687,7 +714,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
               <span className="text-[oklch(0.4_0.02_260)]">Stake range</span>
               <span className="font-medium">
                 {(accuMeta.minStake ?? 1).toFixed(2)} – {(accuMeta.maxStake ?? 2000).toFixed(2)}{" "}
-                {currency}
+                {tradeCurrency}
               </span>
             </div>
           )}
@@ -710,14 +737,14 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
                   )}
                 >
                   {(openAccumulator.profit ?? 0) >= 0 ? "+" : ""}
-                  {(openAccumulator.profit ?? 0).toFixed(2)} {currency}
+                  {(openAccumulator.profit ?? 0).toFixed(2)} {tradeCurrency}
                 </span>
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px] text-[#666666]">
                 <span>Sell price</span>
                 <span className="font-mono">
                   {openAccumulator.bidPrice != null
-                    ? `${openAccumulator.bidPrice.toFixed(2)} ${currency}`
+                    ? `${openAccumulator.bidPrice.toFixed(2)} ${tradeCurrency}`
                     : "Pending"}
                 </span>
               </div>
@@ -761,7 +788,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
               >
                 <div className="flex items-center justify-between bg-[oklch(0.96_0.005_240)] px-3 py-1.5 text-xs text-[oklch(0.45_0.02_260)]">
                   <span>
-                    Payout {live ? live.payout.toFixed(2) : "—"} {currency}
+                    Payout {live ? live.payout.toFixed(2) : "—"} {tradeCurrency}
                   </span>
                 </div>
                 <div
@@ -811,7 +838,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
           {busy
             ? "Submitting…"
             : openAccumulator
-              ? `Sell ${openAccumulator.bidPrice != null ? openAccumulator.bidPrice.toFixed(2) : ""} ${currency}`
+              ? `Sell ${openAccumulator.bidPrice != null ? openAccumulator.bidPrice.toFixed(2) : ""} ${tradeCurrency}`
               : token
                 ? `Buy ${sides.find((s) => s.value === side)?.label ?? ""} (${isDemo ? "Demo" : "Live"})`
                 : "Sign in & connect Deriv to trade"}

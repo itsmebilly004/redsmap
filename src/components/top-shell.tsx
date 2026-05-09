@@ -30,29 +30,26 @@ import { type ReactNode, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { DerivAccount } from "@/hooks/use-deriv-balance";
 
-// Metadata with specific image URLs to match the screenshot logos
-const CURRENCY_META: Record<string, { img: string; name: string }> = {
-  USD: {
-    img: "https://upload.wikimedia.org/wikipedia/commons/a/a4/Flag_of_the_United_States.svg",
-    name: "US Dollar",
-  },
-  tUSDT: {
-    img: "https://static.cdnlogo.com/logos/t/58/tether.svg",
-    name: "Tether TRC20",
-  },
-  USDT: {
-    img: "https://static.cdnlogo.com/logos/t/58/tether.svg",
-    name: "Tether",
-  },
-  BTC: {
-    img: "https://upload.wikimedia.org/wikipedia/commons/4/46/Bitcoin.svg",
-    name: "Bitcoin",
-  },
-  ETH: {
-    img: "https://upload.wikimedia.org/wikipedia/commons/0/05/Ethereum_logo_2014.svg",
-    name: "Ethereum",
-  },
+const CURRENCY_META: Record<string, { country?: string; name: string; symbol?: string }> = {
+  AUD: { country: "au", name: "Australian Dollar" },
+  BTC: { name: "Bitcoin", symbol: "B" },
+  ETH: { name: "Ethereum", symbol: "E" },
+  EUR: { country: "eu", name: "Euro" },
+  GBP: { country: "gb", name: "British Pound" },
+  LTC: { name: "Litecoin", symbol: "L" },
+  tUSDT: { name: "Tether TRC20", symbol: "T" },
+  USDC: { name: "USD Coin", symbol: "$" },
+  USDT: { name: "Tether", symbol: "T" },
+  USD: { country: "us", name: "US Dollar" },
 };
+
+function isDemoAccount(account: Pick<DerivAccount, "account_id" | "is_demo" | "is_virtual">) {
+  return Boolean(account.is_demo || account.is_virtual || account.account_id.startsWith("VR"));
+}
+
+function currencyMeta(currency?: string | null) {
+  return CURRENCY_META[currency ?? ""] ?? { name: currency || "Trading account" };
+}
 
 type TabDef = {
   to: string;
@@ -79,10 +76,8 @@ export function TopShell({ children }: { children: ReactNode }) {
   const { account, accounts, balance, currency, switchAccount } = useDerivBalanceContext();
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const activeMeta = currency ? CURRENCY_META[currency] : null;
-
-  const realAccounts = useMemo(() => accounts.filter((a) => !a.is_demo), [accounts]);
-  const demoAccounts = useMemo(() => accounts.filter((a) => a.is_demo), [accounts]);
+  const realAccounts = useMemo(() => accounts.filter((a) => !isDemoAccount(a)), [accounts]);
+  const demoAccounts = useMemo(() => accounts.filter((a) => isDemoAccount(a)), [accounts]);
 
   async function handleLogout() {
     if (user) {
@@ -112,13 +107,7 @@ export function TopShell({ children }: { children: ReactNode }) {
             <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2 rounded-full border border-[#e5e5e5] bg-white px-3 py-1 transition hover:bg-[#f2f3f4]">
-                  <div className="flex size-5 items-center justify-center overflow-hidden rounded-full border border-slate-100 bg-white">
-                    {activeMeta?.img ? (
-                      <img src={activeMeta.img} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      "💰"
-                    )}
-                  </div>
+                  <AccountIcon account={account} size="sm" />
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm font-bold tabular-nums">
                       {(balance ?? 0).toLocaleString(undefined, {
@@ -138,7 +127,7 @@ export function TopShell({ children }: { children: ReactNode }) {
               </DropdownMenuTrigger>
 
               <DropdownMenuContent align="end" className="w-[320px] p-0 shadow-xl border-[#e5e5e5]">
-                <Tabs defaultValue={account.is_demo ? "demo" : "real"} className="w-full">
+                <Tabs defaultValue={isDemoAccount(account) ? "demo" : "real"} className="w-full">
                   <TabsList className="grid h-12 w-full grid-cols-2 bg-white p-0">
                     <TabsTrigger
                       value="real"
@@ -297,7 +286,8 @@ function AccountItem({
   isActive: boolean;
   onSelect: () => void;
 }) {
-  const meta = CURRENCY_META[account.currency ?? ""] ?? { img: "", name: account.currency };
+  const demo = isDemoAccount(account);
+  const meta = currencyMeta(account.currency);
 
   return (
     <button
@@ -308,11 +298,9 @@ function AccountItem({
       )}
     >
       <div className="flex items-center gap-3">
-        <div className="flex size-8 items-center justify-center overflow-hidden rounded-full border border-[#f2f3f4] bg-white">
-          {meta.img ? <img src={meta.img} alt="" className="h-full w-full object-cover" /> : "💰"}
-        </div>
+        <AccountIcon account={account} />
         <div className="text-left leading-tight">
-          <div className="text-sm font-bold text-[#333333]">{meta.name}</div>
+          <div className="text-sm font-bold text-[#333333]">{demo ? "Demo" : meta.name}</div>
           <div className="text-[11px] font-medium text-[#999999]">{account.account_id}</div>
         </div>
       </div>
@@ -326,6 +314,67 @@ function AccountItem({
         </div>
       </div>
     </button>
+  );
+}
+
+function AccountIcon({
+  account,
+  size = "md",
+}: {
+  account: Pick<DerivAccount, "account_id" | "currency" | "is_demo" | "is_virtual">;
+  size?: "sm" | "md";
+}) {
+  const demo = isDemoAccount(account);
+  const meta = currencyMeta(account.currency);
+  const box = size === "sm" ? "size-5" : "size-8";
+  const text = size === "sm" ? "text-[10px]" : "text-sm";
+
+  if (demo) {
+    return (
+      <div
+        className={cn(
+          "relative flex shrink-0 items-center justify-center rounded-full bg-[#ff444f] text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)]",
+          box,
+        )}
+        title="Demo account"
+      >
+        <span className={cn("font-black leading-none", text)}>D</span>
+        <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-white bg-[#85acb0]" />
+      </div>
+    );
+  }
+
+  if (meta.country) {
+    return (
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f2f3f4] bg-white",
+          box,
+        )}
+        title={meta.name}
+      >
+        <img
+          src={`https://flagcdn.com/w40/${meta.country}.png`}
+          srcSet={`https://flagcdn.com/w80/${meta.country}.png 2x`}
+          alt=""
+          className="h-full w-full object-cover"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full border border-[#d6d6d6] bg-white text-[#333333]",
+        box,
+      )}
+      title={meta.name}
+    >
+      <span className={cn("font-bold leading-none", text)}>
+        {meta.symbol ?? account.currency?.slice(0, 1) ?? "$"}
+      </span>
+    </div>
   );
 }
 

@@ -198,6 +198,8 @@ function DerivCallback() {
 
         for (const account of accounts) {
           const accountId = String(account.loginid ?? account.account_id);
+          const isVirtual = account.is_virtual ?? accountId.startsWith("VR");
+          const accountCurrency = account.currency ?? (isVirtual ? "USD" : "");
           setStatus(`Linking ${accountId}...`);
           const { error: upsertErr } = await supabase.from("sessions").upsert(
             {
@@ -205,10 +207,10 @@ function DerivCallback() {
               account_id: accountId,
               loginid: accountId,
               deriv_token: accessToken,
-              currency: account.currency ?? "",
+              currency: accountCurrency,
               balance: Number(account.balance ?? 0),
-              is_demo: account.is_virtual ?? accountId.startsWith("VR"),
-              is_virtual: account.is_virtual ?? accountId.startsWith("VR"),
+              is_demo: isVirtual,
+              is_virtual: isVirtual,
               is_active: true,
               expires_at: expiresAt,
             },
