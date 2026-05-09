@@ -564,7 +564,12 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
-  // Deriv's OAuth2 login flow must use the standard PKCE parameters only.
+  // Keep the new OAuth2 PKCE flow, but include the registered V1 app id on
+  // login when available. Deriv documents this on the new auth endpoint for
+  // legacy app support; it helps older Deriv accounts stay inside the consent
+  // flow instead of falling through to the Deriv dashboard.
+  if (DERIV_APP_ID && options.mode !== "signup") params.set("app_id", DERIV_APP_ID);
+
   // The provider handles the login and consent screens. `prompt` is only
   // documented for signup, where it must be `registration`.
   const prompt = options.mode === "signup" ? "registration" : undefined;
@@ -588,16 +593,19 @@ export async function buildOAuthUrl(
   if (parsed.origin !== "https://auth.deriv.com" || parsed.pathname !== "/oauth2/auth") {
     throw new Error("Invalid Deriv OAuth endpoint. Refusing to redirect to a non-OAuth URL.");
   }
-  if (parsed.searchParams.has("app_id") || parsed.searchParams.has("redirect")) {
-    throw new Error(
-      "Invalid Deriv OAuth URL. Authorization URL must not include app_id or redirect.",
-    );
+  if (parsed.searchParams.has("redirect")) {
+    throw new Error("Invalid Deriv OAuth URL. Authorization URL must not include redirect.");
+  }
+  const oauthAppId = parsed.searchParams.get("app_id");
+  if (oauthAppId && oauthAppId !== DERIV_APP_ID) {
+    throw new Error("Invalid Deriv OAuth URL. app_id must match the configured Deriv App ID.");
   }
   console.info("[Deriv OAuth] Final authorization URL", url);
   console.info("[Deriv OAuth] Authorization diagnostics", {
     finalOAuthUrl: url,
     endpoint: DERIV_OAUTH_ENDPOINT,
     client_id: DERIV_CLIENT_ID,
+    legacy_app_id: oauthAppId ? "[configured]" : null,
     redirect_uri: DERIV_REDIRECT_URI,
     scope: DERIV_SCOPE,
     prompt: prompt ?? "standard-login",
