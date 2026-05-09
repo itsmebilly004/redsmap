@@ -11,6 +11,8 @@ type DerivAccount = {
   balance?: string | number;
   is_demo?: boolean;
   is_virtual?: boolean;
+  account_type?: string;
+  category?: string;
 };
 
 type DerivAccountsResponse = {
@@ -18,6 +20,19 @@ type DerivAccountsResponse = {
   message?: string;
   error?: { message?: string };
 };
+
+function isDemoAccount(account: DerivAccount, accountId: string) {
+  const loginId = accountId.toUpperCase();
+  const accountType = String(account.account_type ?? account.category ?? "").toLowerCase();
+
+  if (loginId.startsWith("VRTC") || loginId.startsWith("VR")) return true;
+  if (loginId.startsWith("CR")) return false;
+  if (account.is_virtual === true || account.is_demo === true) return true;
+  if (account.is_virtual === false || account.is_demo === false) return false;
+  if (accountType.includes("demo") || accountType.includes("virtual")) return true;
+  if (accountType.includes("real")) return false;
+  return false;
+}
 
 export const Route = createFileRoute("/api/deriv-accounts")({
   server: {
@@ -78,7 +93,7 @@ export const Route = createFileRoute("/api/deriv-accounts")({
 
           const accounts = (accountsData.data ?? []).map((account) => {
             const accountId = String(account.loginid ?? account.account_id ?? "");
-            const isVirtual = account.is_virtual ?? account.is_demo ?? accountId.startsWith("VR");
+            const isVirtual = isDemoAccount(account, accountId);
             return {
               account_id: accountId,
               loginid: accountId,

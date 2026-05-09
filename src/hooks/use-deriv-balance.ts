@@ -9,6 +9,7 @@ export type DerivAccount = {
   deriv_token: string;
   is_demo: boolean;
   is_virtual?: boolean | null;
+  account_type?: string | null;
   loginid?: string | null;
   currency: string | null;
   balance: number | null;
@@ -22,6 +23,28 @@ export type LiveBalance = {
   loading: boolean;
   switchAccount: (accountId: string) => void;
 };
+
+export function isDerivDemoAccount(
+  account: Pick<
+    DerivAccount,
+    "account_id" | "loginid" | "is_demo" | "is_virtual" | "account_type"
+  >,
+) {
+  const loginId = String(account.loginid ?? account.account_id ?? "").toUpperCase();
+  const accountType = String(account.account_type ?? "").toLowerCase();
+
+  if (loginId.startsWith("VRTC") || loginId.startsWith("VR")) return true;
+  if (loginId.startsWith("CR")) return false;
+  if (account.is_virtual === true || account.is_demo === true) return true;
+  if (account.is_virtual === false || account.is_demo === false) return false;
+  if (accountType.includes("demo") || accountType.includes("virtual")) return true;
+  if (accountType.includes("real")) return false;
+  return false;
+}
+
+function accountStorageKey(userId: string) {
+  return `deriv_active_account:${userId}`;
+}
 
 export function useDerivBalance(): LiveBalance {
   const { user } = useAuth();
@@ -54,12 +77,25 @@ export function useDerivBalance(): LiveBalance {
         return;
       }
 
-      const list = (data ?? []) as DerivAccount[];
+      const list = ((data ?? []) as DerivAccount[]).map((account) => {
+        const isDemo = isDerivDemoAccount(account);
+        return {
+          ...account,
+          is_demo: isDemo,
+          is_virtual: isDemo,
+        };
+      });
       setAccounts(list);
       if (list.length) {
-        setActiveId(list[0].account_id);
-        setBalance(list[0].balance != null ? Number(list[0].balance) : null);
-        setCurrency(list[0].currency ?? "");
+        const savedId = localStorage.getItem(accountStorageKey(user.id));
+        const selected = list.find((account) => account.account_id === savedId) ?? list[0];
+        setActiveId(selected.account_id);
+        setBalance(selected.balance != null ? Number(selected.balance) : null);
+        setCurrency(selected.currency ?? "");
+      } else {
+        setActiveId(null);
+        setBalance(null);
+        setCurrency("");
       }
       setLoading(false);
     })();
@@ -123,6 +159,7 @@ export function useDerivBalance(): LiveBalance {
 
   function switchAccount(accountId: string) {
     setActiveId(accountId);
+    if (user) localStorage.setItem(accountStorageKey(user.id), accountId);
     const target = accounts.find((a) => a.account_id === accountId);
     if (target) {
       setBalance(target.balance != null ? Number(target.balance) : null);

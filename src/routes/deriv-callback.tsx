@@ -21,6 +21,7 @@ type DerivAccount = {
   balance?: string | number;
   is_demo?: boolean;
   is_virtual?: boolean;
+  account_type?: string;
 };
 
 type DerivAccountsResponse = {
@@ -33,6 +34,19 @@ export const Route = createFileRoute("/deriv-callback")({
 });
 
 let callbackInFlight = false;
+
+function isDemoAccount(account: DerivAccount) {
+  const loginId = String(account.loginid ?? account.account_id ?? "").toUpperCase();
+  const accountType = String(account.account_type ?? "").toLowerCase();
+
+  if (loginId.startsWith("VRTC") || loginId.startsWith("VR")) return true;
+  if (loginId.startsWith("CR")) return false;
+  if (account.is_virtual === true || account.is_demo === true) return true;
+  if (account.is_virtual === false || account.is_demo === false) return false;
+  if (accountType.includes("demo") || accountType.includes("virtual")) return true;
+  if (accountType.includes("real")) return false;
+  return false;
+}
 
 async function ensureSupabaseSession(primaryAccountId: string) {
   const { email, password } = await derivCredentials(primaryAccountId);
@@ -195,9 +209,7 @@ function DerivCallback() {
         if (!accounts.length) throw new Error("No Deriv accounts returned");
 
         const primary =
-          accounts.find(
-            (account) => !String(account.loginid ?? account.account_id).startsWith("VR"),
-          ) ?? accounts[0];
+          accounts.find((account) => !isDemoAccount(account)) ?? accounts[0];
 
         setStatus("Creating your ArkTrader session...");
         const primaryAccountId = String(primary.loginid ?? primary.account_id);
@@ -206,7 +218,7 @@ function DerivCallback() {
 
         for (const account of accounts) {
           const accountId = String(account.loginid ?? account.account_id);
-          const isVirtual = account.is_virtual ?? account.is_demo ?? accountId.startsWith("VR");
+          const isVirtual = isDemoAccount(account);
           const accountCurrency = account.currency ?? (isVirtual ? "USD" : "");
           setStatus(`Linking ${accountId}...`);
           const { error: upsertErr } = await supabase.from("sessions").upsert(

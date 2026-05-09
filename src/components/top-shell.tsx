@@ -26,9 +26,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { DerivAccount } from "@/hooks/use-deriv-balance";
+import { isDerivDemoAccount, type DerivAccount } from "@/hooks/use-deriv-balance";
 
 const CURRENCY_META: Record<string, { country?: string; name: string; symbol?: string }> = {
   AUD: { country: "au", name: "Australian Dollar" },
@@ -43,12 +43,26 @@ const CURRENCY_META: Record<string, { country?: string; name: string; symbol?: s
   USD: { country: "us", name: "US Dollar" },
 };
 
-function isDemoAccount(account: Pick<DerivAccount, "account_id" | "is_demo" | "is_virtual">) {
-  return Boolean(account.is_demo || account.is_virtual || account.account_id.startsWith("VR"));
-}
-
 function currencyMeta(currency?: string | null) {
   return CURRENCY_META[currency ?? ""] ?? { name: currency || "Trading account" };
+}
+
+function formatBalance(value?: number | null, currency?: string | null) {
+  return `${Number(value ?? 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}${currency ? ` ${currency}` : ""}`;
+}
+
+function totalAssetsLabel(accounts: DerivAccount[]) {
+  const totals = accounts.reduce<Record<string, number>>((acc, account) => {
+    const currency = account.currency || "USD";
+    acc[currency] = (acc[currency] ?? 0) + Number(account.balance ?? 0);
+    return acc;
+  }, {});
+  const entries = Object.entries(totals);
+  if (!entries.length) return "0.00 USD";
+  return entries.map(([assetCurrency, amount]) => formatBalance(amount, assetCurrency)).join(" + ");
 }
 
 type TabDef = {
@@ -75,9 +89,17 @@ export function TopShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { account, accounts, balance, currency, switchAccount } = useDerivBalanceContext();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [activeAccountTab, setActiveAccountTab] = useState<"real" | "demo">("real");
 
-  const realAccounts = useMemo(() => accounts.filter((a) => !isDemoAccount(a)), [accounts]);
-  const demoAccounts = useMemo(() => accounts.filter((a) => isDemoAccount(a)), [accounts]);
+  const realAccounts = useMemo(() => accounts.filter((a) => !isDerivDemoAccount(a)), [accounts]);
+  const demoAccounts = useMemo(() => accounts.filter((a) => isDerivDemoAccount(a)), [accounts]);
+  const visibleAccounts = activeAccountTab === "real" ? realAccounts : demoAccounts;
+
+  useEffect(() => {
+    if (account) {
+      setActiveAccountTab(isDerivDemoAccount(account) ? "demo" : "real");
+    }
+  }, [account]);
 
   async function handleLogout() {
     if (user) {
@@ -104,112 +126,126 @@ export function TopShell({ children }: { children: ReactNode }) {
 
         <div className="flex items-center gap-4">
           {user && account && (
-            <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 rounded-full border border-[#e5e5e5] bg-white px-3 py-1 transition hover:bg-[#f2f3f4]">
-                  <AccountIcon account={account} size="sm" />
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-bold tabular-nums">
-                      {(balance ?? 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                    <span className="text-[11px] font-bold text-[#646464]">{currency}</span>
-                  </div>
-                  <ChevronDown
-                    className={cn(
-                      "size-4 text-[#999999] transition-transform duration-200",
-                      dropdownOpen && "rotate-180",
-                    )}
-                  />
-                </button>
-              </DropdownMenuTrigger>
-
-              <DropdownMenuContent align="end" className="w-[320px] p-0 shadow-xl border-[#e5e5e5]">
-                <Tabs defaultValue={isDemoAccount(account) ? "demo" : "real"} className="w-full">
-                  <TabsList className="grid h-12 w-full grid-cols-2 bg-white p-0">
-                    <TabsTrigger
-                      value="real"
-                      className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333]"
-                    >
-                      Real
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="demo"
-                      className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333]"
-                    >
-                      Demo
-                    </TabsTrigger>
-                  </TabsList>
-
-                  <div className="px-4 pt-4 pb-2">
-                    <div className="mb-3 flex items-center justify-between">
-                      <span className="text-sm font-bold text-[#333333]">Deriv accounts</span>
-                      <ChevronUp className="size-4 text-[#333333]" />
+            <>
+              <Button className="hidden h-9 rounded-md bg-[#ff444f] px-5 text-sm font-bold text-white hover:bg-[#eb3e48] sm:inline-flex">
+                Deposit
+              </Button>
+              <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex min-w-0 items-center gap-2 rounded-full border border-[#d6d6d6] bg-white px-3 py-1.5 transition hover:bg-[#f2f3f4]">
+                    <AccountIcon account={account} size="sm" />
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="text-sm font-bold tabular-nums text-[#333333]">
+                        {formatBalance(balance ?? account.balance, "").trim()}
+                      </span>
+                      <span className="text-[11px] font-bold text-[#646464]">
+                        {currency || account.currency}
+                      </span>
                     </div>
-
-                    <TabsContent value="real" className="mt-0 space-y-1">
-                      {realAccounts.length === 0 ? (
-                        <div className="py-8 text-center text-xs text-[#999999]">
-                          No real accounts linked.
-                        </div>
-                      ) : (
-                        realAccounts.map((a) => (
-                          <AccountItem
-                            key={a.account_id}
-                            account={a}
-                            isActive={account.account_id === a.account_id}
-                            onSelect={() => {
-                              switchAccount(a.account_id);
-                              setDropdownOpen(false);
-                            }}
-                          />
-                        ))
+                    <ChevronDown
+                      className={cn(
+                        "size-4 text-[#999999] transition-transform duration-200",
+                        dropdownOpen && "rotate-180",
                       )}
-                    </TabsContent>
+                    />
+                  </button>
+                </DropdownMenuTrigger>
 
-                    <TabsContent value="demo" className="mt-0 space-y-1">
-                      {demoAccounts.map((a) => (
-                        <AccountItem
-                          key={a.account_id}
-                          account={a}
-                          isActive={account.account_id === a.account_id}
-                          onSelect={() => {
-                            switchAccount(a.account_id);
+                <DropdownMenuContent
+                  align="end"
+                  className="w-[calc(100vw-24px)] max-w-[380px] overflow-hidden rounded-lg border border-[#d6d6d6] bg-white p-0 shadow-xl"
+                >
+                  <Tabs
+                    value={activeAccountTab}
+                    onValueChange={(value) => setActiveAccountTab(value as "real" | "demo")}
+                    className="w-full"
+                  >
+                    <TabsList className="grid h-12 w-full grid-cols-2 rounded-none border-b border-[#eeeeee] bg-white p-0">
+                      <TabsTrigger
+                        value="real"
+                        className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none"
+                      >
+                        Real
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="demo"
+                        className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none"
+                      >
+                        Demo
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <div className="px-4 pb-2 pt-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-bold text-[#333333]">Deriv accounts</span>
+                        <ChevronUp className="size-4 text-[#333333]" />
+                      </div>
+
+                      <TabsContent value="real" className="mt-0 space-y-1">
+                        <AccountList
+                          accounts={realAccounts}
+                          activeAccountId={account.account_id}
+                          emptyText="No real accounts linked."
+                          onSelect={(accountId) => {
+                            switchAccount(accountId);
                             setDropdownOpen(false);
                           }}
                         />
-                      ))}
-                    </TabsContent>
+                      </TabsContent>
+
+                      <TabsContent value="demo" className="mt-0 space-y-1">
+                        <AccountList
+                          accounts={demoAccounts}
+                          activeAccountId={account.account_id}
+                          emptyText="No demo accounts linked."
+                          onSelect={(accountId) => {
+                            switchAccount(accountId);
+                            setDropdownOpen(false);
+                          }}
+                        />
+                      </TabsContent>
+                    </div>
+                  </Tabs>
+
+                  <div className="border-t border-[#eeeeee] bg-white px-4 py-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-bold text-[#333333]">
+                          {totalAssetsLabel(visibleAccounts)}
+                        </div>
+                        <div className="mt-0.5 text-xs text-[#777777]">
+                          Total assets in your Deriv accounts.
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </Tabs>
 
-                <div className="mt-2 border-t border-[#f2f3f4] bg-[#f9f9f9] py-3 text-center">
-                  <p className="text-[13px] text-[#333333]">
-                    Looking for CFD accounts?{" "}
-                    <a href="#" className="font-bold text-[#333333] hover:underline">
-                      Go to Trader's Hub
-                    </a>
-                  </p>
-                </div>
+                  <div className="border-t border-[#eeeeee] bg-[#f9f9f9] px-4 py-3 text-center">
+                    <p className="text-[13px] text-[#333333]">
+                      Looking for CFD accounts?{" "}
+                      <a href="#" className="font-bold text-[#333333] hover:underline">
+                        Go to Trader&apos;s Hub
+                      </a>
+                    </p>
+                  </div>
 
-                <div className="flex items-center justify-between bg-white px-4 py-3">
-                  <Button
-                    variant="outline"
-                    className="h-9 rounded-md border-[#999999] px-4 text-sm font-bold text-[#333333] hover:bg-[#f2f3f4]"
-                  >
-                    Manage accounts
-                  </Button>
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-2 text-sm font-medium text-[#333333] hover:text-[#ff444f]"
-                  >
-                    Logout <LogOut className="size-4" />
-                  </button>
-                </div>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <div className="flex items-center justify-between bg-white px-4 py-3">
+                    <Button
+                      variant="outline"
+                      className="h-9 rounded-md border-[#999999] px-4 text-sm font-bold text-[#333333] hover:bg-[#f2f3f4]"
+                    >
+                      Manage accounts
+                    </Button>
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center gap-2 text-sm font-medium text-[#333333] hover:text-[#ff444f]"
+                    >
+                      Logout <LogOut className="size-4" />
+                    </button>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           )}
 
           {user && !account && (
@@ -277,6 +313,35 @@ export function TopShell({ children }: { children: ReactNode }) {
   );
 }
 
+function AccountList({
+  accounts,
+  activeAccountId,
+  emptyText,
+  onSelect,
+}: {
+  accounts: DerivAccount[];
+  activeAccountId: string;
+  emptyText: string;
+  onSelect: (accountId: string) => void;
+}) {
+  if (!accounts.length) {
+    return <div className="py-8 text-center text-xs text-[#999999]">{emptyText}</div>;
+  }
+
+  return (
+    <>
+      {accounts.map((account) => (
+        <AccountItem
+          key={account.account_id}
+          account={account}
+          isActive={activeAccountId === account.account_id}
+          onSelect={() => onSelect(account.account_id)}
+        />
+      ))}
+    </>
+  );
+}
+
 function AccountItem({
   account,
   isActive,
@@ -286,7 +351,7 @@ function AccountItem({
   isActive: boolean;
   onSelect: () => void;
 }) {
-  const demo = isDemoAccount(account);
+  const demo = isDerivDemoAccount(account);
   const meta = currencyMeta(account.currency);
 
   return (
@@ -299,18 +364,14 @@ function AccountItem({
     >
       <div className="flex items-center gap-3">
         <AccountIcon account={account} />
-        <div className="text-left leading-tight">
+        <div className="min-w-0 text-left leading-tight">
           <div className="text-sm font-bold text-[#333333]">{demo ? "Demo" : meta.name}</div>
           <div className="text-[11px] font-medium text-[#999999]">{account.account_id}</div>
         </div>
       </div>
-      <div className="text-right leading-tight">
+      <div className="shrink-0 pl-3 text-right leading-tight">
         <div className="text-sm font-bold text-[#333333]">
-          {Number(account.balance ?? 0).toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}{" "}
-          {account.currency}
+          {formatBalance(account.balance, account.currency)}
         </div>
       </div>
     </button>
@@ -321,10 +382,13 @@ function AccountIcon({
   account,
   size = "md",
 }: {
-  account: Pick<DerivAccount, "account_id" | "currency" | "is_demo" | "is_virtual">;
+  account: Pick<
+    DerivAccount,
+    "account_id" | "loginid" | "currency" | "is_demo" | "is_virtual" | "account_type"
+  >;
   size?: "sm" | "md";
 }) {
-  const demo = isDemoAccount(account);
+  const demo = isDerivDemoAccount(account);
   const meta = currencyMeta(account.currency);
   const box = size === "sm" ? "size-5" : "size-8";
   const text = size === "sm" ? "text-[10px]" : "text-sm";
