@@ -25,6 +25,8 @@ import { Route as StrategySlugRouteImport } from './routes/strategy.$slug'
 import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
 import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard.analytics'
 import { Route as ApiDerivTokenExchangeRouteImport } from './routes/api/deriv-token-exchange'
+import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-accounts'
+import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
 
 const TradingviewRoute = TradingviewRouteImport.update({
   id: '/tradingview',
@@ -106,6 +108,16 @@ const ApiDerivTokenExchangeRoute = ApiDerivTokenExchangeRouteImport.update({
   path: '/api/deriv-token-exchange',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDerivAccountsRoute = ApiDerivAccountsRouteImport.update({
+  id: '/api/deriv-accounts',
+  path: '/api/deriv-accounts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDerivAccountOtpRoute = ApiDerivAccountOtpRouteImport.update({
+  id: '/api/deriv-account-otp',
+  path: '/api/deriv-account-otp',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -119,6 +131,8 @@ export interface FileRoutesByFullPath {
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
+  '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
+  '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -136,6 +150,8 @@ export interface FileRoutesByTo {
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
+  '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
+  '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -155,6 +171,8 @@ export interface FileRoutesById {
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
+  '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
+  '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
@@ -175,6 +193,8 @@ export interface FileRouteTypes {
     | '/strategies'
     | '/trading-bots'
     | '/tradingview'
+    | '/api/deriv-account-otp'
+    | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
     | '/dashboard/analytics'
     | '/dashboard/settings'
@@ -192,6 +212,8 @@ export interface FileRouteTypes {
     | '/strategies'
     | '/trading-bots'
     | '/tradingview'
+    | '/api/deriv-account-otp'
+    | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
     | '/dashboard/analytics'
     | '/dashboard/settings'
@@ -210,6 +232,8 @@ export interface FileRouteTypes {
     | '/strategies'
     | '/trading-bots'
     | '/tradingview'
+    | '/api/deriv-account-otp'
+    | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
     | '/dashboard/analytics'
     | '/dashboard/settings'
@@ -229,6 +253,8 @@ export interface RootRouteChildren {
   StrategiesRoute: typeof StrategiesRoute
   TradingBotsRoute: typeof TradingBotsRoute
   TradingviewRoute: typeof TradingviewRoute
+  ApiDerivAccountOtpRoute: typeof ApiDerivAccountOtpRoute
+  ApiDerivAccountsRoute: typeof ApiDerivAccountsRoute
   ApiDerivTokenExchangeRoute: typeof ApiDerivTokenExchangeRoute
   StrategySlugRoute: typeof StrategySlugRoute
 }
@@ -347,6 +373,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDerivTokenExchangeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/deriv-accounts': {
+      id: '/api/deriv-accounts'
+      path: '/api/deriv-accounts'
+      fullPath: '/api/deriv-accounts'
+      preLoaderRoute: typeof ApiDerivAccountsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/deriv-account-otp': {
+      id: '/api/deriv-account-otp'
+      path: '/api/deriv-account-otp'
+      fullPath: '/api/deriv-account-otp'
+      preLoaderRoute: typeof ApiDerivAccountOtpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -378,6 +418,8 @@ const rootRouteChildren: RootRouteChildren = {
   StrategiesRoute: StrategiesRoute,
   TradingBotsRoute: TradingBotsRoute,
   TradingviewRoute: TradingviewRoute,
+  ApiDerivAccountOtpRoute: ApiDerivAccountOtpRoute,
+  ApiDerivAccountsRoute: ApiDerivAccountsRoute,
   ApiDerivTokenExchangeRoute: ApiDerivTokenExchangeRoute,
   StrategySlugRoute: StrategySlugRoute,
 }

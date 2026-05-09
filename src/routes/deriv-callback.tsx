@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { DERIV_APP_ID_VALUE, DERIV_CLIENT_ID_VALUE, DERIV_REDIRECT_URI_VALUE } from "@/lib/deriv";
+import { DERIV_CLIENT_ID_VALUE, DERIV_REDIRECT_URI_VALUE } from "@/lib/deriv";
 import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -19,18 +19,20 @@ type DerivAccount = {
   loginid?: string;
   currency?: string;
   balance?: string | number;
+  is_demo?: boolean;
   is_virtual?: boolean;
 };
 
 type DerivAccountsResponse = {
   data?: DerivAccount[];
-  message?: string;
-  error?: { message?: string };
+  error?: string;
 };
 
 export const Route = createFileRoute("/deriv-callback")({
   component: DerivCallback,
 });
+
+let callbackInFlight = false;
 
 async function ensureSupabaseSession(primaryAccountId: string) {
   const { email, password } = await derivCredentials(primaryAccountId);
@@ -70,6 +72,14 @@ function DerivCallback() {
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
+    if (callbackInFlight || sessionStorage.getItem("deriv_callback_processing") === "true") {
+      setStatus("Deriv authorization is already being processed...");
+      return;
+    }
+    callbackInFlight = true;
+    sessionStorage.setItem("deriv_callback_processing", "true");
+    sessionStorage.removeItem("deriv_callback_failed");
+
     (async () => {
       try {
         const params = new URLSearchParams(window.location.search);
@@ -159,28 +169,26 @@ function DerivCallback() {
         if (!accessToken) throw new Error("No access token returned");
 
         setStatus("Loading Deriv accounts...");
-        const accountsResponse = await fetch(
-          "https://api.derivws.com/trading/v1/options/accounts",
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Deriv-App-ID": DERIV_APP_ID_VALUE,
-            },
-          },
-        );
+        const accountsResponse = await fetch("/api/deriv-accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accessToken }),
+        });
         const accountsData = (await accountsResponse.json()) as DerivAccountsResponse;
         console.log("Deriv accounts response", {
           ok: accountsResponse.ok,
           status: accountsResponse.status,
           accountCount: accountsData.data?.length ?? 0,
-          error: accountsData.error?.message ?? accountsData.message,
+          error: accountsData.error,
         });
         if (!accountsResponse.ok) {
-          throw new Error(
-            accountsData?.message ??
-              accountsData?.error?.message ??
-              "Could not load Deriv accounts",
-          );
+          if (accountsResponse.status === 429) {
+            throw new Error(
+              accountsData.error ??
+                "Deriv is rate limiting account requests. Please wait a moment, then start login again.",
+            );
+          }
+          throw new Error(accountsData.error ?? "Could not load Deriv accounts");
         }
 
         const accounts = accountsData?.data ?? [];
@@ -198,7 +206,7 @@ function DerivCallback() {
 
         for (const account of accounts) {
           const accountId = String(account.loginid ?? account.account_id);
-          const isVirtual = account.is_virtual ?? accountId.startsWith("VR");
+          const isVirtual = account.is_virtual ?? account.is_demo ?? accountId.startsWith("VR");
           const accountCurrency = account.currency ?? (isVirtual ? "USD" : "");
           setStatus(`Linking ${accountId}...`);
           const { error: upsertErr } = await supabase.from("sessions").upsert(
@@ -222,11 +230,15 @@ function DerivCallback() {
           `Welcome - ${accounts.length} Deriv account${accounts.length > 1 ? "s" : ""} linked.`,
         );
         const returnTo = sessionStorage.getItem("deriv_oauth_return_to") ?? "/dashboard";
+        callbackInFlight = false;
+        sessionStorage.removeItem("deriv_callback_processing");
         sessionStorage.removeItem("deriv_oauth_return_to");
         window.location.replace(returnTo.startsWith("/") ? returnTo : "/dashboard");
       } catch (e: unknown) {
         console.error(e);
         const message = e instanceof Error ? e.message : "Authorization failed";
+        callbackInFlight = false;
+        sessionStorage.setItem("deriv_callback_failed", message);
         setFailed(true);
         setStatus(message);
         toast.error(message);

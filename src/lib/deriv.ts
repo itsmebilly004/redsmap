@@ -363,6 +363,8 @@ export async function buildOAuthUrl(
   const codeChallenge = base64UrlEncode(await sha256(codeVerifier));
   const state = crypto.randomUUID();
 
+  sessionStorage.removeItem("deriv_callback_processing");
+  sessionStorage.removeItem("deriv_callback_failed");
   sessionStorage.setItem("deriv_code_verifier", codeVerifier);
   sessionStorage.setItem("deriv_oauth_state", state);
   sessionStorage.setItem(
@@ -429,25 +431,18 @@ export async function getAuthenticatedWsUrl(
   accessToken: string,
   accountId: string,
 ): Promise<string> {
-  const response = await fetch(
-    `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Deriv-App-ID": DERIV_APP_ID,
-      },
-    },
-  );
+  const response = await fetch("/api/deriv-account-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accessToken, accountId }),
+  });
   const otpData = await response.json();
   if (!response.ok) {
     throw new Error(
-      otpData?.message ??
-        otpData?.error?.message ??
-        "Failed to get authenticated Deriv WebSocket URL",
+      otpData?.error ?? "Failed to get authenticated Deriv WebSocket URL",
     );
   }
-  const url = otpData?.data?.url;
+  const url = otpData?.url;
   if (!url) throw new Error("Deriv OTP response did not include a WebSocket URL");
   return url;
 }
