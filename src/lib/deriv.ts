@@ -1,7 +1,7 @@
 // src/lib/deriv.ts
 
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
-const DERIV_CLIENT_ID = import.meta.env.VITE_DERIV_CLIENT_ID ?? DERIV_APP_ID;
+const DERIV_CLIENT_ID = import.meta.env.VITE_DERIV_CLIENT_ID;
 const DERIV_REDIRECT_URI =
   import.meta.env.VITE_DERIV_REDIRECT_URI ?? "https://www.arktradershub.com/deriv-callback";
 const DERIV_OAUTH_ENDPOINT = "https://auth.deriv.com/oauth2/auth";
@@ -350,7 +350,6 @@ export async function buildOAuthUrl(
   options: { mode?: "signin" | "signup"; returnTo?: string } = {},
 ) {
   if (!isBrowser) return "";
-  if (!DERIV_APP_ID) throw new Error("Missing required OAuth parameter: app_id");
   if (!DERIV_CLIENT_ID) throw new Error("Missing required OAuth parameter: client_id");
   if (!DERIV_REDIRECT_URI) throw new Error("Missing required OAuth parameter: redirect_uri");
   if (DERIV_REDIRECT_URI !== "https://www.arktradershub.com/deriv-callback") {
@@ -374,7 +373,6 @@ export async function buildOAuthUrl(
 
   const params = new URLSearchParams({
     response_type: "code",
-    app_id: DERIV_APP_ID,
     client_id: DERIV_CLIENT_ID,
     redirect_uri: DERIV_REDIRECT_URI,
     scope: DERIV_SCOPE,
@@ -390,7 +388,6 @@ export async function buildOAuthUrl(
 
   const requiredParams = [
     "response_type",
-    "app_id",
     "client_id",
     "redirect_uri",
     "scope",
@@ -407,11 +404,13 @@ export async function buildOAuthUrl(
   if (parsed.origin !== "https://auth.deriv.com" || parsed.pathname !== "/oauth2/auth") {
     throw new Error("Invalid Deriv OAuth endpoint. Refusing to redirect to a non-OAuth URL.");
   }
+  if (parsed.searchParams.has("app_id") || parsed.searchParams.has("redirect")) {
+    throw new Error("Invalid Deriv OAuth URL. Authorization URL must not include app_id or redirect.");
+  }
   console.info("[Deriv OAuth] Final authorization URL", url);
   console.info("[Deriv OAuth] Authorization diagnostics", {
     finalOAuthUrl: url,
     endpoint: DERIV_OAUTH_ENDPOINT,
-    app_id: DERIV_APP_ID,
     client_id: DERIV_CLIENT_ID,
     redirect_uri: DERIV_REDIRECT_URI,
     scope: DERIV_SCOPE,
