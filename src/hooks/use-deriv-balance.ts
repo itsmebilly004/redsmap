@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { setAuthenticatedAccount, subscribeBalance } from "@/lib/deriv";
-import { toast } from "sonner";
 
 export type DerivAccount = {
   account_id: string;
@@ -108,12 +107,11 @@ export function useDerivBalance(): LiveBalance {
         unsub = nextUnsub;
       } catch (err) {
         if (cancelled) return;
-        console.error("Deriv WebSocket auth failure", {
+        console.warn("Deriv live balance sync unavailable", {
           account_id: active.account_id,
           loginid: active.loginid,
           error: err,
         });
-        toast.error("WebSocket authentication failed. Please reconnect your Deriv account.");
       }
     })();
 

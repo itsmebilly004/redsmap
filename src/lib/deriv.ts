@@ -369,7 +369,6 @@ export async function subscribeTicks(
 
 export async function subscribeBalance(token: string, onBalance: (b: DerivBalance) => void) {
   if (!isBrowser) return () => {};
-  await connect();
   const key = `balance:${token.slice(-6)}`;
   const sub = { send: { balance: 1, subscribe: 1 }, key };
   activeSubs.set(key, sub);
@@ -382,11 +381,13 @@ export async function subscribeBalance(token: string, onBalance: (b: DerivBalanc
       });
     }
   });
-  if (socket?.readyState === 1) socket.send(JSON.stringify(sub.send));
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(sub.send));
   return () => {
     off();
     activeSubs.delete(key);
-    if (socket?.readyState === 1) socket.send(JSON.stringify({ forget_all: "balance" }));
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ forget_all: "balance" }));
+    }
   };
 }
 
