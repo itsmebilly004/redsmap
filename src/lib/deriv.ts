@@ -45,6 +45,9 @@ type DerivMessage = DerivRecord & {
     symbol?: string;
     display_name?: string;
     market?: string;
+    underlying_symbol?: string;
+    underlying_symbol_name?: string;
+    underlying_symbol_type?: string;
   }>;
 };
 export type DerivBalance = { balance: number; currency: string; loginid: string };
@@ -55,6 +58,7 @@ type StatusListener = (s: ConnectionStatus) => void;
 
 // Singleton state
 let socket: WebSocket | null = null;
+let socketAccountId: string | null = null;
 const listeners = new Set<Listener>();
 const statusListeners = new Set<StatusListener>();
 let status: ConnectionStatus = "disconnected";
@@ -100,6 +104,14 @@ export function getStatus() {
   return status;
 }
 
+export function getTradingSocketAccountId() {
+  return socket?.readyState === WebSocket.OPEN ? socketAccountId : null;
+}
+
+export function getSelectedTradingAccountId() {
+  return authenticatedAccount?.accountId ?? null;
+}
+
 export function setAuthenticatedAccount(
   accessToken: string,
   accountId: string,
@@ -124,6 +136,7 @@ export function setAuthenticatedAccount(
       /* ignore */
     }
     socket = null;
+    socketAccountId = null;
   }
   connecting = null;
 }
@@ -158,11 +171,25 @@ function connect(): Promise<WebSocket> {
     return Promise.reject(new Error("Authenticated Deriv account has not been set."));
   }
   if (socket && socket.readyState === WebSocket.OPEN) {
-    console.info("[Deriv WS] Reusing open socket", {
-      accountId: authenticatedAccount.accountId,
-      readyState: socket.readyState,
-    });
-    return Promise.resolve(socket);
+    if (socketAccountId !== authenticatedAccount.accountId) {
+      console.warn("[Deriv WS] Closing mismatched open socket", {
+        socketAccountId,
+        selectedAccountId: authenticatedAccount.accountId,
+      });
+      try {
+        socket.close(1000, "Selected Deriv account changed");
+      } catch {
+        /* ignore */
+      }
+      socket = null;
+      socketAccountId = null;
+    } else {
+      console.info("[Deriv WS] Reusing open socket", {
+        accountId: authenticatedAccount.accountId,
+        readyState: socket.readyState,
+      });
+      return Promise.resolve(socket);
+    }
   }
   if (connecting) return connecting;
 
@@ -181,7 +208,10 @@ function openAuthenticatedSocket(
     const fail = async (error: Error) => {
       if (settled) return;
       settled = true;
-      if (ws === socket) socket = null;
+      if (ws === socket) {
+        socket = null;
+        socketAccountId = null;
+      }
       connecting = null;
       stopKeepalive();
       setStatus("disconnected");
@@ -215,6 +245,7 @@ function openAuthenticatedSocket(
           /* ignore */
         }
         socket = null;
+        socketAccountId = null;
       }
 
       const authenticatedWsUrl = await getAuthenticatedWsUrl(account.accessToken, account.accountId);
@@ -252,6 +283,7 @@ function openAuthenticatedSocket(
         if (settled) return;
         settled = true;
         socket = ws;
+        socketAccountId = account.accountId;
         connecting = null;
         reconnectAttempts = 0;
         setStatus("connected");
@@ -287,6 +319,7 @@ function openAuthenticatedSocket(
         });
         if (socket === ws) {
           socket = null;
+          socketAccountId = null;
           stopKeepalive();
           setStatus("disconnected");
         }
@@ -321,6 +354,9 @@ export function onMessage(fn: Listener) {
 export async function send(payload: DerivRecord): Promise<DerivMessage> {
   if (!isBrowser) return {};
   const ws = await connect();
+  if (authenticatedAccount && socketAccountId !== authenticatedAccount.accountId) {
+    throw new Error("Deriv WebSocket account does not match the selected account.");
+  }
   const id = reqId++;
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
@@ -441,9 +477,9 @@ export async function getActiveSymbols(): Promise<ActiveSymbol[]> {
   if (symbolsCache) return symbolsCache;
   const res = await publicSend({ active_symbols: "brief", product_type: "basic" });
   symbolsCache = (res?.active_symbols ?? []).map((s) => ({
-    symbol: String(s.symbol ?? ""),
-    display_name: String(s.display_name ?? ""),
-    market: String(s.market ?? ""),
+    symbol: String(s.underlying_symbol ?? s.symbol ?? ""),
+    display_name: String(s.underlying_symbol_name ?? s.display_name ?? ""),
+    market: String(s.underlying_symbol_type ?? s.market ?? ""),
   }));
   return symbolsCache!;
 }
@@ -462,6 +498,7 @@ export function disconnectAll(): void {
       /* ignore */
     }
     socket = null;
+    socketAccountId = null;
   }
   connecting = null;
   setStatus("disconnected");

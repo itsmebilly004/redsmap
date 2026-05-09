@@ -25,7 +25,9 @@ function isDemoAccount(account: DerivAccount, accountId: string) {
   const loginId = accountId.toUpperCase();
   const accountType = String(account.account_type ?? account.category ?? "").toLowerCase();
 
-  if (loginId.startsWith("VRTC") || loginId.startsWith("VR")) return true;
+  if (loginId.startsWith("VRTC") || loginId.startsWith("VR") || loginId.startsWith("DOT")) {
+    return true;
+  }
   if (loginId.startsWith("CR")) return false;
   if (account.is_virtual === true || account.is_demo === true) return true;
   if (account.is_virtual === false || account.is_demo === false) return false;

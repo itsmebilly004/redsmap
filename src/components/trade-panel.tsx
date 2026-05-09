@@ -5,6 +5,7 @@ import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
   send,
   setAuthenticatedAccount,
+  getTradingSocketAccountId,
   TRADE_CATEGORIES,
   SIDES_BY_CATEGORY,
   contractTypeFor,
@@ -39,7 +40,7 @@ type TradeProposalPayload = Record<string, unknown> & {
   basis: string;
   contract_type: string;
   currency: string;
-  symbol: string;
+  underlying_symbol: string;
   duration?: number;
   duration_unit?: "t" | "s" | "m";
   barrier?: string;
@@ -156,7 +157,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
             basis: payoutMode,
             contract_type: ct,
             currency: tradeCurrency,
-            symbol: market,
+            underlying_symbol: market,
           };
           if (showDuration) {
             proposal.duration = duration;
@@ -299,7 +300,7 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         basis: "stake",
         contract_type,
         currency: tradeCurrency,
-        symbol: market,
+        underlying_symbol: market,
       };
       if (showDuration) {
         proposal.duration = duration;
@@ -314,6 +315,14 @@ export function TradePanel({ market, lastPrice, onAccumulatorBarriers }: TradePa
         }
       }
       if (isMultiplier) proposal.multiplier = multiplier;
+      console.info("[Deriv Trade] Placing trade", {
+        selectedAccountId: account.account_id,
+        selectedLoginId: account.loginid,
+        is_demo: account.is_demo,
+        is_virtual: account.is_virtual,
+        wsAccountId: getTradingSocketAccountId(),
+        finalProposalPayload: proposal,
+      });
 
       const propResp = await send(proposal);
       const proposalId = propResp.proposal?.id;

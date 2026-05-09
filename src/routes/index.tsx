@@ -81,11 +81,11 @@ function Index() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px]">
+      <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100dvh-9.5rem)] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
         {/* Chart section */}
         <section
           className={cn(
-            "relative border-r border-[oklch(0.92_0.005_240)] bg-white p-3",
+            "relative min-h-0 border-r border-[oklch(0.92_0.005_240)] bg-white p-2 sm:p-3",
             mobileTab !== "chart" && "hidden lg:block",
           )}
         >
@@ -102,7 +102,7 @@ function Index() {
             symbol={symbol}
             onSymbolChange={setSymbol}
             onPrice={setPrice}
-            height={460}
+            height={340}
             highBarrier={barriers.high}
             lowBarrier={barriers.low}
           />
@@ -117,7 +117,7 @@ function Index() {
         {/* Trade panel */}
         <aside
           className={cn(
-            "flex-col gap-3 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-3",
+            "min-h-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 sm:p-3",
             mobileTab === "trade" ? "flex" : "hidden lg:flex",
           )}
         >

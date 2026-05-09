@@ -15,7 +15,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
-import { send, contractTypeFor, type TradeCategory } from "@/lib/deriv";
+import {
+  send,
+  setAuthenticatedAccount,
+  getTradingSocketAccountId,
+  contractTypeFor,
+  type TradeCategory,
+} from "@/lib/deriv";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -141,7 +147,7 @@ type BotProposalPayload = Record<string, unknown> & {
   basis: "stake";
   contract_type: string;
   currency: string;
-  symbol: string;
+  underlying_symbol: string;
   duration: number;
   duration_unit: string;
   barrier?: string;
@@ -353,6 +359,12 @@ function BotBuilder() {
 
   async function runCycle() {
     if (!token || !runningRef.current) return;
+    if (!derivAccount) {
+      logJournal("Select a Deriv account before running the bot.", "error");
+      setRunning(false);
+      runningRef.current = false;
+      return;
+    }
     if (
       stats.runs >= maxRuns ||
       stats.profit >= takeProfit ||
@@ -372,7 +384,7 @@ function BotBuilder() {
         basis: "stake",
         contract_type: contractType,
         currency: derivCurrency || "USD",
-        symbol,
+        underlying_symbol: symbol,
         duration,
         duration_unit: durationUnit,
       };
@@ -385,6 +397,19 @@ function BotBuilder() {
         if (sellAtProfit > 0) proposal.limit_order.take_profit = sellAtProfit;
         if (sellAtLoss > 0) proposal.limit_order.stop_loss = sellAtLoss;
       }
+      setAuthenticatedAccount(
+        token,
+        derivAccount.account_id,
+        derivAccount.is_virtual ?? derivAccount.is_demo,
+      );
+      console.info("[Deriv Bot] Placing trade", {
+        selectedAccountId: derivAccount.account_id,
+        selectedLoginId: derivAccount.loginid,
+        is_demo: derivAccount.is_demo,
+        is_virtual: derivAccount.is_virtual,
+        wsAccountId: getTradingSocketAccountId(),
+        finalProposalPayload: proposal,
+      });
 
       const quote = await send(proposal);
       const proposalId = quote.proposal?.id;
