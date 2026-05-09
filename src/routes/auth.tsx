@@ -1,8 +1,7 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/use-auth";
 import { buildOAuthUrl } from "@/lib/deriv";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 
@@ -17,13 +16,7 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const { mode } = Route.useSearch();
-  const navigate = useNavigate();
-  const { user, loading } = useAuth();
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!loading && user) navigate({ to: "/" });
-  }, [user, loading, navigate]);
 
   const isSignup = mode === "signup";
 
@@ -31,7 +24,7 @@ function AuthPage() {
     setBusy(true);
     try {
       const url = await buildOAuthUrl({ mode, returnTo: "/dashboard" });
-      console.log("Deriv OAuth URL:", url);
+      console.info("[Deriv OAuth] Sign in button redirecting to authorization URL", url);
       window.location.href = url;
     } catch (error) {
       console.error("Could not build Deriv OAuth URL", error);
