@@ -1,6 +1,6 @@
 // src/lib/deriv.ts
 
-const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID || "33dF8d2wwjIpeFDBvNkln";
+const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID || "133647";
 const WS_URL = `wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}&l=EN`;
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
