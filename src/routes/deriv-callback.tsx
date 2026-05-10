@@ -63,11 +63,6 @@ const SESSION_COLUMNS = [
   "is_active",
   "expires_at",
   "created_at",
-  "trading_authorized",
-  "trading_adapter",
-  "token_source",
-  "trading_authorized_at",
-  "last_trading_error",
 ] as const;
 
 function activeAccountStorageKey(userId: string) {
@@ -712,14 +707,9 @@ function DerivCallback() {
               is_active: true,
               expires_at: expiresAt,
               created_at: connectedAt,
-              trading_authorized: false,
-              trading_adapter: adapterForTokenSource(tokenSource),
-              token_source: tokenSource,
-              trading_authorized_at: null,
-              last_trading_error: null,
             },
             { onConflict: "user_id,account_id" },
-          ).select("id, account_id, loginid, is_demo, is_virtual, currency, balance, is_active, expires_at, trading_authorized, trading_adapter, token_source, trading_authorized_at, last_trading_error")
+          ).select("id, account_id, loginid, is_demo, is_virtual, currency, balance, is_active, expires_at")
             .maybeSingle();
           if (upsertErr) {
             markStage("Supabase upsert failure", {

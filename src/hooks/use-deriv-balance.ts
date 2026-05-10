@@ -414,7 +414,7 @@ export function useDerivBalance(): LiveBalance {
     (async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at, created_at, trading_authorized, trading_adapter, token_source, trading_authorized_at, last_trading_error")
+        .select("*")
         .eq("user_id", user.id)
         .eq("is_active", true)
         .order("is_demo", { ascending: true });

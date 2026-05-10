@@ -125,10 +125,20 @@ export type TradingAuthorizationState = {
   trading_authorized_at: string | null;
   last_trading_error: string | null;
 };
+type SupabaseErrorLike = {
+  code?: string;
+  message?: string;
+  details?: string | null;
+  hint?: string | null;
+};
 type DerivSocketError = Error & {
   code?: string;
   status?: number;
   retryable?: boolean;
+};
+type TradingReadinessSchemaError = Error & {
+  code: "DERIV_TRADING_READINESS_SCHEMA_MISSING";
+  cause?: unknown;
 };
 export type DerivTradingSession = {
   account_id: string;
@@ -389,9 +399,7 @@ export async function getActiveDerivTradingSession(
 
   const { data: sessionRows, error: sessionsError } = await supabase
     .from("sessions")
-    .select(
-      "id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at, is_active, created_at, trading_authorized, trading_adapter, token_source, trading_authorized_at, last_trading_error",
-    )
+    .select("*")
     .eq("user_id", userId)
     .eq("is_active", true);
 
@@ -739,6 +747,7 @@ export async function prepareTradingAuthorization(
     });
     return state;
   } catch (error) {
+    if (isTradingReadinessSchemaError(error)) throw error;
     const message = getDerivTradingErrorMessage(error);
     const state: TradingAuthorizationState = {
       account_id: session.account_id,
@@ -1068,6 +1077,33 @@ function tradingAuthorizationStateIsValid(value: unknown): value is TradingAutho
   );
 }
 
+function isSupabaseMissingColumnError(error: unknown) {
+  const supabaseError = error as SupabaseErrorLike;
+  const text = `${supabaseError?.message ?? ""} ${supabaseError?.details ?? ""} ${supabaseError?.hint ?? ""}`.toLowerCase();
+  return (
+    supabaseError?.code === "PGRST204" ||
+    (text.includes("schema cache") &&
+      (text.includes("trading_authorized") ||
+        text.includes("trading_adapter") ||
+        text.includes("token_source") ||
+        text.includes("trading_authorized_at") ||
+        text.includes("last_trading_error")))
+  );
+}
+
+function createTradingReadinessSchemaError(cause?: unknown): TradingReadinessSchemaError {
+  const error = new Error(
+    "Supabase sessions schema is missing trading readiness columns. Run the migration `supabase/migrations/20260510000100_add_deriv_trading_readiness.sql` and reload the PostgREST schema cache.",
+  ) as TradingReadinessSchemaError;
+  error.code = "DERIV_TRADING_READINESS_SCHEMA_MISSING";
+  error.cause = cause;
+  return error;
+}
+
+function isTradingReadinessSchemaError(error: unknown): error is TradingReadinessSchemaError {
+  return (error as TradingReadinessSchemaError)?.code === "DERIV_TRADING_READINESS_SCHEMA_MISSING";
+}
+
 export function tradingAuthorizationIsFresh(
   state: TradingAuthorizationState | null | undefined,
 ) {
@@ -1160,6 +1196,22 @@ async function persistTradingAuthorizationState(
     .eq("account_id", state.account_id);
 
   if (error) {
+    if (isSupabaseMissingColumnError(error)) {
+      try {
+        localStorage.removeItem(tradingAuthorizationStorageKey(userId, state.account_id));
+      } catch {
+        /* ignore localStorage cleanup failures */
+      }
+      console.error("[Deriv Trading] trading readiness schema is missing", {
+        userId,
+        accountId: state.account_id,
+        migration: "supabase/migrations/20260510000100_add_deriv_trading_readiness.sql",
+        message: error.message,
+        code: error.code,
+        details: error.details,
+      });
+      throw createTradingReadinessSchemaError(error);
+    }
     console.warn("[Deriv Trading] could not persist trading readiness to Supabase", {
       userId,
       accountId: state.account_id,
