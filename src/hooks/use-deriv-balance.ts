@@ -61,10 +61,24 @@ export function useDerivBalance(): LiveBalance {
   // Load all sessions for this user.
   useEffect(() => {
     if (!user || !isBrowser) {
+      setAccounts([]);
+      setActiveId(null);
+      setBalance(null);
+      setCurrency("");
       setLoading(false);
       return;
     }
     let cancelled = false;
+    setLoading(true);
+    setAccounts([]);
+    setActiveId(null);
+    setBalance(null);
+    setCurrency("");
+    lastWebSocketAccountKeyRef.current = null;
+    console.info("[Deriv Accounts] loading sessions for active Supabase user", {
+      userId: user.id,
+      reloadNonce,
+    });
     (async () => {
       const { data, error } = await supabase
         .from("sessions")

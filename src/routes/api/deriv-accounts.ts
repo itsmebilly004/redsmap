@@ -8,6 +8,7 @@ import {
 
 type DerivAccountsRequest = {
   accessToken?: string;
+  appIdMode?: "oauth" | "legacy";
 };
 
 type DerivAccount = DerivAccountLike & {
@@ -33,13 +34,23 @@ type DerivAccountsResponse = {
   errors?: { message?: string; code?: string; status?: number }[];
 };
 
-function derivApiAppId() {
-  return (
-    process.env.VITE_DERIV_LEGACY_APP_ID ??
-    process.env.VITE_DERIV_APP_ID ??
-    process.env.VITE_DERIV_CLIENT_ID ??
-    ""
-  );
+function derivApiAppId(mode: DerivAccountsRequest["appIdMode"] = "oauth") {
+  const oauthAppId = process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID ?? "";
+  const legacyAppId = process.env.VITE_DERIV_LEGACY_APP_ID ?? "";
+  return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId || legacyAppId;
+}
+
+function derivApiAppIdSource(mode: DerivAccountsRequest["appIdMode"] = "oauth") {
+  const hasOAuthAppId = Boolean(process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID);
+  const hasLegacyAppId = Boolean(process.env.VITE_DERIV_LEGACY_APP_ID);
+  if (mode === "legacy") {
+    if (hasLegacyAppId) return "VITE_DERIV_LEGACY_APP_ID";
+    return process.env.VITE_DERIV_APP_ID ? "VITE_DERIV_APP_ID" : "VITE_DERIV_CLIENT_ID";
+  }
+  if (hasOAuthAppId) {
+    return process.env.VITE_DERIV_APP_ID ? "VITE_DERIV_APP_ID" : "VITE_DERIV_CLIENT_ID";
+  }
+  return "VITE_DERIV_LEGACY_APP_ID";
 }
 
 function errorMessage(data: DerivAccountsResponse) {
@@ -123,15 +134,16 @@ export const Route = createFileRoute("/api/deriv-accounts")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          const { accessToken } = (await request.json()) as DerivAccountsRequest;
+          const { accessToken, appIdMode = "oauth" } = (await request.json()) as DerivAccountsRequest;
           console.log("[Deriv Accounts API] request received", {
             hasAccessToken: Boolean(accessToken),
+            appIdMode,
           });
           if (!accessToken) {
             return Response.json({ error: "Missing Deriv access token" }, { status: 400 });
           }
 
-          const appId = derivApiAppId();
+          const appId = derivApiAppId(appIdMode);
           if (!appId) {
             console.error("[Deriv Accounts API] missing Deriv App ID");
             return Response.json({ error: "Missing Deriv App ID" }, { status: 400 });
@@ -142,11 +154,8 @@ export const Route = createFileRoute("/api/deriv-accounts")({
             method: "GET",
             hasAccessToken: Boolean(accessToken),
             appId,
-            appIdSource: process.env.VITE_DERIV_LEGACY_APP_ID
-              ? "VITE_DERIV_LEGACY_APP_ID"
-              : process.env.VITE_DERIV_APP_ID
-                ? "VITE_DERIV_APP_ID"
-                : "VITE_DERIV_CLIENT_ID",
+            appIdMode,
+            appIdSource: derivApiAppIdSource(appIdMode),
           });
           const { response: accountsResponse, data: accountsData } = await fetchOptionsAccounts(
             accessToken,

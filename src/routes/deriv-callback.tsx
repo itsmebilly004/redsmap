@@ -339,6 +339,10 @@ function DerivCallback() {
         let rawAccounts: DerivAccount[] = [];
 
         if (code) {
+          markStage("new OAuth callback selected", {
+            appIdMode: "oauth",
+            hasLegacyCallbackAccounts: Boolean(legacyCallbackAccounts.length),
+          });
           if (!state) throw new Error("State mismatch");
 
           const expectedState = sessionStorage.getItem("deriv_oauth_state");
@@ -430,7 +434,7 @@ function DerivCallback() {
           const accountsResponse = await fetch("/api/deriv-accounts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ accessToken }),
+            body: JSON.stringify({ accessToken, appIdMode: "oauth" }),
           });
           const accountsData = await responseJson<DerivAccountsResponse>(accountsResponse, {
             error: "Deriv accounts endpoint returned a non-JSON response",

@@ -3,15 +3,26 @@ import { createFileRoute } from "@tanstack/react-router";
 type DerivAccountOtpRequest = {
   accessToken?: string;
   accountId?: string;
+  appIdMode?: "oauth" | "legacy";
 };
 
-function derivApiAppId() {
-  return (
-    process.env.VITE_DERIV_LEGACY_APP_ID ??
-    process.env.VITE_DERIV_APP_ID ??
-    process.env.VITE_DERIV_CLIENT_ID ??
-    ""
-  );
+function derivApiAppId(mode: DerivAccountOtpRequest["appIdMode"] = "oauth") {
+  const oauthAppId = process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID ?? "";
+  const legacyAppId = process.env.VITE_DERIV_LEGACY_APP_ID ?? "";
+  return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId || legacyAppId;
+}
+
+function derivApiAppIdSource(mode: DerivAccountOtpRequest["appIdMode"] = "oauth") {
+  const hasOAuthAppId = Boolean(process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID);
+  const hasLegacyAppId = Boolean(process.env.VITE_DERIV_LEGACY_APP_ID);
+  if (mode === "legacy") {
+    if (hasLegacyAppId) return "VITE_DERIV_LEGACY_APP_ID";
+    return process.env.VITE_DERIV_APP_ID ? "VITE_DERIV_APP_ID" : "VITE_DERIV_CLIENT_ID";
+  }
+  if (hasOAuthAppId) {
+    return process.env.VITE_DERIV_APP_ID ? "VITE_DERIV_APP_ID" : "VITE_DERIV_CLIENT_ID";
+  }
+  return "VITE_DERIV_LEGACY_APP_ID";
 }
 
 export const Route = createFileRoute("/api/deriv-account-otp")({
@@ -19,12 +30,12 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          const { accessToken, accountId } = (await request.json()) as DerivAccountOtpRequest;
+          const { accessToken, accountId, appIdMode = "oauth" } = (await request.json()) as DerivAccountOtpRequest;
           if (!accessToken || !accountId) {
             return Response.json({ error: "Missing Deriv access token or account ID" }, { status: 400 });
           }
 
-          const appId = derivApiAppId();
+          const appId = derivApiAppId(appIdMode);
           if (!appId) {
             return Response.json({ error: "Missing Deriv App ID" }, { status: 400 });
           }
@@ -34,11 +45,8 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             hasAccessToken: Boolean(accessToken),
             accountId,
             appId,
-            appIdSource: process.env.VITE_DERIV_LEGACY_APP_ID
-              ? "VITE_DERIV_LEGACY_APP_ID"
-              : process.env.VITE_DERIV_APP_ID
-                ? "VITE_DERIV_APP_ID"
-                : "VITE_DERIV_CLIENT_ID",
+            appIdMode,
+            appIdSource: derivApiAppIdSource(appIdMode),
           });
           const otpResponse = await fetch(
             `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
