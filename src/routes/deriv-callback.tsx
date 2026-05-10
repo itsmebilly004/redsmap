@@ -58,6 +58,7 @@ const SESSION_COLUMNS = [
   "balance",
   "is_active",
   "expires_at",
+  "created_at",
 ] as const;
 
 function activeAccountStorageKey(userId: string) {
@@ -181,10 +182,8 @@ function tokenLogValue(token: string | null | undefined) {
 }
 
 function derivTokenExpiresAt(expiresIn: number) {
-  const ttlMs =
-    Number.isFinite(expiresIn) && expiresIn > 0
-      ? expiresIn * 1000
-      : DEFAULT_DERIV_TOKEN_TTL_MS;
+  const providerTtlMs = Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn * 1000 : 0;
+  const ttlMs = Math.max(providerTtlMs, DEFAULT_DERIV_TOKEN_TTL_MS);
   return new Date(Date.now() + ttlMs).toISOString();
 }
 
@@ -642,6 +641,7 @@ function DerivCallback() {
         });
         const savedAccounts: string[] = [];
         const tokenSource = tokenSourceForFetchMode(accountFetchMode);
+        const connectedAt = new Date().toISOString();
         for (const account of accounts) {
           const accountId = String(account.loginid ?? account.account_id);
           const accountToken = String(account.deriv_token ?? accessToken);
@@ -681,6 +681,7 @@ function DerivCallback() {
               is_virtual: isVirtual,
               is_active: true,
               expires_at: expiresAt,
+              created_at: connectedAt,
             },
             { onConflict: "user_id,account_id" },
           ).select("id, account_id, loginid, is_demo, is_virtual, currency, balance, is_active, expires_at")

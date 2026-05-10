@@ -29,6 +29,7 @@ const DERIV_LEGACY_OAUTH_ROUTE_MESSAGE =
 const DERIV_SESSION_EXPIRED_CODE = "DERIV_SESSION_EXPIRED";
 const DERIV_RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
+const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
@@ -319,13 +320,17 @@ export async function prepareDerivTradingSession(
     .sort(compareSessionFreshness);
   const selectedSession = matchingSessions[0] ?? null;
   const storedToken = textFrom(selectedSession?.deriv_token);
-  const expiry = tokenExpiryState(selectedSession?.expires_at);
   const storedTokenSource = storedToken
     ? readStoredTokenSource(userId, selectedAccountId)
     : null;
   const tokenSource = storedToken
     ? storedTokenSource ?? tokenSourceForAccount(selectedAccount, storedToken)
     : null;
+  const expiry = effectiveTokenExpiryState(
+    selectedSession?.expires_at,
+    selectedSession?.created_at,
+    tokenSource,
+  );
   const adapter = tokenSource ? adapterForTokenSource(tokenSource) : null;
 
   console.info("[Deriv Trading] pre-trade session validation", {
@@ -345,6 +350,10 @@ export async function prepareDerivTradingSession(
       loginid: selectedSession?.loginid ?? null,
       tokenExists: Boolean(storedToken),
       tokenExpiry: expiry.expiresAt,
+      storedTokenExpiry: expiry.storedExpiresAt,
+      platformTokenExpiry: expiry.platformExpiresAt,
+      shortProviderTokenExpiry: expiry.shortProviderExpiresAt,
+      expiryPolicy: expiry.expiryPolicy,
       currentTime: expiry.currentTime,
       tokenExpired: expiry.expired,
       expiresWithinClockSkew: expiry.expiresWithinClockSkew,
@@ -519,6 +528,46 @@ function tokenExpiryState(expiresAt: string | null | undefined) {
   };
 }
 
+function effectiveTokenExpiryState(
+  expiresAt: string | null | undefined,
+  createdAt: string | null | undefined,
+  tokenSource: DerivTokenSource | null,
+) {
+  if (tokenSource !== "oauth_access_token") {
+    return {
+      ...tokenExpiryState(expiresAt),
+      storedExpiresAt: expiresAt ?? null,
+      platformExpiresAt: null,
+      expiryPolicy: "stored",
+    };
+  }
+
+  const storedExpiryMs = timestampValue(expiresAt);
+  const createdAtMs = timestampValue(createdAt);
+  const currentTimeMs = Date.now();
+  const platformExpiryMs = createdAtMs ? createdAtMs + DERIV_OAUTH_SESSION_TTL_MS : 0;
+  const shortProviderExpiryMs =
+    storedExpiryMs &&
+    storedExpiryMs >= currentTimeMs - DERIV_OAUTH_SESSION_TTL_MS &&
+    storedExpiryMs <= currentTimeMs + 24 * 60 * 60 * 1000
+      ? storedExpiryMs + DERIV_OAUTH_SESSION_TTL_MS
+      : 0;
+  const effectiveExpiryMs = Math.max(storedExpiryMs, platformExpiryMs, shortProviderExpiryMs);
+  const effectiveExpiresAt = effectiveExpiryMs
+    ? new Date(effectiveExpiryMs).toISOString()
+    : expiresAt;
+
+  return {
+    ...tokenExpiryState(effectiveExpiresAt),
+    storedExpiresAt: expiresAt ?? null,
+    platformExpiresAt: platformExpiryMs ? new Date(platformExpiryMs).toISOString() : null,
+    shortProviderExpiresAt: shortProviderExpiryMs
+      ? new Date(shortProviderExpiryMs).toISOString()
+      : null,
+    expiryPolicy: "oauth-platform-week",
+  };
+}
+
 function compareSessionFreshness(
   left: {
     expires_at?: string | null;
@@ -558,6 +607,12 @@ function derivMessageError(error: DerivError | undefined) {
         reason:
           "OAuth sessions are kept active until their stored expiry or manual logout to avoid false immediate disconnects after reconnect.",
       });
+      return createDerivSocketError(
+        "Deriv rejected OAuth trading authorization for this account. Please refresh balances and try again.",
+        "DERIV_OAUTH_TRADING_AUTH_FAILED",
+        401,
+        false,
+      );
     }
     return createDerivSocketError(
       "Your Deriv session expired. Please reconnect your Deriv account.",

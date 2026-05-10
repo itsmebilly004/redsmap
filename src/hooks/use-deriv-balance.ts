@@ -80,6 +80,8 @@ type DerivAccountsApiResponse = {
   detail?: string;
 };
 
+const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 function isLikelyDerivOAuthToken(token: string | null | undefined) {
   if (!token) return false;
   return token.startsWith("ory_") || token.includes("ory_at_");
@@ -155,10 +157,33 @@ function compareAccountFreshness(left: DerivAccount, right: DerivAccount) {
   return timestampValue(right.created_at) - timestampValue(left.created_at);
 }
 
-function accountSessionExpired(account: Pick<DerivAccount, "deriv_token" | "expires_at">) {
+function effectiveAccountExpiresAt(
+  account: Pick<DerivAccount, "deriv_token" | "expires_at" | "created_at" | "token_source">,
+) {
+  const storedExpiryMs = timestampValue(account.expires_at);
+  if (tokenSourceForAccount(account) !== "oauth_access_token") {
+    return storedExpiryMs ? new Date(storedExpiryMs).toISOString() : account.expires_at;
+  }
+  const createdAtMs = timestampValue(account.created_at);
+  const currentTimeMs = Date.now();
+  const platformExpiryMs = createdAtMs ? createdAtMs + DERIV_OAUTH_SESSION_TTL_MS : 0;
+  const shortProviderExpiryMs =
+    storedExpiryMs &&
+    storedExpiryMs >= currentTimeMs - DERIV_OAUTH_SESSION_TTL_MS &&
+    storedExpiryMs <= currentTimeMs + 24 * 60 * 60 * 1000
+      ? storedExpiryMs + DERIV_OAUTH_SESSION_TTL_MS
+      : 0;
+  const effectiveExpiryMs = Math.max(storedExpiryMs, platformExpiryMs, shortProviderExpiryMs);
+  return effectiveExpiryMs ? new Date(effectiveExpiryMs).toISOString() : account.expires_at;
+}
+
+function accountSessionExpired(
+  account: Pick<DerivAccount, "deriv_token" | "expires_at" | "created_at" | "token_source">,
+) {
   if (!account.deriv_token) return true;
-  if (!account.expires_at) return false;
-  const expiry = new Date(account.expires_at).getTime();
+  const effectiveExpiresAt = effectiveAccountExpiresAt(account);
+  if (!effectiveExpiresAt) return false;
+  const expiry = new Date(effectiveExpiresAt).getTime();
   if (!Number.isFinite(expiry)) return false;
   return expiry <= Date.now() - 60_000;
 }

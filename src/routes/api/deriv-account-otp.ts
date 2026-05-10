@@ -27,6 +27,7 @@ type SessionRow = {
 const DERIV_SESSION_EXPIRED = "DERIV_SESSION_EXPIRED";
 const RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
+const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function derivApiAppId(mode: DerivAccountOtpRequest["appIdMode"] = "oauth") {
   const oauthAppId = process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID ?? "";
@@ -123,6 +124,46 @@ function tokenExpiryState(expiresAt: string | null | undefined) {
     expired: expiry <= currentTimeMs - TOKEN_EXPIRY_CLOCK_SKEW_MS,
     expiresWithinClockSkew: expiry <= currentTimeMs + TOKEN_EXPIRY_CLOCK_SKEW_MS,
     invalidExpiry: false,
+  };
+}
+
+function effectiveTokenExpiryState(
+  expiresAt: string | null | undefined,
+  createdAt: string | null | undefined,
+  tokenSource: DerivAccountOtpRequest["tokenSource"] | null,
+) {
+  if (tokenSource !== "oauth_access_token") {
+    return {
+      ...tokenExpiryState(expiresAt),
+      storedExpiresAt: expiresAt ?? null,
+      platformExpiresAt: null,
+      expiryPolicy: "stored",
+    };
+  }
+
+  const storedExpiryMs = timestampValue(expiresAt);
+  const createdAtMs = timestampValue(createdAt);
+  const currentTimeMs = Date.now();
+  const platformExpiryMs = createdAtMs ? createdAtMs + DERIV_OAUTH_SESSION_TTL_MS : 0;
+  const shortProviderExpiryMs =
+    storedExpiryMs &&
+    storedExpiryMs >= currentTimeMs - DERIV_OAUTH_SESSION_TTL_MS &&
+    storedExpiryMs <= currentTimeMs + 24 * 60 * 60 * 1000
+      ? storedExpiryMs + DERIV_OAUTH_SESSION_TTL_MS
+      : 0;
+  const effectiveExpiryMs = Math.max(storedExpiryMs, platformExpiryMs, shortProviderExpiryMs);
+  const effectiveExpiresAt = effectiveExpiryMs
+    ? new Date(effectiveExpiryMs).toISOString()
+    : expiresAt;
+
+  return {
+    ...tokenExpiryState(effectiveExpiresAt),
+    storedExpiresAt: expiresAt ?? null,
+    platformExpiresAt: platformExpiryMs ? new Date(platformExpiryMs).toISOString() : null,
+    shortProviderExpiresAt: shortProviderExpiryMs
+      ? new Date(shortProviderExpiryMs).toISOString()
+      : null,
+    expiryPolicy: "oauth-platform-week",
   };
 }
 
@@ -275,8 +316,19 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             ? normalizeDerivAccount(selectedSession, { trustVirtualFlags: false })
             : null;
           const storedToken = stringFrom(selectedSession?.deriv_token);
-          const expiry = tokenExpiryState(selectedSession?.expires_at);
           const selectedAccountType = normalized?.normalizedType ?? "unknown";
+          const requestedTokenSource: DerivAccountOtpRequest["tokenSource"] =
+            tokenSource ??
+            (appIdMode === "oauth" || isLikelyDerivOAuthToken(storedToken)
+              ? "oauth_access_token"
+              : "legacy_authorize_token");
+          const shouldUseOAuthOtp =
+            appIdMode === "oauth" || requestedTokenSource === "oauth_access_token";
+          const expiry = effectiveTokenExpiryState(
+            selectedSession?.expires_at,
+            selectedSession?.created_at,
+            requestedTokenSource,
+          );
 
           console.info("[Deriv OTP API] session validation", {
             requestedAccountId: accountId,
@@ -286,6 +338,10 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             sessionId: selectedSession?.id ?? null,
             deriv_token_exists: Boolean(storedToken),
             tokenExpiry: expiry.expiresAt,
+            storedTokenExpiry: expiry.storedExpiresAt,
+            platformTokenExpiry: expiry.platformExpiresAt,
+            shortProviderTokenExpiry: expiry.shortProviderExpiresAt,
+            expiryPolicy: expiry.expiryPolicy,
             currentTime: expiry.currentTime,
             tokenExpired: expiry.expired,
             expiresWithinClockSkew: expiry.expiresWithinClockSkew,
@@ -293,7 +349,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             selectedAccountType,
             createdAt: selectedSession?.created_at ?? null,
             appIdMode,
-            tokenSource,
+            tokenSource: requestedTokenSource,
             bodyToken: tokenLogValue(bodyAccessToken),
             storedToken: tokenLogValue(storedToken),
             bodyTokenMatchesStoredToken: Boolean(
@@ -323,15 +379,12 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             });
           }
 
-          const shouldUseOAuthOtp =
-            appIdMode === "oauth" || tokenSource === "oauth_access_token";
-
           if (!shouldUseOAuthOtp && !isLikelyDerivOAuthToken(storedToken)) {
             console.info("[Deriv OTP API] legacy token requires direct WebSocket authorization", {
               requestedAccountId: accountId,
               authenticatedUserId: userId,
               selectedAccountType,
-              tokenSource,
+              tokenSource: requestedTokenSource,
               wsUrl: legacyWsUrl(),
             });
             return errorResponse(
