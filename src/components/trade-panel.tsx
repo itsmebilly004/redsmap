@@ -25,10 +25,14 @@ import { isDemoAccount } from "@/lib/deriv-account";
 import {
   SYNTHETIC_MARKETS,
   buildOAuthUrl,
+  ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
+  getStatus,
   getTradingSocketAccountId,
+  onStatus,
   prepareDerivTradingSession,
   redirectToDerivOAuth,
+  type ConnectionStatus,
   type TradeCategory,
   type TradingAdapter,
 } from "@/lib/deriv";
@@ -69,6 +73,34 @@ const EMPTY_QUOTE: ProposalQuote = {
   pct: null,
 };
 
+function TradingConnectionBadge({
+  error,
+  status,
+}: {
+  error: string | null;
+  status: ConnectionStatus;
+}) {
+  const connected = status === "connected";
+  return (
+    <div className="rounded-lg border border-[#e6e6e6] bg-white px-3 py-2 text-xs shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-semibold text-[#555555]">Trading connection</span>
+        <span
+          className={[
+            "rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wider",
+            connected
+              ? "bg-[#e5f7f6] text-[#147a78]"
+              : "bg-[#fff7f7] text-[#cc2f39]",
+          ].join(" ")}
+        >
+          {status}
+        </span>
+      </div>
+      {error && <div className="mt-1 text-[#cc2f39]">{error}</div>}
+    </div>
+  );
+}
+
 export function TradePanel({
   market,
   lastPrice,
@@ -98,6 +130,9 @@ export function TradePanel({
   const [busy, setBusy] = useState(false);
   const [activeContract, setActiveContract] = useState<ActiveContractState>(EMPTY_CONTRACT_STATE);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [tradingConnectionStatus, setTradingConnectionStatus] =
+    useState<ConnectionStatus>(() => getStatus());
+  const [tradingConnectionError, setTradingConnectionError] = useState<string | null>(null);
 
   const unsubscribeRef = useRef<null | (() => Promise<void>)>(null);
   const buyInFlightRef = useRef(false);
@@ -121,6 +156,79 @@ export function TradePanel({
       void cleanupSubscription();
     };
   }, []);
+
+  useEffect(() => onStatus(setTradingConnectionStatus), []);
+
+  useEffect(() => {
+    setErrorMessage(null);
+    setTradingConnectionError(null);
+    if (!account || !token) return;
+    let cancelled = false;
+    console.info("[Manual Trader] page load active dashboard account", {
+      selectedAccountId: account.account_id,
+      loginid: account.loginid,
+      is_demo: account.is_demo,
+      normalizedType: account.normalizedType,
+      token_source: account.token_source ?? null,
+      deriv_token_exists: Boolean(account.deriv_token),
+      expires_at: account.expires_at ?? null,
+      balance: accountBalance,
+      currency: tradeCurrency,
+    });
+    ensureDerivTradingConnection(account, { context: "manual-trader-page-load" })
+      .then((tradingSession) => {
+        if (cancelled) return;
+        setTradingConnectionError(null);
+        console.info("[Manual Trader] active trading account ready", {
+          activeDashboardAccount: {
+            account_id: account.account_id,
+            loginid: account.loginid,
+            normalizedType: account.normalizedType,
+            token_source: account.token_source ?? null,
+          },
+          activeTradingAccount: {
+            account_id: tradingSession.account_id,
+            loginid: tradingSession.loginid,
+            normalizedType: tradingSession.normalizedType,
+            token_source: tradingSession.token_source,
+            adapter: tradingSession.adapter,
+            expires_at: tradingSession.expires_at,
+          },
+          websocketMode:
+            tradingSession.token_source === "legacy_authorize_token"
+              ? "legacy-direct-authorize"
+              : "oauth-otp",
+          connectionStatus: getStatus(),
+          websocketAccountId: getTradingSocketAccountId(),
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const message = getDerivTradingErrorMessage(error);
+        setTradingConnectionError(message);
+        console.warn("[Manual Trader] trading connection check failed", {
+          selectedAccountId: account.account_id,
+          loginid: account.loginid,
+          normalizedType: account.normalizedType,
+          token_source: account.token_source ?? null,
+          connectionStatus: getStatus(),
+          failureReason: message,
+          error,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    account?.account_id,
+    account?.deriv_token,
+    account?.expires_at,
+    account?.token_source,
+    account?.normalizedType,
+    accountBalance,
+    token,
+    tradeCurrency,
+  ]);
 
   useEffect(() => {
     if (selectedTradeType === "accumulator") return;
@@ -520,6 +628,10 @@ export function TradePanel({
   if (selectedTradeType === "accumulator") {
     return (
       <div className="min-w-0 space-y-3">
+        <TradingConnectionBadge
+          error={tradingConnectionError}
+          status={tradingConnectionStatus}
+        />
         <TradeTypeCard
           config={config}
           onNext={() => nextTradeType(1)}
@@ -537,6 +649,10 @@ export function TradePanel({
 
   return (
     <div className="min-w-0 space-y-3">
+      <TradingConnectionBadge
+        error={tradingConnectionError}
+        status={tradingConnectionStatus}
+      />
       <TradeTypeCard
         config={config}
         onNext={() => nextTradeType(1)}

@@ -121,12 +121,16 @@ type DerivSocketError = Error & {
   retryable?: boolean;
 };
 export type DerivTradingSession = {
+  account_id: string;
   sessionId: string | null;
   accountId: string;
   loginid: string;
+  deriv_token: string;
   token: string;
+  token_source: DerivTokenSource;
   tokenSource: DerivTokenSource;
   adapter: TradingAdapter;
+  expires_at: string | null;
   expiresAt: string | null;
   createdAt: string | null;
   sessionAccountId: string;
@@ -251,7 +255,7 @@ export function getDerivTradingErrorMessage(error: unknown) {
   return "Trade failed.";
 }
 
-export async function prepareDerivTradingSession(
+export async function getActiveDerivTradingSession(
   selectedAccount: DerivAccountLike,
   options: { context?: string } = {},
 ): Promise<DerivTradingSession> {
@@ -312,19 +316,17 @@ export async function prepareDerivTradingSession(
         adapter: adapterForTokenSource(selectedAccountExplicitTokenSource),
       });
       if (!expiry.expired) {
-        setAuthenticatedAccount(
-          selectedAccountToken,
-          selectedAccountId,
-          normalizedType === "demo",
-          selectedAccountExplicitTokenSource,
-        );
         return {
+          account_id: selectedAccountId,
           sessionId: null,
           accountId: selectedAccountId,
           loginid: normalizedSelected.loginid,
+          deriv_token: selectedAccountToken,
           token: selectedAccountToken,
+          token_source: selectedAccountExplicitTokenSource,
           tokenSource: selectedAccountExplicitTokenSource,
           adapter: adapterForTokenSource(selectedAccountExplicitTokenSource),
+          expires_at: expiry.expiresAt,
           expiresAt: expiry.expiresAt,
           createdAt: textFrom(selectedAccount.created_at) || null,
           sessionAccountId: selectedAccountId,
@@ -486,20 +488,63 @@ export async function prepareDerivTradingSession(
     );
   }
 
-  setAuthenticatedAccount(resolvedToken, selectedAccountId, normalizedType === "demo", tokenSource);
   return {
+    account_id: selectedAccountId,
     sessionId: selectedSession?.id ?? null,
     accountId: selectedAccountId,
     loginid: normalizedSelected.loginid,
+    deriv_token: resolvedToken,
     token: resolvedToken,
+    token_source: tokenSource,
     tokenSource,
     adapter,
+    expires_at: resolvedExpiresAt,
     expiresAt: resolvedExpiresAt,
     createdAt: resolvedCreatedAt,
     sessionAccountId: selectedSession?.account_id ?? selectedAccountId,
     sessionLoginid: selectedSession?.loginid ?? normalizedSelected.loginid ?? null,
     normalizedType,
   };
+}
+
+export async function prepareDerivTradingSession(
+  selectedAccount: DerivAccountLike,
+  options: { context?: string } = {},
+): Promise<DerivTradingSession> {
+  const session = await getActiveDerivTradingSession(selectedAccount, options);
+  setAuthenticatedAccount(
+    session.deriv_token,
+    session.account_id,
+    session.normalizedType === "demo",
+    session.token_source,
+  );
+  return session;
+}
+
+export async function ensureDerivTradingConnection(
+  selectedAccount: DerivAccountLike,
+  options: { context?: string } = {},
+): Promise<DerivTradingSession> {
+  const session = await prepareDerivTradingSession(selectedAccount, options);
+  await connect();
+  console.info("[Deriv Trading] active trading connection ready", {
+    context: options.context ?? "trade",
+    activeTradingAccount: {
+      account_id: session.account_id,
+      loginid: session.loginid,
+      normalizedType: session.normalizedType,
+      token_source: session.token_source,
+      adapter: session.adapter,
+      expires_at: session.expires_at,
+    },
+    websocketMode:
+      session.token_source === "legacy_authorize_token"
+        ? "legacy-direct-authorize"
+        : "oauth-otp",
+    connectionStatus: getStatus(),
+    websocketAccountId: getTradingSocketAccountId(),
+  });
+  return session;
 }
 
 function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticatedAccount>) {

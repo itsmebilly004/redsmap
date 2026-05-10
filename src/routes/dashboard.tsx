@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { TopShell } from "@/components/top-shell";
-import { disconnectAll } from "@/lib/deriv";
+import { disconnectAll, getActiveDerivTradingSession } from "@/lib/deriv";
 import { isDemoAccount } from "@/lib/deriv-account";
 
 export const Route = createFileRoute("/dashboard")({
@@ -38,6 +38,54 @@ function DashboardLayout() {
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth", search: { mode: "signin" } });
   }, [user, loading, navigate]);
+
+  useEffect(() => {
+    if (!user || !account) return;
+    let cancelled = false;
+    getActiveDerivTradingSession(account, { context: "dashboard-selected-account" })
+      .then((tradingSession) => {
+        if (cancelled) return;
+        console.info("[Dashboard] active selected Deriv trading session", {
+          activeDashboardAccount: {
+            account_id: account.account_id,
+            loginid: account.loginid,
+            is_demo: account.is_demo,
+            normalizedType: account.normalizedType,
+            token_source: account.token_source ?? null,
+            deriv_token_exists: Boolean(account.deriv_token),
+            expires_at: account.expires_at ?? null,
+          },
+          activeTradingAccount: {
+            account_id: tradingSession.account_id,
+            loginid: tradingSession.loginid,
+            normalizedType: tradingSession.normalizedType,
+            token_source: tradingSession.token_source,
+            adapter: tradingSession.adapter,
+            expires_at: tradingSession.expires_at,
+          },
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("[Dashboard] selected Deriv trading session unavailable", {
+          account_id: account.account_id,
+          loginid: account.loginid,
+          normalizedType: account.normalizedType,
+          token_source: account.token_source ?? null,
+          error,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    user,
+    account?.account_id,
+    account?.deriv_token,
+    account?.expires_at,
+    account?.normalizedType,
+    account?.token_source,
+  ]);
 
   async function logout() {
     if (user) {

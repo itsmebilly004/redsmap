@@ -16,8 +16,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
+  ensureDerivTradingConnection,
   send,
   getDerivTradingErrorMessage,
+  getStatus,
   getTradingSocketAccountId,
   prepareDerivTradingSession,
   type TradeCategory,
@@ -284,6 +286,68 @@ function BotBuilder() {
   useEffect(() => {
     currentStakeRef.current = currentStake;
   }, [currentStake]);
+
+  useEffect(() => {
+    if (!derivAccount || !token) return;
+    let cancelled = false;
+    console.info("[Deriv Bot] page load active dashboard account", {
+      selectedAccountId: derivAccount.account_id,
+      loginid: derivAccount.loginid,
+      is_demo: derivAccount.is_demo,
+      normalizedType: derivAccount.normalizedType,
+      token_source: derivAccount.token_source ?? null,
+      deriv_token_exists: Boolean(derivAccount.deriv_token),
+      expires_at: derivAccount.expires_at ?? null,
+    });
+    ensureDerivTradingConnection(derivAccount, { context: "bot-builder-page-load" })
+      .then((tradingSession) => {
+        if (cancelled) return;
+        console.info("[Deriv Bot] active trading account ready", {
+          activeDashboardAccount: {
+            account_id: derivAccount.account_id,
+            loginid: derivAccount.loginid,
+            normalizedType: derivAccount.normalizedType,
+            token_source: derivAccount.token_source ?? null,
+          },
+          activeTradingAccount: {
+            account_id: tradingSession.account_id,
+            loginid: tradingSession.loginid,
+            normalizedType: tradingSession.normalizedType,
+            token_source: tradingSession.token_source,
+            adapter: tradingSession.adapter,
+            expires_at: tradingSession.expires_at,
+          },
+          websocketMode:
+            tradingSession.token_source === "legacy_authorize_token"
+              ? "legacy-direct-authorize"
+              : "oauth-otp",
+          connectionStatus: getStatus(),
+          websocketAccountId: getTradingSocketAccountId(),
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("[Deriv Bot] trading connection check failed", {
+          selectedAccountId: derivAccount.account_id,
+          loginid: derivAccount.loginid,
+          normalizedType: derivAccount.normalizedType,
+          token_source: derivAccount.token_source ?? null,
+          connectionStatus: getStatus(),
+          failureReason: getDerivTradingErrorMessage(error),
+          error,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    derivAccount?.account_id,
+    derivAccount?.deriv_token,
+    derivAccount?.expires_at,
+    derivAccount?.normalizedType,
+    derivAccount?.token_source,
+    token,
+  ]);
 
   useEffect(() => {
     const serialized = JSON.stringify(snapshot);
