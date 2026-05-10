@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
   accountLoginId,
+  isUnknownAccount,
   normalizeDerivAccount,
   stringFrom,
   type DerivAccountLike,
@@ -65,11 +66,13 @@ function normalizeAccount(account: DerivAccount) {
   return {
     account_id: accountId,
     loginid: accountId,
+    type: normalized.type,
     currency: normalized.currency ?? "",
     balance: normalized.balance,
     is_demo: normalized.is_demo,
     is_virtual: normalized.is_virtual,
     account_type: normalized.account_type ?? "",
+    classification_reason: normalized.classification_reason,
     status: normalized.status ?? "active",
   };
 }
@@ -150,11 +153,29 @@ export const Route = createFileRoute("/api/deriv-accounts")({
           }
 
           let rawAccounts = accountsFromResponse(accountsData);
-          let accounts = rawAccounts.map(normalizeAccount).filter((account) => account !== null);
+          console.info("[Deriv Accounts API] raw accounts before normalization", rawAccounts);
+          let normalizedAccounts = rawAccounts
+            .map(normalizeAccount)
+            .filter((account): account is NonNullable<ReturnType<typeof normalizeAccount>> =>
+              Boolean(account),
+            );
+          const unknownAccounts = normalizedAccounts.filter(isUnknownAccount);
+          if (unknownAccounts.length) {
+            console.warn("[Deriv Accounts API] unknown accounts excluded", unknownAccounts);
+          }
+          let accounts = normalizedAccounts.filter((account) => !isUnknownAccount(account));
           console.log("Deriv normalized Options accounts", {
             rawCount: rawAccounts.length,
             eligibleCount: accounts.length,
             skippedCount: rawAccounts.length - accounts.length,
+            accounts: accounts.map((account) => ({
+              account_id: account.account_id,
+              loginid: account.loginid,
+              type: account.type,
+              is_demo: account.is_demo,
+              is_virtual: account.is_virtual,
+              reason: account.classification_reason,
+            })),
           });
 
           if (!accounts.length) {
@@ -194,11 +215,29 @@ export const Route = createFileRoute("/api/deriv-accounts")({
             }
 
             rawAccounts = accountsFromResponse(createData);
-            accounts = rawAccounts.map(normalizeAccount).filter((account) => account !== null);
+            console.info("[Deriv Accounts API] raw created accounts before normalization", rawAccounts);
+            normalizedAccounts = rawAccounts
+              .map(normalizeAccount)
+              .filter((account): account is NonNullable<ReturnType<typeof normalizeAccount>> =>
+                Boolean(account),
+              );
+            const createdUnknownAccounts = normalizedAccounts.filter(isUnknownAccount);
+            if (createdUnknownAccounts.length) {
+              console.warn("[Deriv Accounts API] unknown created accounts excluded", createdUnknownAccounts);
+            }
+            accounts = normalizedAccounts.filter((account) => !isUnknownAccount(account));
             console.log("Deriv normalized created Options accounts", {
               rawCount: rawAccounts.length,
               eligibleCount: accounts.length,
               skippedCount: rawAccounts.length - accounts.length,
+              accounts: accounts.map((account) => ({
+                account_id: account.account_id,
+                loginid: account.loginid,
+                type: account.type,
+                is_demo: account.is_demo,
+                is_virtual: account.is_virtual,
+                reason: account.classification_reason,
+              })),
             });
           }
 

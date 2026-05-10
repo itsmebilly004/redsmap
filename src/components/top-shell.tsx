@@ -30,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { type DerivAccount } from "@/hooks/use-deriv-balance";
-import { isDemoAccount, isRealAccount } from "@/lib/deriv-account";
+import { getDerivAccountType, isDemoAccount, isUnknownAccount } from "@/lib/deriv-account";
 
 const CURRENCY_META: Record<string, { country?: string; name: string; symbol?: string }> = {
   AUD: { country: "au", name: "Australian Dollar" },
@@ -93,13 +93,20 @@ export function TopShell({ children }: { children: ReactNode }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeAccountTab, setActiveAccountTab] = useState<"real" | "demo">("real");
 
-  const realAccounts = useMemo(() => accounts.filter(isRealAccount), [accounts]);
-  const demoAccounts = useMemo(() => accounts.filter(isDemoAccount), [accounts]);
+  const realAccounts = useMemo(
+    () => accounts.filter((account) => getDerivAccountType(account) === "real"),
+    [accounts],
+  );
+  const demoAccounts = useMemo(
+    () => accounts.filter((account) => getDerivAccountType(account) === "demo"),
+    [accounts],
+  );
   const visibleAccounts = activeAccountTab === "real" ? realAccounts : demoAccounts;
 
   useEffect(() => {
     if (account) {
-      setActiveAccountTab(isDemoAccount(account) ? "demo" : "real");
+      const type = getDerivAccountType(account);
+      if (type === "demo" || type === "real") setActiveAccountTab(type);
     }
   }, [account]);
 
@@ -112,11 +119,24 @@ export function TopShell({ children }: { children: ReactNode }) {
   }, [account, switchAccount, visibleAccounts]);
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
     console.info("[Deriv Accounts] dropdown all normalized accounts", accounts);
     console.info("[Deriv Accounts] dropdown realAccounts", realAccounts);
     console.info("[Deriv Accounts] dropdown demoAccounts", demoAccounts);
     console.info("[Deriv Accounts] dropdown selectedAccount", account);
+    console.assert(
+      realAccounts.every((item) => getDerivAccountType(item) === "real" && item.type === "real"),
+      "[Deriv Accounts] Real tab contains a non-real account",
+      realAccounts,
+    );
+    console.assert(
+      demoAccounts.every((item) => getDerivAccountType(item) === "demo" && item.type === "demo"),
+      "[Deriv Accounts] Demo tab contains a non-demo account",
+      demoAccounts,
+    );
+    const unknownAccounts = accounts.filter(isUnknownAccount);
+    if (unknownAccounts.length) {
+      console.warn("[Deriv Accounts] unknown accounts not rendered in account tabs", unknownAccounts);
+    }
   }, [account, accounts, demoAccounts, realAccounts]);
 
   async function handleLogout() {

@@ -2,7 +2,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { DERIV_CLIENT_ID_VALUE, DERIV_REDIRECT_URI_VALUE } from "@/lib/deriv";
-import { isDemoAccount, normalizeDerivAccount } from "@/lib/deriv-account";
+import {
+  isDemoAccount,
+  isRealAccount,
+  isUnknownAccount,
+  normalizeDerivAccount,
+} from "@/lib/deriv-account";
 import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -193,20 +198,31 @@ function DerivCallback() {
           throw new Error(accountsData.error ?? "Could not load Deriv accounts");
         }
 
-        const accounts = (accountsData?.data ?? [])
+        console.info("[Deriv Accounts] callback raw accounts before normalization", accountsData?.data ?? []);
+        const normalizedAccounts = (accountsData?.data ?? [])
           .map((account) => normalizeDerivAccount(account))
           .filter((account): account is NonNullable<ReturnType<typeof normalizeDerivAccount>> =>
             Boolean(account),
           );
-        if (!accounts.length) throw new Error("No Deriv accounts returned");
-        if (import.meta.env.DEV) {
-          console.info("[Deriv Accounts] callback normalized accounts", accounts);
-          console.info("[Deriv Accounts] callback realAccounts", accounts.filter((account) => !isDemoAccount(account)));
-          console.info("[Deriv Accounts] callback demoAccounts", accounts.filter(isDemoAccount));
+        const unknownAccounts = normalizedAccounts.filter(isUnknownAccount);
+        if (unknownAccounts.length) {
+          console.warn("[Deriv Accounts] callback unknown accounts excluded", unknownAccounts);
         }
+        const accounts = normalizedAccounts.filter((account) => !isUnknownAccount(account));
+        if (!accounts.length) throw new Error("No Deriv accounts returned");
+        console.info("[Deriv Accounts] callback normalized accounts", accounts.map((account) => ({
+          account_id: account.account_id,
+          loginid: account.loginid,
+          type: account.type,
+          is_demo: account.is_demo,
+          is_virtual: account.is_virtual,
+          reason: account.classification_reason,
+        })));
+        console.info("[Deriv Accounts] callback realAccounts", accounts.filter(isRealAccount));
+        console.info("[Deriv Accounts] callback demoAccounts", accounts.filter(isDemoAccount));
 
         const primary =
-          accounts.find((account) => !isDemoAccount(account)) ?? accounts[0];
+          accounts.find(isRealAccount) ?? accounts[0];
 
         setStatus("Creating your ArkTrader session...");
         const primaryAccountId = String(primary.loginid ?? primary.account_id);

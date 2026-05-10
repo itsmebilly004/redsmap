@@ -6,6 +6,7 @@ import { setAuthenticatedAccount, subscribeBalance } from "@/lib/deriv";
 import {
   isDemoAccount,
   isRealAccount,
+  isUnknownAccount,
   normalizeDerivAccount,
   type NormalizedDerivAccount,
 } from "@/lib/deriv-account";
@@ -65,18 +66,57 @@ export function useDerivBalance(): LiveBalance {
         return;
       }
 
-      const list = ((data ?? []) as DerivAccount[])
+      const rawAccounts = (data ?? []) as DerivAccount[];
+      console.info("[Deriv Accounts] raw session accounts before normalization", rawAccounts);
+      const normalized = rawAccounts
         .map((account) => normalizeDerivAccount(account))
         .filter((account): account is DerivAccount => Boolean(account?.deriv_token));
-      if (import.meta.env.DEV) {
-        console.info("[Deriv Accounts] normalized accounts", list);
-        console.info("[Deriv Accounts] realAccounts", list.filter(isRealAccount));
-        console.info("[Deriv Accounts] demoAccounts", list.filter(isDemoAccount));
+      console.info("[Deriv Accounts] normalized session accounts", normalized.map((account) => ({
+        account_id: account.account_id,
+        loginid: account.loginid,
+        type: account.type,
+        is_demo: account.is_demo,
+        is_virtual: account.is_virtual,
+        reason: account.classification_reason,
+      })));
+
+      for (const account of normalized) {
+        const raw = rawAccounts.find((item) => item.account_id === account.account_id || item.loginid === account.loginid);
+        if (!raw) continue;
+        if (raw.is_demo !== account.is_demo || raw.is_virtual !== account.is_virtual) {
+          console.warn("[Deriv Accounts] correcting stale Supabase account flags", {
+            account_id: account.account_id,
+            loginid: account.loginid,
+            stored_is_demo: raw.is_demo,
+            stored_is_virtual: raw.is_virtual,
+            normalized_is_demo: account.is_demo,
+            normalized_is_virtual: account.is_virtual,
+            reason: account.classification_reason,
+          });
+          void supabase
+            .from("sessions")
+            .update({ is_demo: account.is_demo, is_virtual: account.is_virtual })
+            .eq("user_id", user.id)
+            .eq("account_id", account.account_id);
+        }
       }
+
+      const unknownAccounts = normalized.filter(isUnknownAccount);
+      if (unknownAccounts.length) {
+        console.warn("[Deriv Accounts] unknown accounts excluded from Real/Demo tabs", unknownAccounts);
+      }
+
+      const list = normalized.filter((account) => !isUnknownAccount(account));
+      console.info("[Deriv Accounts] realAccounts", list.filter(isRealAccount));
+      console.info("[Deriv Accounts] demoAccounts", list.filter(isDemoAccount));
       setAccounts(list);
       if (list.length) {
         const savedId = localStorage.getItem(accountStorageKey(user.id));
-        const selected = list.find((account) => account.account_id === savedId) ?? list[0];
+        const selected =
+          list.find((account) => account.account_id === savedId) ??
+          list.find(isRealAccount) ??
+          list.find(isDemoAccount) ??
+          list[0];
         setActiveId(selected.account_id);
         setBalance(selected.balance != null ? Number(selected.balance) : null);
         setCurrency(selected.currency ?? "");
