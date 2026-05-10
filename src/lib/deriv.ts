@@ -553,9 +553,7 @@ function assertNoLegacyOAuthUrl(url: string) {
 }
 
 function selectedOAuthAppIdMode(mode?: DerivOAuthAppIdMode): DerivOAuthAppIdMode {
-  if (mode) return mode;
-  const stored = isBrowser ? localStorage.getItem("deriv_oauth_app_id_mode") : null;
-  return stored === "client_id_only" ? "client_id_only" : "client_id_app_id";
+  return mode ?? "client_id_app_id";
 }
 
 export async function buildOAuthUrl(

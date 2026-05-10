@@ -11,6 +11,7 @@ import { ArrowRight, ShieldCheck } from "lucide-react";
 
 const search = z.object({
   mode: z.enum(["signin", "signup"]).catch("signin"),
+  debug_oauth: z.union([z.literal("1"), z.literal(1)]).optional(),
 });
 
 export const Route = createFileRoute("/auth")({
@@ -19,7 +20,7 @@ export const Route = createFileRoute("/auth")({
 });
 
 function AuthPage() {
-  const { mode } = Route.useSearch();
+  const { debug_oauth, mode } = Route.useSearch();
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cacheStatus, setCacheStatus] = useState<string | null>(null);
@@ -32,16 +33,25 @@ function AuthPage() {
   });
 
   const isSignup = mode === "signup";
+  const showOAuthDebug = import.meta.env.DEV || String(debug_oauth ?? "") === "1";
 
   async function handleDeriv() {
     setBusy(true);
     setErrorMessage(null);
     setDebugUrl(null);
     try {
-      localStorage.setItem("deriv_oauth_app_id_mode", oauthAppIdMode);
-      const url = await buildOAuthUrl({ appIdMode: oauthAppIdMode, mode, returnTo: "/dashboard" });
+      if (showOAuthDebug) localStorage.setItem("deriv_oauth_app_id_mode", oauthAppIdMode);
+      const url = await buildOAuthUrl({
+        appIdMode: showOAuthDebug ? oauthAppIdMode : undefined,
+        mode,
+        returnTo: "/dashboard",
+      });
       console.info("[Deriv OAuth Debug] Exact final URL before redirect", url);
-      setDebugUrl(url);
+      if (showOAuthDebug) {
+        setDebugUrl(url);
+      } else {
+        window.location.href = url;
+      }
     } catch (error) {
       console.error("Could not build Deriv OAuth URL", error);
       setErrorMessage(
@@ -104,73 +114,75 @@ function AuthPage() {
             className="mt-6 h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
           >
             {busy
-              ? "Generating OAuth URL..."
+              ? "Connecting to Deriv..."
               : isSignup
-                ? "Generate signup URL"
-                : "Generate signin URL"}
+                ? "Sign up with Deriv"
+                : "Sign in with Deriv"}
             <ArrowRight className="ml-1 size-4" />
           </Button>
 
-          <div className="mt-4 rounded-xl border border-primary/20 bg-background/80 p-3 text-xs">
-            <div className="mb-2 font-semibold text-foreground">Deriv OAuth debug</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  localStorage.setItem("deriv_oauth_app_id_mode", "client_id_only");
-                  setOauthAppIdMode("client_id_only");
-                  setDebugUrl(null);
-                }}
-                className={`rounded-md border px-2 py-1.5 ${
-                  oauthAppIdMode === "client_id_only"
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground"
-                }`}
-              >
-                client_id only
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  localStorage.setItem("deriv_oauth_app_id_mode", "client_id_app_id");
-                  setOauthAppIdMode("client_id_app_id");
-                  setDebugUrl(null);
-                }}
-                className={`rounded-md border px-2 py-1.5 ${
-                  oauthAppIdMode === "client_id_app_id"
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground"
-                }`}
-              >
-                client_id + app_id
-              </button>
-            </div>
-            <div className="mt-3 space-y-1 text-muted-foreground">
-              <div>
-                Expected endpoint:{" "}
-                <span className="font-mono text-foreground">{DERIV_OAUTH_ENDPOINT_VALUE}</span>
+          {showOAuthDebug && (
+            <div className="mt-4 rounded-xl border border-primary/20 bg-background/80 p-3 text-xs">
+              <div className="mb-2 font-semibold text-foreground">Deriv OAuth debug</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.setItem("deriv_oauth_app_id_mode", "client_id_only");
+                    setOauthAppIdMode("client_id_only");
+                    setDebugUrl(null);
+                  }}
+                  className={`rounded-md border px-2 py-1.5 ${
+                    oauthAppIdMode === "client_id_only"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground"
+                  }`}
+                >
+                  client_id only
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.setItem("deriv_oauth_app_id_mode", "client_id_app_id");
+                    setOauthAppIdMode("client_id_app_id");
+                    setDebugUrl(null);
+                  }}
+                  className={`rounded-md border px-2 py-1.5 ${
+                    oauthAppIdMode === "client_id_app_id"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground"
+                  }`}
+                >
+                  client_id + app_id
+                </button>
               </div>
-              <div>Selected mode: {oauthAppIdMode}</div>
-            </div>
-            {debugUrl && (
-              <div className="mt-3 space-y-2">
-                <div className="break-all rounded-md bg-muted p-2 font-mono text-[11px] text-foreground">
-                  {debugUrl}
+              <div className="mt-3 space-y-1 text-muted-foreground">
+                <div>
+                  Expected endpoint:{" "}
+                  <span className="font-mono text-foreground">{DERIV_OAUTH_ENDPOINT_VALUE}</span>
                 </div>
-                <Button onClick={continueToDeriv} className="h-10 w-full">
-                  Continue to Deriv
-                </Button>
+                <div>Selected mode: {oauthAppIdMode}</div>
               </div>
-            )}
-            <button
-              type="button"
-              onClick={() => void clearRuntimeCaches()}
-              className="mt-3 text-primary hover:underline"
-            >
-              Clear service worker/cache for this site
-            </button>
-            {cacheStatus && <div className="mt-2 text-muted-foreground">{cacheStatus}</div>}
-          </div>
+              {debugUrl && (
+                <div className="mt-3 space-y-2">
+                  <div className="break-all rounded-md bg-muted p-2 font-mono text-[11px] text-foreground">
+                    {debugUrl}
+                  </div>
+                  <Button onClick={continueToDeriv} className="h-10 w-full">
+                    Continue to Deriv
+                  </Button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => void clearRuntimeCaches()}
+                className="mt-3 text-primary hover:underline"
+              >
+                Clear service worker/cache for this site
+              </button>
+              {cacheStatus && <div className="mt-2 text-muted-foreground">{cacheStatus}</div>}
+            </div>
+          )}
 
           {errorMessage && (
             <div className="mt-4 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
