@@ -1,4 +1,5 @@
 // src/lib/deriv.ts
+import { supabase } from "@/integrations/supabase/client";
 import { getDerivAccountPrefix, getDerivAccountType } from "@/lib/deriv-account";
 
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
@@ -19,6 +20,8 @@ export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
   "Deriv redirected to dashboard instead of authorization. This account may not support the new OAuth app flow or the OAuth app configuration must be checked.";
 const DERIV_LEGACY_OAUTH_ROUTE_MESSAGE =
   "Blocked legacy Deriv OAuth route. Use the OAuth2 PKCE authorization endpoint.";
+const DERIV_SESSION_EXPIRED_CODE = "DERIV_SESSION_EXPIRED";
+const DERIV_RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
@@ -101,6 +104,11 @@ export type DerivMessage = DerivRecord & {
 export type DerivBalance = { balance: number; currency: string; loginid: string };
 export type ActiveSymbol = { symbol: string; display_name: string; market: string };
 type DerivAppIdMode = "oauth" | "legacy";
+type DerivSocketError = Error & {
+  code?: string;
+  status?: number;
+  retryable?: boolean;
+};
 
 type Listener = (msg: DerivMessage) => void;
 type StatusListener = (s: ConnectionStatus) => void;
@@ -210,6 +218,52 @@ function isLikelyDerivOAuthToken(token: string | null | undefined) {
   return token.startsWith("ory_") || token.includes("ory_at_");
 }
 
+function numericDerivAppId(...ids: Array<string | undefined>) {
+  return ids.map((id) => String(id ?? "").trim()).find((id) => /^\d+$/.test(id)) ?? "";
+}
+
+function legacyTradingWsUrl() {
+  const appId = numericDerivAppId(DERIV_LEGACY_APP_ID, DERIV_APP_ID, "1089");
+  return `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`;
+}
+
+function createDerivSocketError(
+  message: string,
+  code: string,
+  status?: number,
+  retryable = true,
+) {
+  const error = new Error(message) as DerivSocketError;
+  error.code = code;
+  error.status = status;
+  error.retryable = retryable;
+  return error;
+}
+
+function isRetryableSocketError(error: Error) {
+  const socketError = error as DerivSocketError;
+  if (socketError.retryable === false) return false;
+  if (
+    socketError.code === DERIV_SESSION_EXPIRED_CODE ||
+    socketError.code === "DERIV_LEGACY_DIRECT_WS_REQUIRED" ||
+    socketError.code === "DERIV_AUTHORIZE_FAILED" ||
+    socketError.status === 401 ||
+    socketError.status === 403
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function textFrom(...values: unknown[]) {
+  for (const value of values) {
+    if (value == null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 function startKeepalive() {
   stopKeepalive();
   if (!isBrowser) return;
@@ -274,6 +328,51 @@ function openAuthenticatedSocket(
   return new Promise(async (resolve, reject) => {
     let ws: WebSocket | null = null;
     let settled = false;
+    let legacyAuthorizeReqId: number | null = null;
+    const useLegacyDirectWs = !isLikelyDerivOAuthToken(account.accessToken);
+
+    const completeOpen = () => {
+      if (!ws) {
+        reject(new Error("Deriv WebSocket was not created."));
+        return;
+      }
+      if (!isCurrentAuthenticatedAccount(account)) {
+        try {
+          ws.close(1000, "Deriv account changed while connecting");
+        } catch {
+          /* ignore */
+        }
+        if (!settled) {
+          settled = true;
+          connecting = null;
+          reject(new Error("Deriv account changed while opening WebSocket."));
+        }
+        return;
+      }
+      if (settled) return;
+      settled = true;
+      socket = ws;
+      socketAccountId = account.accountId;
+      connecting = null;
+      reconnectAttempts = 0;
+      setStatus("connected");
+      console.info("[Deriv WS] authenticated socket ready", {
+        accountId: account.accountId,
+        accountType: authenticatedAccountTypeLabel(account),
+        mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
+        readyState: ws.readyState,
+      });
+      startKeepalive();
+      for (const sub of activeSubs.values()) {
+        try {
+          ws.send(JSON.stringify(sub.send));
+        } catch {
+          /* ignore */
+        }
+      }
+      resolve(ws);
+    };
+
     const fail = async (error: Error) => {
       if (settled) return;
       settled = true;
@@ -284,11 +383,14 @@ function openAuthenticatedSocket(
       connecting = null;
       stopKeepalive();
       setStatus("disconnected");
-      if (!retried) {
-        console.warn("[Deriv WS] Socket failed. Requesting fresh OTP and retrying once.", {
+      if (!retried && isRetryableSocketError(error)) {
+        console.warn("[Deriv WS] Socket failed. Retrying once.", {
           accountId: account.accountId,
           accountType: authenticatedAccountTypeLabel(account),
+          mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
           error: error.message,
+          code: (error as DerivSocketError).code ?? null,
+          status: (error as DerivSocketError).status ?? null,
         });
         setStatus("reconnecting");
         connecting = openAuthenticatedSocket(account, true);
@@ -299,6 +401,15 @@ function openAuthenticatedSocket(
         }
         return;
       }
+      console.warn("[Deriv WS] Socket failed without retry", {
+        accountId: account.accountId,
+        accountType: authenticatedAccountTypeLabel(account),
+        mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
+        error: error.message,
+        code: (error as DerivSocketError).code ?? null,
+        status: (error as DerivSocketError).status ?? null,
+        retried,
+      });
       reject(error);
     };
 
@@ -317,15 +428,18 @@ function openAuthenticatedSocket(
         socketAccountId = null;
       }
 
-      const authenticatedWsUrl = await getAuthenticatedWsUrl(account.accessToken, account.accountId);
+      const authenticatedWsUrl = useLegacyDirectWs
+        ? legacyTradingWsUrl()
+        : await getAuthenticatedWsUrl(account.accessToken, account.accountId);
       if (!isCurrentAuthenticatedAccount(account)) {
         connecting = null;
         reject(new Error("Deriv account changed while opening WebSocket."));
         return;
       }
-      console.info("[Deriv WS] OTP wsUrl received", {
+      console.info("[Deriv WS] WebSocket URL prepared", {
         accountId: account.accountId,
         accountType: authenticatedAccountTypeLabel(account),
+        mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
         wsUrl: authenticatedWsUrl,
         retried,
       });
@@ -349,26 +463,36 @@ function openAuthenticatedSocket(
           }
           return;
         }
-        if (settled) return;
-        settled = true;
-        socket = ws;
-        socketAccountId = account.accountId;
-        connecting = null;
-        reconnectAttempts = 0;
-        setStatus("connected");
         console.info("[Deriv WS] onopen", {
           accountId: account.accountId,
+          mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
           readyState: ws.readyState,
         });
-        startKeepalive();
-        for (const sub of activeSubs.values()) {
+
+        if (useLegacyDirectWs) {
+          legacyAuthorizeReqId = reqId++;
+          console.info("[Deriv WS] legacy authorize started", {
+            accountId: account.accountId,
+            req_id: legacyAuthorizeReqId,
+          });
           try {
-            ws.send(JSON.stringify(sub.send));
-          } catch {
-            /* ignore */
+            ws.send(
+              JSON.stringify({
+                authorize: account.accessToken,
+                req_id: legacyAuthorizeReqId,
+              }),
+            );
+          } catch (error) {
+            void fail(
+              error instanceof Error
+                ? error
+                : new Error("Could not send Deriv legacy authorize request"),
+            );
           }
+          return;
         }
-        resolve(ws);
+
+        completeOpen();
       };
       ws.onerror = (event) => {
         console.error("[Deriv WS] onerror", {
@@ -403,7 +527,31 @@ function openAuthenticatedSocket(
       };
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
+          const data = JSON.parse(event.data) as DerivMessage;
+          if (
+            useLegacyDirectWs &&
+            !settled &&
+            (data.req_id === legacyAuthorizeReqId || data.msg_type === "authorize")
+          ) {
+            if (data.error) {
+              void fail(
+                createDerivSocketError(
+                  data.error.message ?? DERIV_RECONNECT_MESSAGE,
+                  "DERIV_AUTHORIZE_FAILED",
+                  401,
+                  false,
+                ),
+              );
+              return;
+            }
+            console.info("[Deriv WS] legacy authorize success", {
+              accountId: account.accountId,
+              req_id: legacyAuthorizeReqId,
+              msg_type: data.msg_type,
+            });
+            completeOpen();
+            return;
+          }
           listeners.forEach((l) => l(data));
         } catch {
           /* ignore */
@@ -949,19 +1097,68 @@ export async function getAuthenticatedWsUrl(
   accountId: string,
 ): Promise<string> {
   const appIdMode: DerivAppIdMode = isLikelyDerivOAuthToken(accessToken) ? "oauth" : "legacy";
+  if (appIdMode === "legacy") {
+    console.info("[Deriv WS] legacy token detected; using direct WebSocket authorization", {
+      accountId,
+      wsUrl: legacyTradingWsUrl(),
+    });
+    return legacyTradingWsUrl();
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.getSession();
+  const supabaseAccessToken = authData.session?.access_token ?? "";
+  if (authError || !supabaseAccessToken) {
+    throw createDerivSocketError(
+      DERIV_RECONNECT_MESSAGE,
+      DERIV_SESSION_EXPIRED_CODE,
+      401,
+      false,
+    );
+  }
+
   const response = await fetch("/api/deriv-account-otp", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${supabaseAccessToken}`,
+    },
     body: JSON.stringify({ accessToken, accountId, appIdMode }),
   });
-  const otpData = await response.json();
+  const contentType = response.headers.get("content-type") ?? "";
+  const responseWasJson = contentType.toLowerCase().includes("application/json");
+  const otpData = responseWasJson ? await response.json().catch(() => null) : null;
   if (!response.ok) {
-    throw new Error(
-      otpData?.error ?? "Failed to get authenticated Deriv WebSocket URL",
+    const code = textFrom(otpData?.error, response.status === 401 ? DERIV_SESSION_EXPIRED_CODE : "DERIV_OTP_FAILED");
+    const message = textFrom(
+      otpData?.message,
+      otpData?.error === DERIV_SESSION_EXPIRED_CODE ? DERIV_RECONNECT_MESSAGE : "",
+      otpData?.error,
+      responseWasJson ? "" : "Deriv OTP route returned a non-JSON response",
+      "Failed to get authenticated Deriv WebSocket URL",
+    );
+    console.warn("[Deriv WS] OTP request failed", {
+      accountId,
+      status: response.status,
+      responseWasJson,
+      code,
+      message,
+    });
+    throw createDerivSocketError(
+      code === DERIV_SESSION_EXPIRED_CODE ? DERIV_RECONNECT_MESSAGE : message,
+      code,
+      response.status,
+      response.status >= 500 || response.status === 429,
     );
   }
   const url = otpData?.url;
-  if (!url) throw new Error("Deriv OTP response did not include a WebSocket URL");
+  if (!url) {
+    throw createDerivSocketError(
+      "Deriv OTP response did not include a WebSocket URL",
+      "DERIV_OTP_URL_MISSING",
+      502,
+      false,
+    );
+  }
   return url;
 }
 
