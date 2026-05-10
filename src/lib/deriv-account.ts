@@ -93,11 +93,11 @@ function accountIdentityIds(account: DerivAccountLike) {
 }
 
 function isDemoAccountId(id: string) {
-  return /^(VRTC|VRT|VR)/.test(id) || id.includes("VRTC") || id.includes("VIRTUAL");
+  return /^(VRTC|VRT|VR|DOT)/.test(id) || id.includes("VRTC") || id.includes("VIRTUAL");
 }
 
 function isRealAccountId(id: string) {
-  return /^(CR|DOT|MF|MX)/.test(id);
+  return /^(CR|ROT|MF|MX)/.test(id);
 }
 
 function isTokenAccountId(id: string) {
@@ -139,6 +139,9 @@ export function classifyDerivAccount(account: DerivAccountLike): DerivAccountCla
       reason: `demo account id ${demoPrefixId}`,
     };
   }
+  if (isVirtual === true || isDemo === true) {
+    return { type: "demo", reason: "is_virtual/is_demo metadata true" };
+  }
   if (identityText.includes("VIRTUAL") || identityText.includes("DEMO") || identityText.includes("PRACTICE")) {
     return { type: "demo", reason: "virtual/demo identity metadata" };
   }
@@ -150,9 +153,6 @@ export function classifyDerivAccount(account: DerivAccountLike): DerivAccountCla
   }
   if (tokenPrefixId) {
     return { type: "real", reason: `token/crypto account id prefix ${tokenPrefixId}` };
-  }
-  if (isVirtual === true || isDemo === true) {
-    return { type: "demo", reason: "is_virtual/is_demo metadata true" };
   }
   if (isVirtual === false && isDemo === false) {
     return { type: "real", reason: "is_virtual and is_demo metadata false" };
