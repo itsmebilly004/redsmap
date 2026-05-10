@@ -230,6 +230,126 @@ async function requestBody(request: Request) {
   return (await request.json().catch(() => ({}))) as DerivAccountOtpRequest;
 }
 
+async function requestOAuthOtp({
+  accountId,
+  authMode,
+  authenticatedUserId,
+  selectedAccountType,
+  storedToken,
+  tokenExpiry,
+}: {
+  accountId: string;
+  authMode: "supabase-session" | "oauth-token-only";
+  authenticatedUserId?: string | null;
+  selectedAccountType: string;
+  storedToken: string;
+  tokenExpiry?: string | null;
+}) {
+  const appId = derivApiAppId("oauth");
+  if (!appId) {
+    return errorResponse("DERIV_APP_ID_MISSING", "Missing Deriv App ID.", 500);
+  }
+
+  console.info("[Deriv OTP API] request started", {
+    endpoint: `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
+    requestedAccountId: accountId,
+    authenticatedUserId: authenticatedUserId ?? null,
+    authMode,
+    sessionFound: authMode === "supabase-session",
+    deriv_token_exists: true,
+    tokenExpiry: tokenExpiry ?? null,
+    selectedAccountType,
+    appId,
+    appIdMode: "oauth",
+    appIdSource: derivApiAppIdSource("oauth"),
+  });
+  const otpResponse = await fetch(
+    `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${storedToken}`,
+        "Deriv-App-ID": appId,
+      },
+    },
+  );
+  const parsed = await parseJsonResponse(otpResponse);
+
+  console.info("[Deriv OTP API] endpoint response", {
+    requestedAccountId: accountId,
+    authenticatedUserId: authenticatedUserId ?? null,
+    authMode,
+    status: otpResponse.status,
+    ok: otpResponse.ok,
+    responseWasJson: parsed.isJson,
+    selectedAccountType,
+  });
+
+  if (otpResponse.status === 401 || otpResponse.status === 403) {
+    return errorResponse(
+      "DERIV_OTP_AUTH_FAILED",
+      "Deriv rejected the trading WebSocket authorization. Your Deriv account remains connected; reconnect only if this continues.",
+      409,
+      {
+        requestedAccountId: accountId,
+        authenticatedUserId: authenticatedUserId ?? null,
+        authMode,
+        selectedAccountType,
+        otpStatus: otpResponse.status,
+        responseWasJson: parsed.isJson,
+        sessionDeactivated: false,
+      },
+    );
+  }
+
+  if (otpResponse.status === 429) {
+    return errorResponse(
+      "DERIV_RATE_LIMITED",
+      "Deriv is rate limiting account requests. Please wait a moment, then try again.",
+      429,
+      {
+        requestedAccountId: accountId,
+        responseWasJson: parsed.isJson,
+      },
+    );
+  }
+
+  if (!otpResponse.ok) {
+    const data = parsed.data as
+      | { message?: string; error?: { message?: string } | string }
+      | null;
+    const message =
+      data?.message ??
+      (typeof data?.error === "string" ? data.error : data?.error?.message) ??
+      "Failed to get authenticated Deriv WebSocket URL.";
+    return errorResponse("DERIV_OTP_FAILED", message, otpResponse.status || 400, {
+      requestedAccountId: accountId,
+      responseWasJson: parsed.isJson,
+    });
+  }
+
+  const data = parsed.data as { data?: { url?: string }; url?: string } | null;
+  const url = data?.data?.url ?? data?.url;
+  if (!url) {
+    return errorResponse(
+      "DERIV_OTP_URL_MISSING",
+      "Deriv OTP response did not include a WebSocket URL.",
+      502,
+      {
+        requestedAccountId: accountId,
+        responseWasJson: parsed.isJson,
+      },
+    );
+  }
+
+  return jsonResponse({
+    ok: true,
+    url,
+    requestedAccountId: accountId,
+    selectedAccountType,
+  });
+}
+
 export const Route = createFileRoute("/api/deriv-account-otp")({
   server: {
     handlers: {
@@ -250,6 +370,10 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               { hasAccessToken: Boolean(bodyAccessToken) },
             );
           }
+          const requestTokenSource: DerivAccountOtpRequest["tokenSource"] | null =
+            tokenSource ?? (appIdMode === "oauth" ? "oauth_access_token" : null);
+          const canUseOAuthTokenOnly =
+            requestTokenSource === "oauth_access_token" && Boolean(bodyAccessToken);
 
           const authHeader = request.headers.get("authorization") ?? "";
           const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
@@ -259,7 +383,19 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               requestedAccountId: accountId,
               hasAuthorizationHeader: Boolean(authHeader),
               hasSupabaseClient: Boolean(supabase),
+              tokenSource: requestTokenSource,
+              canUseOAuthTokenOnly,
             });
+            if (canUseOAuthTokenOnly) {
+              return requestOAuthOtp({
+                accountId,
+                authMode: "oauth-token-only",
+                authenticatedUserId: null,
+                selectedAccountType: "unknown",
+                storedToken: bodyAccessToken!,
+                tokenExpiry: null,
+              });
+            }
             return sessionExpired({
               requestedAccountId: accountId,
               sessionFound: false,
@@ -273,7 +409,19 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             console.warn("[Deriv OTP API] Supabase user validation failed", {
               requestedAccountId: accountId,
               error: userError?.message ?? null,
+              tokenSource: requestTokenSource,
+              canUseOAuthTokenOnly,
             });
+            if (canUseOAuthTokenOnly) {
+              return requestOAuthOtp({
+                accountId,
+                authMode: "oauth-token-only",
+                authenticatedUserId: null,
+                selectedAccountType: "unknown",
+                storedToken: bodyAccessToken!,
+                tokenExpiry: null,
+              });
+            }
             return sessionExpired({
               requestedAccountId: accountId,
               sessionFound: false,
@@ -318,7 +466,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
           const storedToken = stringFrom(selectedSession?.deriv_token);
           const selectedAccountType = normalized?.normalizedType ?? "unknown";
           const requestedTokenSource: DerivAccountOtpRequest["tokenSource"] =
-            tokenSource ??
+            requestTokenSource ??
             (appIdMode === "oauth" || isLikelyDerivOAuthToken(storedToken)
               ? "oauth_access_token"
               : "legacy_authorize_token");
@@ -356,6 +504,43 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               bodyAccessToken && storedToken && bodyAccessToken === storedToken,
             ),
           });
+
+          if ((!selectedSession || !storedToken) && canUseOAuthTokenOnly) {
+            console.warn("[Deriv OTP API] Supabase session row unavailable; using OAuth token-only fallback", {
+              requestedAccountId: accountId,
+              authenticatedUserId: userId,
+              sessionFound: Boolean(selectedSession),
+              derivTokenExists: Boolean(storedToken),
+              tokenSource: requestedTokenSource,
+            });
+            return requestOAuthOtp({
+              accountId,
+              authMode: "oauth-token-only",
+              authenticatedUserId: userId,
+              selectedAccountType,
+              storedToken: bodyAccessToken!,
+              tokenExpiry: null,
+            });
+          }
+
+          if (expiry.expired && shouldUseOAuthOtp && bodyAccessToken) {
+            console.warn("[Deriv OTP API] Stored OAuth expiry is stale; letting Deriv validate the provided OAuth token", {
+              requestedAccountId: accountId,
+              authenticatedUserId: userId,
+              sessionFound: Boolean(selectedSession),
+              derivTokenExists: Boolean(storedToken),
+              tokenExpiry: expiry.expiresAt,
+              tokenSource: requestedTokenSource,
+            });
+            return requestOAuthOtp({
+              accountId,
+              authMode: "oauth-token-only",
+              authenticatedUserId: userId,
+              selectedAccountType,
+              storedToken: bodyAccessToken,
+              tokenExpiry: expiry.expiresAt,
+            });
+          }
 
           if (!selectedSession || !storedToken || expiry.expired) {
             return sessionExpired({
@@ -399,105 +584,13 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             );
           }
 
-          const appId = derivApiAppId("oauth");
-          if (!appId) {
-            return errorResponse("DERIV_APP_ID_MISSING", "Missing Deriv App ID.", 500);
-          }
-
-          console.info("[Deriv OTP API] request started", {
-            endpoint: `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
-            requestedAccountId: accountId,
+          return requestOAuthOtp({
+            accountId,
+            authMode: "supabase-session",
             authenticatedUserId: userId,
-            sessionFound: true,
-            deriv_token_exists: true,
-            tokenExpiry: selectedSession.expires_at,
             selectedAccountType,
-            appId,
-            appIdMode: "oauth",
-            appIdSource: derivApiAppIdSource("oauth"),
-          });
-          const otpResponse = await fetch(
-            `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${storedToken}`,
-                "Deriv-App-ID": appId,
-              },
-            },
-          );
-          const parsed = await parseJsonResponse(otpResponse);
-
-          console.info("[Deriv OTP API] endpoint response", {
-            requestedAccountId: accountId,
-            authenticatedUserId: userId,
-            status: otpResponse.status,
-            ok: otpResponse.ok,
-            responseWasJson: parsed.isJson,
-            selectedAccountType,
-          });
-
-          if (otpResponse.status === 401 || otpResponse.status === 403) {
-            return errorResponse(
-              "DERIV_OTP_AUTH_FAILED",
-              "Deriv rejected the trading WebSocket authorization. Your Deriv account remains connected; reconnect only if this continues.",
-              409,
-              {
-                requestedAccountId: accountId,
-                authenticatedUserId: userId,
-                selectedAccountType,
-                otpStatus: otpResponse.status,
-                responseWasJson: parsed.isJson,
-                sessionDeactivated: false,
-              },
-            );
-          }
-
-          if (otpResponse.status === 429) {
-            return errorResponse(
-              "DERIV_RATE_LIMITED",
-              "Deriv is rate limiting account requests. Please wait a moment, then try again.",
-              429,
-              {
-                requestedAccountId: accountId,
-                responseWasJson: parsed.isJson,
-              },
-            );
-          }
-
-          if (!otpResponse.ok) {
-            const data = parsed.data as
-              | { message?: string; error?: { message?: string } | string }
-              | null;
-            const message =
-              data?.message ??
-              (typeof data?.error === "string" ? data.error : data?.error?.message) ??
-              "Failed to get authenticated Deriv WebSocket URL.";
-            return errorResponse("DERIV_OTP_FAILED", message, otpResponse.status || 400, {
-              requestedAccountId: accountId,
-              responseWasJson: parsed.isJson,
-            });
-          }
-
-          const data = parsed.data as { data?: { url?: string }; url?: string } | null;
-          const url = data?.data?.url ?? data?.url;
-          if (!url) {
-            return errorResponse(
-              "DERIV_OTP_URL_MISSING",
-              "Deriv OTP response did not include a WebSocket URL.",
-              502,
-              {
-                requestedAccountId: accountId,
-                responseWasJson: parsed.isJson,
-              },
-            );
-          }
-
-          return jsonResponse({
-            ok: true,
-            url,
-            requestedAccountId: accountId,
-            selectedAccountType,
+            storedToken,
+            tokenExpiry: expiry.expiresAt,
           });
         } catch (error: unknown) {
           console.error("[Deriv OTP API] request failed", error);

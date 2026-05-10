@@ -274,10 +274,65 @@ export async function prepareDerivTradingSession(
       false,
     );
   }
+  const selectedAccountToken = textFrom(selectedAccount.deriv_token);
+  const selectedAccountTokenSource = selectedAccountToken
+    ? tokenSourceForAccount(selectedAccount, selectedAccountToken)
+    : null;
+  const normalizedType = normalizedSelected.normalizedType;
+  if (normalizedType !== "real" && normalizedType !== "demo") {
+    throw createDerivSocketError(
+      "Selected Deriv account type could not be verified from its prefix.",
+      "DERIV_ACCOUNT_TYPE_INVALID",
+      undefined,
+      false,
+    );
+  }
 
   const { data: authData, error: authError } = await supabase.auth.getSession();
   const userId = authData.session?.user?.id ?? null;
   if (authError || !userId) {
+    if (selectedAccountToken && selectedAccountTokenSource === "oauth_access_token") {
+      const expiry = effectiveTokenExpiryState(
+        textFrom(selectedAccount.expires_at) || null,
+        textFrom(selectedAccount.created_at) || null,
+        selectedAccountTokenSource,
+      );
+      console.warn("[Deriv Trading] Supabase session unavailable; using selected OAuth account token", {
+        context: options.context ?? "trade",
+        selectedAccountId,
+        authError: authError?.message ?? null,
+        tokenExists: true,
+        tokenExpiry: expiry.expiresAt,
+        storedTokenExpiry: expiry.storedExpiresAt,
+        platformTokenExpiry: expiry.platformExpiresAt,
+        shortProviderTokenExpiry: expiry.shortProviderExpiresAt,
+        expiryPolicy: expiry.expiryPolicy,
+        tokenExpired: expiry.expired,
+        tokenSource: selectedAccountTokenSource,
+        adapter: adapterForTokenSource(selectedAccountTokenSource),
+      });
+      if (!expiry.expired) {
+        setAuthenticatedAccount(
+          selectedAccountToken,
+          selectedAccountId,
+          normalizedType === "demo",
+          selectedAccountTokenSource,
+        );
+        return {
+          sessionId: null,
+          accountId: selectedAccountId,
+          loginid: normalizedSelected.loginid,
+          token: selectedAccountToken,
+          tokenSource: selectedAccountTokenSource,
+          adapter: adapterForTokenSource(selectedAccountTokenSource),
+          expiresAt: expiry.expiresAt,
+          createdAt: textFrom(selectedAccount.created_at) || null,
+          sessionAccountId: selectedAccountId,
+          sessionLoginid: normalizedSelected.loginid ?? null,
+          normalizedType,
+        };
+      }
+    }
     throw createDerivSocketError(
       "Your Deriv session expired. Please reconnect your Deriv account.",
       DERIV_SESSION_EXPIRED_CODE,
@@ -320,15 +375,24 @@ export async function prepareDerivTradingSession(
     .sort(compareSessionFreshness);
   const selectedSession = matchingSessions[0] ?? null;
   const storedToken = textFrom(selectedSession?.deriv_token);
+  const useSelectedAccountOAuthFallback =
+    !storedToken &&
+    selectedAccountToken &&
+    selectedAccountTokenSource === "oauth_access_token";
+  const resolvedToken = storedToken || (useSelectedAccountOAuthFallback ? selectedAccountToken : "");
   const storedTokenSource = storedToken
     ? readStoredTokenSource(userId, selectedAccountId)
     : null;
-  const tokenSource = storedToken
-    ? storedTokenSource ?? tokenSourceForAccount(selectedAccount, storedToken)
+  const tokenSource = resolvedToken
+    ? storedTokenSource ?? tokenSourceForAccount(selectedAccount, resolvedToken)
     : null;
+  const resolvedExpiresAt =
+    selectedSession?.expires_at ?? textFrom(selectedAccount.expires_at) ?? null;
+  const resolvedCreatedAt =
+    selectedSession?.created_at ?? textFrom(selectedAccount.created_at) ?? null;
   const expiry = effectiveTokenExpiryState(
-    selectedSession?.expires_at,
-    selectedSession?.created_at,
+    resolvedExpiresAt,
+    resolvedCreatedAt,
     tokenSource,
   );
   const adapter = tokenSource ? adapterForTokenSource(tokenSource) : null;
@@ -348,7 +412,10 @@ export async function prepareDerivTradingSession(
       sessionId: selectedSession?.id ?? null,
       account_id: selectedSession?.account_id ?? null,
       loginid: selectedSession?.loginid ?? null,
-      tokenExists: Boolean(storedToken),
+      tokenExists: Boolean(resolvedToken),
+      storedTokenExists: Boolean(storedToken),
+      selectedAccountTokenExists: Boolean(selectedAccountToken),
+      selectedAccountOAuthFallback: Boolean(useSelectedAccountOAuthFallback),
       tokenExpiry: expiry.expiresAt,
       storedTokenExpiry: expiry.storedExpiresAt,
       platformTokenExpiry: expiry.platformExpiresAt,
@@ -361,7 +428,7 @@ export async function prepareDerivTradingSession(
       storedTokenSource,
       tokenSource,
       adapter,
-      createdAt: selectedSession?.created_at ?? null,
+      createdAt: resolvedCreatedAt,
     },
     selectedReactTokenMatchesSession: Boolean(
       textFrom(selectedAccount.deriv_token) &&
@@ -370,7 +437,7 @@ export async function prepareDerivTradingSession(
     ),
   });
 
-  if (!selectedSession || !storedToken || expiry.expired) {
+  if ((!selectedSession && !useSelectedAccountOAuthFallback) || !resolvedToken || expiry.expired) {
     throw createDerivSocketError(
       "Your Deriv session expired. Please reconnect your Deriv account.",
       DERIV_SESSION_EXPIRED_CODE,
@@ -379,28 +446,18 @@ export async function prepareDerivTradingSession(
     );
   }
 
-  const normalizedType = normalizedSelected.normalizedType;
-  if (normalizedType !== "real" && normalizedType !== "demo") {
-    throw createDerivSocketError(
-      "Selected Deriv account type could not be verified from its prefix.",
-      "DERIV_ACCOUNT_TYPE_INVALID",
-      undefined,
-      false,
-    );
-  }
-
-  setAuthenticatedAccount(storedToken, selectedAccountId, normalizedType === "demo", tokenSource);
+  setAuthenticatedAccount(resolvedToken, selectedAccountId, normalizedType === "demo", tokenSource);
   return {
-    sessionId: selectedSession.id ?? null,
+    sessionId: selectedSession?.id ?? null,
     accountId: selectedAccountId,
     loginid: normalizedSelected.loginid,
-    token: storedToken,
+    token: resolvedToken,
     tokenSource,
     adapter,
-    expiresAt: selectedSession.expires_at ?? null,
-    createdAt: selectedSession.created_at ?? null,
-    sessionAccountId: selectedSession.account_id,
-    sessionLoginid: selectedSession.loginid ?? null,
+    expiresAt: resolvedExpiresAt,
+    createdAt: resolvedCreatedAt,
+    sessionAccountId: selectedSession?.account_id ?? selectedAccountId,
+    sessionLoginid: selectedSession?.loginid ?? normalizedSelected.loginid ?? null,
     normalizedType,
   };
 }
@@ -1564,6 +1621,30 @@ export async function getAuthenticatedWsUrl(
   const { data: authData, error: authError } = await supabase.auth.getSession();
   const supabaseAccessToken = authData.session?.access_token ?? "";
   if (authError || !supabaseAccessToken) {
+    if (tokenSource === "oauth_access_token" && accessToken) {
+      console.warn("[Deriv WS] Supabase JWT unavailable; using OAuth token-only OTP fallback", {
+        accountId,
+        authError: authError?.message ?? null,
+        hasDerivAccessToken: Boolean(accessToken),
+      });
+    } else {
+      throw createDerivSocketError(
+        DERIV_RECONNECT_MESSAGE,
+        DERIV_SESSION_EXPIRED_CODE,
+        401,
+        false,
+      );
+    }
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (supabaseAccessToken) {
+    headers.Authorization = `Bearer ${supabaseAccessToken}`;
+  }
+
+  if (!supabaseAccessToken && tokenSource !== "oauth_access_token") {
     throw createDerivSocketError(
       DERIV_RECONNECT_MESSAGE,
       DERIV_SESSION_EXPIRED_CODE,
@@ -1574,10 +1655,7 @@ export async function getAuthenticatedWsUrl(
 
   const response = await fetch("/api/deriv-account-otp", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${supabaseAccessToken}`,
-    },
+    headers,
     body: JSON.stringify({ accessToken, accountId, appIdMode, tokenSource }),
   });
   const contentType = response.headers.get("content-type") ?? "";
