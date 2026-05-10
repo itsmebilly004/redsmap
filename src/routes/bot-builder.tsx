@@ -569,6 +569,12 @@ function BotBuilder() {
       runningRef.current = false;
       return;
     }
+    if (derivAccount.normalizedType !== "demo" && derivAccount.normalizedType !== "real") {
+      logJournal("Selected Deriv account type could not be verified from its prefix.", "error");
+      setRunning(false);
+      runningRef.current = false;
+      return;
+    }
     if (
       statsRef.current.runs >= maxRuns ||
       statsRef.current.profit >= takeProfit ||
@@ -609,6 +615,9 @@ function BotBuilder() {
       console.info("[Deriv Bot] Placing trade", {
         selectedAccountId: derivAccount.account_id,
         selectedLoginId: derivAccount.loginid,
+        detected_prefix: derivAccount.detected_prefix,
+        normalizedType: derivAccount.normalizedType,
+        final_tab_placement: derivAccount.final_tab_placement,
         is_demo: isDemoAccount(derivAccount),
         is_virtual: isDemoAccount(derivAccount),
         wsAccountId: getTradingSocketAccountId(),

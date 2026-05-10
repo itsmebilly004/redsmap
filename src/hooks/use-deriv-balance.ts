@@ -4,9 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { setAuthenticatedAccount, subscribeBalance } from "@/lib/deriv";
 import {
-  isDemoAccount,
-  isRealAccount,
-  isUnknownAccount,
   normalizeDerivAccount,
   type NormalizedDerivAccount,
 } from "@/lib/deriv-account";
@@ -76,14 +73,18 @@ export function useDerivBalance(): LiveBalance {
       console.info("[Deriv Accounts] normalized session accounts", normalized.map((account) => ({
         account_id: account.account_id,
         loginid: account.loginid,
-        type: account.type,
+        raw_account_id: rawAccounts.find((raw) => raw.id === account.id)?.account_id,
+        raw_loginid: rawAccounts.find((raw) => raw.id === account.id)?.loginid,
+        detected_prefix: account.detected_prefix,
+        normalizedType: account.normalizedType,
+        final_tab_placement: account.final_tab_placement,
         is_demo: account.is_demo,
         is_virtual: account.is_virtual,
         reason: account.classification_reason,
       })));
 
       for (const account of normalized) {
-        if (isUnknownAccount(account)) continue;
+        if (account.normalizedType === "unknown") continue;
         const raw = rawAccounts.find((item) => item.account_id === account.account_id || item.loginid === account.loginid);
         if (!raw) continue;
         if (
@@ -94,6 +95,9 @@ export function useDerivBalance(): LiveBalance {
           console.warn("[Deriv Accounts] correcting stale Supabase account flags", {
             account_id: account.account_id,
             loginid: account.loginid,
+            detected_prefix: account.detected_prefix,
+            normalizedType: account.normalizedType,
+            final_tab_placement: account.final_tab_placement,
             stored_is_demo: raw.is_demo,
             stored_is_virtual: raw.is_virtual,
             normalized_is_demo: account.is_demo,
@@ -114,21 +118,25 @@ export function useDerivBalance(): LiveBalance {
         }
       }
 
-      const unknownAccounts = normalized.filter(isUnknownAccount);
+      const unknownAccounts = normalized.filter((account) => account.normalizedType === "unknown");
       if (unknownAccounts.length) {
         console.warn("[Deriv Accounts] unknown accounts excluded from Real/Demo tabs", unknownAccounts);
       }
 
-      const list = normalized.filter((account) => !isUnknownAccount(account));
-      console.info("[Deriv Accounts] realAccounts", list.filter(isRealAccount));
-      console.info("[Deriv Accounts] demoAccounts", list.filter(isDemoAccount));
+      const list = normalized.filter((account) => account.normalizedType !== "unknown");
+      const realAccounts = list.filter((account) => account.normalizedType === "real");
+      const demoAccounts = list.filter((account) => account.normalizedType === "demo");
+      console.info("[Deriv Accounts] realAccounts", realAccounts);
+      console.info("[Deriv Accounts] demoAccounts", demoAccounts);
       setAccounts(list);
       if (list.length) {
         const savedId = localStorage.getItem(accountStorageKey(user.id));
+        const savedAccount = list.find((account) => account.account_id === savedId);
         const selected =
-          list.find((account) => account.account_id === savedId) ??
-          list.find(isRealAccount) ??
-          list.find(isDemoAccount) ??
+          (savedAccount?.normalizedType === "real" ? savedAccount : null) ??
+          realAccounts[0] ??
+          savedAccount ??
+          demoAccounts[0] ??
           list[0];
         setActiveId(selected.account_id);
         setBalance(selected.balance != null ? Number(selected.balance) : null);
@@ -150,7 +158,7 @@ export function useDerivBalance(): LiveBalance {
     [accounts, activeId],
   );
   const activeAccountKey = active
-    ? `${active.deriv_token}:${active.account_id}:${isDemoAccount(active) ? "demo" : "real"}`
+    ? `${active.deriv_token}:${active.account_id}:${active.normalizedType}`
     : null;
 
   // Subscribe to live balance for the active account.
@@ -158,7 +166,7 @@ export function useDerivBalance(): LiveBalance {
     if (!isBrowser || !active || !user || !activeAccountKey) return;
     let unsub: (() => void) | undefined;
     let cancelled = false;
-    const activeIsDemo = isDemoAccount(active);
+    const activeIsDemo = active.normalizedType === "demo";
     const requestedAccountId = active.account_id;
     const previousAccountKey = lastWebSocketAccountKeyRef.current;
 
@@ -168,19 +176,23 @@ export function useDerivBalance(): LiveBalance {
           console.info("[Deriv Balance] Initializing Deriv WebSocket account", {
             previousSelectedAccountKey: previousAccountKey,
             requestedAccountId,
-            requestedAccountType: activeIsDemo ? "demo" : "real",
+            requestedAccountType: active.normalizedType,
+            detected_prefix: active.detected_prefix,
           });
           setAuthenticatedAccount(active.deriv_token, requestedAccountId, activeIsDemo);
           lastWebSocketAccountKeyRef.current = activeAccountKey;
           console.log("Deriv authenticated WebSocket initialized", {
             account_id: requestedAccountId,
             loginid: active.loginid,
+            normalizedType: active.normalizedType,
+            detected_prefix: active.detected_prefix,
             is_virtual: activeIsDemo,
           });
         } else {
           console.info("[Deriv Balance] Skipped Deriv WebSocket account initialization", {
             requestedAccountId,
-            requestedAccountType: activeIsDemo ? "demo" : "real",
+            requestedAccountType: active.normalizedType,
+            detected_prefix: active.detected_prefix,
           });
         }
         const nextUnsub = await subscribeBalance(active.deriv_token, async (b) => {

@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
   accountLoginId,
-  isUnknownAccount,
   normalizeDerivAccount,
   stringFrom,
   type DerivAccountLike,
@@ -67,12 +66,16 @@ function normalizeAccount(account: DerivAccount) {
     account_id: accountId,
     loginid: accountId,
     type: normalized.type,
+    normalizedType: normalized.normalizedType,
+    label: normalized.label,
     currency: normalized.currency ?? "",
     balance: normalized.balance,
     is_demo: normalized.is_demo,
     is_virtual: normalized.is_virtual,
     account_type: normalized.account_type ?? "",
     classification_reason: normalized.classification_reason,
+    detected_prefix: normalized.detected_prefix,
+    final_tab_placement: normalized.final_tab_placement,
     status: normalized.status ?? "active",
   };
 }
@@ -159,11 +162,13 @@ export const Route = createFileRoute("/api/deriv-accounts")({
             .filter((account): account is NonNullable<ReturnType<typeof normalizeAccount>> =>
               Boolean(account),
             );
-          const unknownAccounts = normalizedAccounts.filter(isUnknownAccount);
+          const unknownAccounts = normalizedAccounts.filter(
+            (account) => account.normalizedType === "unknown",
+          );
           if (unknownAccounts.length) {
             console.warn("[Deriv Accounts API] unknown accounts excluded", unknownAccounts);
           }
-          let accounts = normalizedAccounts.filter((account) => !isUnknownAccount(account));
+          let accounts = normalizedAccounts.filter((account) => account.normalizedType !== "unknown");
           console.log("Deriv normalized Options accounts", {
             rawCount: rawAccounts.length,
             eligibleCount: accounts.length,
@@ -171,7 +176,9 @@ export const Route = createFileRoute("/api/deriv-accounts")({
             accounts: accounts.map((account) => ({
               account_id: account.account_id,
               loginid: account.loginid,
-              type: account.type,
+              detected_prefix: account.detected_prefix,
+              normalizedType: account.normalizedType,
+              final_tab_placement: account.final_tab_placement,
               is_demo: account.is_demo,
               is_virtual: account.is_virtual,
               reason: account.classification_reason,
@@ -221,11 +228,13 @@ export const Route = createFileRoute("/api/deriv-accounts")({
               .filter((account): account is NonNullable<ReturnType<typeof normalizeAccount>> =>
                 Boolean(account),
               );
-            const createdUnknownAccounts = normalizedAccounts.filter(isUnknownAccount);
+            const createdUnknownAccounts = normalizedAccounts.filter(
+              (account) => account.normalizedType === "unknown",
+            );
             if (createdUnknownAccounts.length) {
               console.warn("[Deriv Accounts API] unknown created accounts excluded", createdUnknownAccounts);
             }
-            accounts = normalizedAccounts.filter((account) => !isUnknownAccount(account));
+            accounts = normalizedAccounts.filter((account) => account.normalizedType !== "unknown");
             console.log("Deriv normalized created Options accounts", {
               rawCount: rawAccounts.length,
               eligibleCount: accounts.length,
@@ -233,7 +242,9 @@ export const Route = createFileRoute("/api/deriv-accounts")({
               accounts: accounts.map((account) => ({
                 account_id: account.account_id,
                 loginid: account.loginid,
-                type: account.type,
+                detected_prefix: account.detected_prefix,
+                normalizedType: account.normalizedType,
+                final_tab_placement: account.final_tab_placement,
                 is_demo: account.is_demo,
                 is_virtual: account.is_virtual,
                 reason: account.classification_reason,

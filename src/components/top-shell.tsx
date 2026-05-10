@@ -30,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { type DerivAccount } from "@/hooks/use-deriv-balance";
-import { getDerivAccountType, isDemoAccount, isUnknownAccount } from "@/lib/deriv-account";
+import { hasDerivAccountPrefix, isDemoAccount } from "@/lib/deriv-account";
 
 const CURRENCY_META: Record<string, { country?: string; name: string; symbol?: string }> = {
   AUD: { country: "au", name: "Australian Dollar" },
@@ -94,27 +94,19 @@ export function TopShell({ children }: { children: ReactNode }) {
   const [activeAccountTab, setActiveAccountTab] = useState<"real" | "demo">("real");
 
   const realAccounts = useMemo(
-    () => accounts.filter((account) => getDerivAccountType(account) === "real"),
+    () => accounts.filter((account) => account.normalizedType === "real"),
     [accounts],
   );
   const demoAccounts = useMemo(
-    () => accounts.filter((account) => getDerivAccountType(account) === "demo"),
+    () => accounts.filter((account) => account.normalizedType === "demo"),
     [accounts],
   );
   const visibleAccounts = activeAccountTab === "real" ? realAccounts : demoAccounts;
 
   useEffect(() => {
-    if (account) {
-      const type = getDerivAccountType(account);
-      if (type === "demo" || type === "real") {
-        setActiveAccountTab((currentTab) => (currentTab === type ? currentTab : type));
-      }
-    }
-  }, [account]);
-
-  useEffect(() => {
-    if (!account || !visibleAccounts.length) return;
-    const currentAccountInSelectedTab = visibleAccounts.some(
+    if (!account) return;
+    const accountsForSelectedTab = activeAccountTab === "real" ? realAccounts : demoAccounts;
+    const currentAccountInSelectedTab = accountsForSelectedTab.some(
       (visibleAccount) => visibleAccount.account_id === account.account_id,
     );
     if (currentAccountInSelectedTab) {
@@ -126,33 +118,71 @@ export function TopShell({ children }: { children: ReactNode }) {
       });
       return;
     }
-    const nextAccountId = visibleAccounts[0].account_id;
-    if (nextAccountId === account.account_id) return;
-    console.info("[Deriv Accounts] selected account changed for active tab", {
-      activeAccountTab,
-      previousSelectedAccountId: account.account_id,
-      nextSelectedAccountId: nextAccountId,
-      skipped: false,
-    });
-    switchAccount(nextAccountId);
-  }, [account?.account_id, activeAccountTab, switchAccount, visibleAccounts]);
+
+    const nextAccount = accountsForSelectedTab[0];
+    if (nextAccount) {
+      console.info("[Deriv Accounts] selected account changed for active tab", {
+        activeAccountTab,
+        previousSelectedAccountId: account.account_id,
+        previousSelectedAccountType: account.normalizedType,
+        nextSelectedAccountId: nextAccount.account_id,
+        nextSelectedAccountType: nextAccount.normalizedType,
+        skipped: false,
+      });
+      switchAccount(nextAccount.account_id);
+      return;
+    }
+
+    if (account.normalizedType === "real" || account.normalizedType === "demo") {
+      console.info("[Deriv Accounts] selected tab changed because current tab has no accounts", {
+        previousActiveAccountTab: activeAccountTab,
+        nextActiveAccountTab: account.normalizedType,
+        selectedAccountId: account.account_id,
+        selectedAccountType: account.normalizedType,
+      });
+      setActiveAccountTab(account.normalizedType);
+    }
+  }, [
+    account?.account_id,
+    account?.normalizedType,
+    activeAccountTab,
+    demoAccounts,
+    realAccounts,
+    switchAccount,
+  ]);
 
   useEffect(() => {
-    console.info("[Deriv Accounts] dropdown all normalized accounts", accounts);
+    console.info("[Deriv Accounts] dropdown normalized account placement", accounts.map((item) => ({
+      raw_account_id: item.account_id,
+      raw_loginid: item.loginid,
+      detected_prefix: item.detected_prefix,
+      normalizedType: item.normalizedType,
+      final_tab_placement: item.final_tab_placement,
+    })));
     console.info("[Deriv Accounts] dropdown realAccounts", realAccounts);
     console.info("[Deriv Accounts] dropdown demoAccounts", demoAccounts);
     console.info("[Deriv Accounts] dropdown selectedAccount", account);
     console.assert(
-      realAccounts.every((item) => getDerivAccountType(item) === "real" && item.type === "real"),
+      realAccounts.every((item) => item.normalizedType === "real"),
       "[Deriv Accounts] Real tab contains a non-real account",
       realAccounts,
     );
     console.assert(
-      demoAccounts.every((item) => getDerivAccountType(item) === "demo" && item.type === "demo"),
+      demoAccounts.every((item) => item.normalizedType === "demo"),
       "[Deriv Accounts] Demo tab contains a non-demo account",
       demoAccounts,
     );
-    const unknownAccounts = accounts.filter(isUnknownAccount);
+    console.assert(
+      realAccounts.every((item) => !hasDerivAccountPrefix(item, "DOT")),
+      "[Deriv Accounts] Real tab contains a DOT demo account",
+      realAccounts,
+    );
+    console.assert(
+      demoAccounts.every((item) => !hasDerivAccountPrefix(item, "ROT")),
+      "[Deriv Accounts] Demo tab contains a ROT real account",
+      demoAccounts,
+    );
+    const unknownAccounts = accounts.filter((item) => item.normalizedType === "unknown");
     if (unknownAccounts.length) {
       console.warn("[Deriv Accounts] unknown accounts not rendered in account tabs", unknownAccounts);
     }
@@ -432,7 +462,7 @@ function AccountItem({
         <AccountIcon account={account} />
         <div className="min-w-0 text-left leading-tight">
           <div className="truncate text-sm font-bold text-[#333333]">
-            {demo ? "Demo" : meta.name}
+            {demo ? "Demo" : account.label || meta.name}
           </div>
           <div className="truncate text-[11px] font-medium text-[#999999]">
             {account.account_id}

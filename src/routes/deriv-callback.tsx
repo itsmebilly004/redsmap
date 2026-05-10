@@ -2,12 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { DERIV_CLIENT_ID_VALUE, DERIV_REDIRECT_URI_VALUE } from "@/lib/deriv";
-import {
-  isDemoAccount,
-  isRealAccount,
-  isUnknownAccount,
-  normalizeDerivAccount,
-} from "@/lib/deriv-account";
+import { normalizeDerivAccount } from "@/lib/deriv-account";
 import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -204,25 +199,35 @@ function DerivCallback() {
           .filter((account): account is NonNullable<ReturnType<typeof normalizeDerivAccount>> =>
             Boolean(account),
           );
-        const unknownAccounts = normalizedAccounts.filter(isUnknownAccount);
+        const unknownAccounts = normalizedAccounts.filter(
+          (account) => account.normalizedType === "unknown",
+        );
         if (unknownAccounts.length) {
           console.warn("[Deriv Accounts] callback unknown accounts excluded", unknownAccounts);
         }
-        const accounts = normalizedAccounts.filter((account) => !isUnknownAccount(account));
+        const accounts = normalizedAccounts.filter((account) => account.normalizedType !== "unknown");
         if (!accounts.length) throw new Error("No Deriv accounts returned");
         console.info("[Deriv Accounts] callback normalized accounts", accounts.map((account) => ({
           account_id: account.account_id,
           loginid: account.loginid,
-          type: account.type,
+          detected_prefix: account.detected_prefix,
+          normalizedType: account.normalizedType,
+          final_tab_placement: account.final_tab_placement,
           is_demo: account.is_demo,
           is_virtual: account.is_virtual,
           reason: account.classification_reason,
         })));
-        console.info("[Deriv Accounts] callback realAccounts", accounts.filter(isRealAccount));
-        console.info("[Deriv Accounts] callback demoAccounts", accounts.filter(isDemoAccount));
+        console.info(
+          "[Deriv Accounts] callback realAccounts",
+          accounts.filter((account) => account.normalizedType === "real"),
+        );
+        console.info(
+          "[Deriv Accounts] callback demoAccounts",
+          accounts.filter((account) => account.normalizedType === "demo"),
+        );
 
         const primary =
-          accounts.find(isRealAccount) ?? accounts[0];
+          accounts.find((account) => account.normalizedType === "real") ?? accounts[0];
 
         setStatus("Creating your ArkTrader session...");
         const primaryAccountId = String(primary.loginid ?? primary.account_id);
@@ -231,9 +236,18 @@ function DerivCallback() {
 
         for (const account of accounts) {
           const accountId = String(account.loginid ?? account.account_id);
-          const isVirtual = isDemoAccount(account);
+          const isVirtual = account.normalizedType === "demo";
           const accountCurrency = account.currency ?? (isVirtual ? "USD" : "");
           setStatus(`Linking ${accountId}...`);
+          console.info("[Deriv Accounts] Supabase session mapping", {
+            account_id: accountId,
+            loginid: account.loginid,
+            detected_prefix: account.detected_prefix,
+            normalizedType: account.normalizedType,
+            final_tab_placement: account.final_tab_placement,
+            is_demo: isVirtual,
+            is_virtual: isVirtual,
+          });
           const { error: upsertErr } = await supabase.from("sessions").upsert(
             {
               user_id: sessionUser.id,

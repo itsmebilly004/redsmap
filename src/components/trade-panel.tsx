@@ -252,11 +252,17 @@ export function TradePanel({
         `Insufficient balance: ${accountBalance.toFixed(2)} ${tradeCurrency} available.`,
       );
     }
+    if (account.normalizedType !== "demo" && account.normalizedType !== "real") {
+      throw new Error("Selected Deriv account type could not be verified from its prefix.");
+    }
     const selectedAccountIsDemo = isDemoAccount(account);
     if (selectedAccountIsDemo !== Boolean(account.is_demo)) {
       console.info("[Deriv Trade] Account classification corrected", {
         account_id: account.account_id,
         loginid: account.loginid,
+        detected_prefix: account.detected_prefix,
+        normalizedType: account.normalizedType,
+        final_tab_placement: account.final_tab_placement,
         stored_is_demo: account.is_demo,
         normalized_is_demo: selectedAccountIsDemo,
       });

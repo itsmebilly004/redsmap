@@ -1,4 +1,5 @@
 // src/lib/deriv.ts
+import { getDerivAccountPrefix, getDerivAccountType } from "@/lib/deriv-account";
 
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
 const DERIV_CLIENT_ID = import.meta.env.VITE_DERIV_CLIENT_ID;
@@ -144,16 +145,25 @@ export function setAuthenticatedAccount(
   accountId: string,
   isDemo?: boolean | null,
 ) {
+  const accountIdentity = { account_id: accountId, loginid: accountId };
+  const normalizedType = getDerivAccountType(accountIdentity);
+  const detectedPrefix = getDerivAccountPrefix(accountIdentity);
+  const normalizedIsDemo =
+    normalizedType === "demo" ? true : normalizedType === "real" ? false : isDemo ?? null;
   const sameAccount =
     authenticatedAccount?.accessToken === accessToken &&
     authenticatedAccount.accountId === accountId &&
-    authenticatedAccount.isDemo === isDemo;
+    authenticatedAccount.isDemo === normalizedIsDemo;
   if (sameAccount) return;
 
-  authenticatedAccount = { accessToken, accountId, isDemo };
+  authenticatedAccount = { accessToken, accountId, isDemo: normalizedIsDemo };
   console.info("[Deriv WS] Active account configured", {
     accountId,
-    accountType: isDemo ? "demo" : "real",
+    detected_prefix: detectedPrefix,
+    normalizedType,
+    requested_is_demo: isDemo,
+    forced_is_demo: normalizedIsDemo,
+    accountType: normalizedType,
     socketReadyState: socket?.readyState ?? null,
   });
   if (socket) {
@@ -166,6 +176,12 @@ export function setAuthenticatedAccount(
     socketAccountId = null;
   }
   connecting = null;
+}
+
+function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticatedAccount>) {
+  if (account.isDemo === true) return "demo";
+  if (account.isDemo === false) return "real";
+  return "unknown";
 }
 
 function startKeepalive() {
@@ -245,7 +261,7 @@ function openAuthenticatedSocket(
       if (!retried) {
         console.warn("[Deriv WS] Socket failed. Requesting fresh OTP and retrying once.", {
           accountId: account.accountId,
-          accountType: account.isDemo ? "demo" : "real",
+          accountType: authenticatedAccountTypeLabel(account),
           error: error.message,
         });
         setStatus("reconnecting");
@@ -283,7 +299,7 @@ function openAuthenticatedSocket(
       }
       console.info("[Deriv WS] OTP wsUrl received", {
         accountId: account.accountId,
-        accountType: account.isDemo ? "demo" : "real",
+        accountType: authenticatedAccountTypeLabel(account),
         wsUrl: authenticatedWsUrl,
         retried,
       });
