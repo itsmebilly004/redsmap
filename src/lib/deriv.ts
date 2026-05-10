@@ -17,6 +17,8 @@ const LEGACY_OAUTH_MARKERS = [
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
 export const DERIV_REDIRECT_URI_VALUE = DERIV_REDIRECT_URI;
+export const DERIV_OAUTH_ENDPOINT_VALUE = DERIV_OAUTH_ENDPOINT;
+export type DerivOAuthAppIdMode = "client_id_only" | "client_id_app_id";
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
 
@@ -550,8 +552,18 @@ function assertNoLegacyOAuthUrl(url: string) {
   );
 }
 
+function selectedOAuthAppIdMode(mode?: DerivOAuthAppIdMode): DerivOAuthAppIdMode {
+  if (mode) return mode;
+  const stored = isBrowser ? localStorage.getItem("deriv_oauth_app_id_mode") : null;
+  return stored === "client_id_only" ? "client_id_only" : "client_id_app_id";
+}
+
 export async function buildOAuthUrl(
-  options: { mode?: "signin" | "signup"; returnTo?: string } = {},
+  options: {
+    appIdMode?: DerivOAuthAppIdMode;
+    mode?: "signin" | "signup";
+    returnTo?: string;
+  } = {},
 ) {
   if (!isBrowser) return "";
   if (!DERIV_CLIENT_ID) throw new Error("Missing required OAuth parameter: client_id");
@@ -566,6 +578,11 @@ export async function buildOAuthUrl(
   const codeVerifier = base64UrlEncode(verifierBytes);
   const codeChallenge = base64UrlEncode(await sha256(codeVerifier));
   const state = crypto.randomUUID();
+  const appIdMode = selectedOAuthAppIdMode(options.appIdMode);
+  const includeAppId = appIdMode === "client_id_app_id";
+  if (includeAppId && !DERIV_APP_ID) {
+    throw new Error("Missing required OAuth parameter: app_id");
+  }
 
   sessionStorage.removeItem("deriv_callback_processing");
   sessionStorage.removeItem("deriv_callback_failed");
@@ -586,6 +603,7 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
+  if (includeAppId) params.set("app_id", DERIV_APP_ID);
   // The provider handles the login and consent screens. `prompt` is only
   // documented for signup, where it must be `registration`.
   const prompt = options.mode === "signup" ? "registration" : undefined;
@@ -600,6 +618,7 @@ export async function buildOAuthUrl(
     "code_challenge",
     "code_challenge_method",
   ];
+  if (includeAppId) requiredParams.push("app_id");
   const missingParam = requiredParams.find((param) => !params.get(param));
   if (missingParam) {
     throw new Error(`Missing required OAuth parameter: ${missingParam}`);
@@ -610,9 +629,14 @@ export async function buildOAuthUrl(
   if (parsed.origin !== "https://auth.deriv.com" || parsed.pathname !== "/oauth2/auth") {
     throw new Error("Invalid Deriv OAuth endpoint. Refusing to redirect to a non-OAuth URL.");
   }
-  if (parsed.searchParams.has("app_id") || parsed.searchParams.has("redirect")) {
+  if (parsed.searchParams.has("redirect") || parsed.searchParams.has("brand")) {
+    throw new Error("Invalid Deriv OAuth URL. Authorization URL must not include redirect or brand.");
+  }
+  if (!parsed.searchParams.get("client_id") || (includeAppId && !parsed.searchParams.get("app_id"))) {
     throw new Error(
-      "Invalid Deriv OAuth URL. Authorization URL must use client_id and must not include app_id or redirect.",
+      includeAppId
+        ? "Invalid Deriv OAuth URL. Authorization URL must include both client_id and app_id."
+        : "Invalid Deriv OAuth URL. Authorization URL must include client_id.",
     );
   }
   console.info("[Deriv OAuth] Final authorization URL", url);
@@ -620,7 +644,10 @@ export async function buildOAuthUrl(
     finalOAuthUrl: url,
     endpoint: DERIV_OAUTH_ENDPOINT,
     client_id: DERIV_CLIENT_ID,
+    app_id: includeAppId ? DERIV_APP_ID : null,
+    appIdMode,
     clientIdExists: Boolean(DERIV_CLIENT_ID),
+    appIdExists: includeAppId ? Boolean(DERIV_APP_ID) : "not-required-for-this-mode",
     redirect_uri: DERIV_REDIRECT_URI,
     scopes: DERIV_SCOPE,
     prompt: prompt ?? "standard-login",

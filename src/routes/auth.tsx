@@ -2,7 +2,11 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { buildOAuthUrl } from "@/lib/deriv";
+import {
+  DERIV_OAUTH_ENDPOINT_VALUE,
+  buildOAuthUrl,
+  type DerivOAuthAppIdMode,
+} from "@/lib/deriv";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 
 const search = z.object({
@@ -18,25 +22,55 @@ function AuthPage() {
   const { mode } = Route.useSearch();
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [cacheStatus, setCacheStatus] = useState<string | null>(null);
+  const [debugUrl, setDebugUrl] = useState<string | null>(null);
+  const [oauthAppIdMode, setOauthAppIdMode] = useState<DerivOAuthAppIdMode>(() => {
+    if (typeof window === "undefined") return "client_id_app_id";
+    return localStorage.getItem("deriv_oauth_app_id_mode") === "client_id_only"
+      ? "client_id_only"
+      : "client_id_app_id";
+  });
 
   const isSignup = mode === "signup";
 
   async function handleDeriv() {
     setBusy(true);
     setErrorMessage(null);
+    setDebugUrl(null);
     try {
-      const url = await buildOAuthUrl({ mode, returnTo: "/dashboard" });
-      console.info("[Deriv OAuth] Sign in button redirecting to authorization URL", url);
-      window.location.href = url;
+      localStorage.setItem("deriv_oauth_app_id_mode", oauthAppIdMode);
+      const url = await buildOAuthUrl({ appIdMode: oauthAppIdMode, mode, returnTo: "/dashboard" });
+      console.info("[Deriv OAuth Debug] Exact final URL before redirect", url);
+      setDebugUrl(url);
     } catch (error) {
       console.error("Could not build Deriv OAuth URL", error);
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "Could not start Deriv OAuth. Check the configured client_id.",
+          : "Could not start Deriv OAuth. Check the configured client_id and app_id.",
       );
+    } finally {
       setBusy(false);
     }
+  }
+
+  async function clearRuntimeCaches() {
+    if (typeof window === "undefined") return;
+    setCacheStatus("Checking browser cache...");
+    const registrations =
+      "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistrations() : [];
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    const cacheKeys = "caches" in window ? await caches.keys() : [];
+    await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+    setCacheStatus(
+      `Cleared ${registrations.length} service worker registration(s) and ${cacheKeys.length} cache bucket(s).`,
+    );
+  }
+
+  function continueToDeriv() {
+    if (!debugUrl) return;
+    console.info("[Deriv OAuth Debug] Redirecting to exact URL", debugUrl);
+    window.location.href = debugUrl;
   }
 
   return (
@@ -70,12 +104,73 @@ function AuthPage() {
             className="mt-6 h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
           >
             {busy
-              ? "Connecting to Deriv..."
+              ? "Generating OAuth URL..."
               : isSignup
-                ? "Sign up with Deriv"
-                : "Sign in with Deriv"}
+                ? "Generate signup URL"
+                : "Generate signin URL"}
             <ArrowRight className="ml-1 size-4" />
           </Button>
+
+          <div className="mt-4 rounded-xl border border-primary/20 bg-background/80 p-3 text-xs">
+            <div className="mb-2 font-semibold text-foreground">Deriv OAuth debug</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem("deriv_oauth_app_id_mode", "client_id_only");
+                  setOauthAppIdMode("client_id_only");
+                  setDebugUrl(null);
+                }}
+                className={`rounded-md border px-2 py-1.5 ${
+                  oauthAppIdMode === "client_id_only"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                client_id only
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem("deriv_oauth_app_id_mode", "client_id_app_id");
+                  setOauthAppIdMode("client_id_app_id");
+                  setDebugUrl(null);
+                }}
+                className={`rounded-md border px-2 py-1.5 ${
+                  oauthAppIdMode === "client_id_app_id"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground"
+                }`}
+              >
+                client_id + app_id
+              </button>
+            </div>
+            <div className="mt-3 space-y-1 text-muted-foreground">
+              <div>
+                Expected endpoint:{" "}
+                <span className="font-mono text-foreground">{DERIV_OAUTH_ENDPOINT_VALUE}</span>
+              </div>
+              <div>Selected mode: {oauthAppIdMode}</div>
+            </div>
+            {debugUrl && (
+              <div className="mt-3 space-y-2">
+                <div className="break-all rounded-md bg-muted p-2 font-mono text-[11px] text-foreground">
+                  {debugUrl}
+                </div>
+                <Button onClick={continueToDeriv} className="h-10 w-full">
+                  Continue to Deriv
+                </Button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => void clearRuntimeCaches()}
+              className="mt-3 text-primary hover:underline"
+            >
+              Clear service worker/cache for this site
+            </button>
+            {cacheStatus && <div className="mt-2 text-muted-foreground">{cacheStatus}</div>}
+          </div>
 
           {errorMessage && (
             <div className="mt-4 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
