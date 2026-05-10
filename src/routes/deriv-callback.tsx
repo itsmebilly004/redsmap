@@ -777,6 +777,11 @@ function DerivCallback() {
           tradingAdapterStorageKey(sessionUser.id, selectedAccountId),
           adapterForTokenSource(tokenSource),
         );
+        if (tokenSource === "oauth_access_token") {
+          sessionStorage.setItem("deriv_oauth_trade_preconnect_account", selectedAccountId);
+        } else {
+          sessionStorage.removeItem("deriv_oauth_trade_preconnect_account");
+        }
         setAuthenticatedAccount(
           selectedAccessToken,
           selectedAccountId,
@@ -796,6 +801,7 @@ function DerivCallback() {
           selectedAdapterStorageKey: selectedAdapterStorageKey(sessionUser.id),
           tokenSourceStorageKey: tokenSourceStorageKey(sessionUser.id, selectedAccountId),
           tradingAdapterStorageKey: tradingAdapterStorageKey(sessionUser.id, selectedAccountId),
+          tradePreconnectRequested: tokenSource === "oauth_access_token",
         });
         window.dispatchEvent(
           new CustomEvent("deriv:sessions-updated", {

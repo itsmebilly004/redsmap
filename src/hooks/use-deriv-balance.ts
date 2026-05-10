@@ -4,6 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
   adapterForTokenSource,
+  ensureDerivTradingConnection,
+  getDerivTradingErrorMessage,
+  getStatus,
+  getTradingSocketAccountId,
   setAuthenticatedAccount,
   subscribeBalance,
   tradingWebSocketMode,
@@ -705,14 +709,104 @@ export function useDerivBalance(): LiveBalance {
       return;
     }
     if (isOAuthTokenAccount(active)) {
-      console.info("[Deriv Balance] Skipping OAuth live balance WebSocket subscription", {
+      let cancelled = false;
+      const previousAccountKey = lastWebSocketAccountKeyRef.current;
+      const connectionPreconnectAccountId = (() => {
+        try {
+          return sessionStorage.getItem("deriv_oauth_trade_preconnect_account");
+        } catch {
+          return null;
+        }
+      })();
+      const connectionFlowPreconnect =
+        connectionPreconnectAccountId?.toUpperCase() === active.account_id.toUpperCase();
+      if (previousAccountKey === activeAccountKey && getStatus() === "connected") {
+        console.info("[Deriv Balance] OAuth trading preconnect skipped", {
+          account_id: active.account_id,
+          loginid: active.loginid,
+          normalizedType: active.normalizedType,
+          token_source: activeTokenSource,
+          adapter: adapterForTokenSource(activeTokenSource),
+          websocketMode: tradingWebSocketMode(activeTokenSource),
+          websocketAccountId: getTradingSocketAccountId(),
+          reason: "already-connected-for-selected-account",
+        });
+        return;
+      }
+
+      (async () => {
+        try {
+          console.info("[Deriv Balance] OAuth trading preconnect started", {
+            previousSelectedAccountKey: previousAccountKey,
+            requestedAccountId: active.account_id,
+            requestedLoginId: active.loginid,
+            requestedAccountType: active.normalizedType,
+            detected_prefix: active.detected_prefix,
+            token_source: activeTokenSource,
+            adapter: adapterForTokenSource(activeTokenSource),
+            websocketMode: tradingWebSocketMode(activeTokenSource),
+            reason:
+              connectionFlowPreconnect
+                ? "OAuth account connection requested immediate trade authorization preconnect."
+                : "New API accounts establish the trade authorization connection when the account session loads.",
+          });
+          const tradingSession = await ensureDerivTradingConnection(active, {
+            context: "oauth-account-session-preconnect",
+          });
+          if (cancelled) return;
+          lastWebSocketAccountKeyRef.current = activeAccountKey;
+          if (connectionFlowPreconnect) {
+            try {
+              sessionStorage.removeItem("deriv_oauth_trade_preconnect_account");
+            } catch {
+              /* ignore sessionStorage access failures */
+            }
+          }
+          console.info("[Deriv Balance] OAuth trading preconnect ready", {
+            selectedAccountId: active.account_id,
+            tradingAccountId: tradingSession.account_id,
+            loginid: tradingSession.loginid,
+            normalizedType: tradingSession.normalizedType,
+            token_source: tradingSession.token_source,
+            adapter: tradingSession.adapter,
+            websocketMode: tradingSession.websocketMode,
+            authorizationResult: "connected",
+            connectionStatus: getStatus(),
+            websocketAccountId: getTradingSocketAccountId(),
+          });
+        } catch (error) {
+          if (cancelled) return;
+          console.warn("[Deriv Balance] OAuth trading preconnect failed", {
+            account_id: active.account_id,
+            loginid: active.loginid,
+            normalizedType: active.normalizedType,
+            token_source: activeTokenSource,
+            adapter: adapterForTokenSource(activeTokenSource),
+            websocketMode: tradingWebSocketMode(activeTokenSource),
+            authorizationResult: "failed",
+            disconnectReason: getDerivTradingErrorMessage(error),
+            error,
+          });
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (activeTokenSource === "legacy_authorize_token") {
+      console.info("[Deriv Balance] Legacy account using direct App ID WebSocket flow", {
         account_id: active.account_id,
         loginid: active.loginid,
         normalizedType: active.normalizedType,
         token_source: activeTokenSource,
+        adapter: adapterForTokenSource(activeTokenSource),
+        websocketMode: tradingWebSocketMode(activeTokenSource),
         reason:
-          "OAuth accounts refresh balances through /api/deriv-accounts; live balance WS requires OTP and must not run immediately after login.",
+          "Legacy accounts keep the existing direct authorize/live balance implementation.",
       });
+    } else {
       return;
     }
     let unsub: (() => void) | undefined;
