@@ -2,7 +2,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { setAuthenticatedAccount, subscribeBalance } from "@/lib/deriv";
+import {
+  setAuthenticatedAccount,
+  subscribeBalance,
+  type DerivTokenSource,
+} from "@/lib/deriv";
 import {
   normalizeDerivAccount,
   type NormalizedDerivAccount,
@@ -20,6 +24,7 @@ export type DerivAccount = NormalizedDerivAccount & {
   balance: number | null;
   expires_at?: string | null;
   created_at?: string | null;
+  token_source?: DerivTokenSource;
 };
 
 export type LiveBalance = {
@@ -43,6 +48,10 @@ function selectedAccountIdStorageKey(userId: string) {
 
 function selectedAccountTypeStorageKey(userId: string) {
   return `selected_deriv_account_type:${userId}`;
+}
+
+function tokenSourceStorageKey(userId: string, accountId: string) {
+  return `deriv_token_source:${userId}:${accountId.toUpperCase()}`;
 }
 
 function readSavedSelectedAccount(userId: string) {
@@ -76,8 +85,61 @@ function isLikelyDerivOAuthToken(token: string | null | undefined) {
   return token.startsWith("ory_") || token.includes("ory_at_");
 }
 
-function isLikelyLegacyToken(token: string | null | undefined) {
-  return Boolean(token && !isLikelyDerivOAuthToken(token));
+function fallbackTokenSource(token: string | null | undefined): DerivTokenSource {
+  return isLikelyDerivOAuthToken(token) ? "oauth_access_token" : "legacy_authorize_token";
+}
+
+function tokenSourceFromText(value: unknown): DerivTokenSource | null {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return null;
+  if (text.includes("oauth")) return "oauth_access_token";
+  if (text.includes("legacy")) return "legacy_authorize_token";
+  return null;
+}
+
+function fallbackTokenSourceForRaw(
+  account: Record<string, unknown>,
+  token: string | null | undefined,
+): DerivTokenSource {
+  return (
+    tokenSourceFromText(account.token_source) ??
+    tokenSourceFromText(account.deriv_token_source) ??
+    tokenSourceFromText(account.session_source) ??
+    tokenSourceFromText(account.auth_type) ??
+    fallbackTokenSource(token)
+  );
+}
+
+function tokenSourceForAccount(
+  account: Pick<DerivAccount, "account_id" | "deriv_token" | "token_source">,
+) {
+  return account.token_source ?? fallbackTokenSource(account.deriv_token);
+}
+
+function isLikelyLegacyToken(
+  account: Pick<DerivAccount, "account_id" | "deriv_token" | "token_source">,
+) {
+  return Boolean(account.deriv_token && tokenSourceForAccount(account) === "legacy_authorize_token");
+}
+
+function isOAuthTokenAccount(
+  account: Pick<DerivAccount, "account_id" | "deriv_token" | "token_source">,
+) {
+  return Boolean(account.deriv_token && tokenSourceForAccount(account) === "oauth_access_token");
+}
+
+function readTokenSource(
+  userId: string,
+  accountId: string,
+  token: string | null | undefined,
+): DerivTokenSource {
+  try {
+    const saved = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
+    if (saved === "oauth_access_token" || saved === "legacy_authorize_token") return saved;
+  } catch {
+    /* ignore localStorage access failures */
+  }
+  return fallbackTokenSource(token);
 }
 
 function timestampValue(value: string | null | undefined) {
@@ -111,7 +173,7 @@ function dedupeAccountsByLogin(accounts: DerivAccount[]) {
   return Array.from(byAccountId.values());
 }
 
-function accountSummary(account: Pick<DerivAccount, "account_id" | "loginid" | "currency" | "balance" | "normalizedType" | "detected_prefix">) {
+function accountSummary(account: Pick<DerivAccount, "account_id" | "loginid" | "currency" | "balance" | "normalizedType" | "detected_prefix" | "token_source">) {
   return {
     account_id: account.account_id,
     loginid: account.loginid,
@@ -119,12 +181,14 @@ function accountSummary(account: Pick<DerivAccount, "account_id" | "loginid" | "
     balance: account.balance,
     normalizedType: account.normalizedType,
     detected_prefix: account.detected_prefix,
+    token_source: account.token_source,
   };
 }
 
 function normalizeFreshAccount(
   account: Record<string, unknown>,
   fallbackToken?: string | null,
+  fallbackTokenSource?: DerivTokenSource,
 ) {
   const normalized = normalizeDerivAccount(
     {
@@ -134,7 +198,10 @@ function normalizeFreshAccount(
     { trustVirtualFlags: false },
   );
   if (!normalized?.deriv_token) return null;
-  return normalized as DerivAccount;
+  return {
+    ...normalized,
+    token_source: fallbackTokenSource ?? fallbackTokenSourceForRaw(account, normalized.deriv_token),
+  } as DerivAccount;
 }
 
 export function useDerivBalance(): LiveBalance {
@@ -220,8 +287,19 @@ export function useDerivBalance(): LiveBalance {
       const rawAccounts = (data ?? []) as DerivAccount[];
       console.info("[Deriv Accounts] raw session accounts before normalization", rawAccounts);
       const normalized = dedupeAccountsByLogin(rawAccounts
-        .map((account) => normalizeDerivAccount(account, { trustVirtualFlags: false }))
-        .filter((account): account is DerivAccount => Boolean(account?.deriv_token)));
+        .map((account) => {
+          const normalized = normalizeDerivAccount(account, { trustVirtualFlags: false });
+          if (!normalized?.deriv_token) return null;
+          return {
+            ...normalized,
+            token_source: readTokenSource(
+              user.id,
+              normalized.account_id,
+              normalized.deriv_token,
+            ),
+          } as DerivAccount;
+        })
+        .filter((account): account is DerivAccount => Boolean(account)));
       console.info("[Deriv Accounts] normalized session accounts", normalized.map((account) => ({
         account_id: account.account_id,
         loginid: account.loginid,
@@ -232,6 +310,7 @@ export function useDerivBalance(): LiveBalance {
         final_tab_placement: account.final_tab_placement,
         is_demo: account.is_demo,
         is_virtual: account.is_virtual,
+        token_source: account.token_source,
         reason: account.classification_reason,
       })));
 
@@ -362,7 +441,7 @@ export function useDerivBalance(): LiveBalance {
     [accounts, activeId],
   );
   const activeAccountKey = active
-    ? `${active.deriv_token}:${active.account_id}:${active.normalizedType}`
+    ? `${active.deriv_token}:${active.account_id}:${active.normalizedType}:${tokenSourceForAccount(active)}`
     : null;
 
   const refreshBalances = useCallback(
@@ -378,9 +457,13 @@ export function useDerivBalance(): LiveBalance {
       });
 
       const freshAccountsById = new Map<string, DerivAccount>();
-      const mergeFreshAccounts = (items: Record<string, unknown>[], fallbackToken?: string | null) => {
+      const mergeFreshAccounts = (
+        items: Record<string, unknown>[],
+        fallbackToken?: string | null,
+        sourceOverride?: DerivTokenSource,
+      ) => {
         const normalized = items
-          .map((item) => normalizeFreshAccount(item, fallbackToken))
+          .map((item) => normalizeFreshAccount(item, fallbackToken, sourceOverride))
           .filter((item): item is DerivAccount => Boolean(item));
         for (const account of normalized) {
           const existing = accounts.find((item) => item.account_id === account.account_id);
@@ -389,13 +472,14 @@ export function useDerivBalance(): LiveBalance {
             ...account,
             id: existing?.id ?? account.id,
             deriv_token: account.deriv_token ?? existing?.deriv_token ?? "",
+            token_source: account.token_source ?? existing?.token_source,
           });
         }
         return normalized;
       };
 
       try {
-        const oauthSeed = accounts.find((account) => isLikelyDerivOAuthToken(account.deriv_token));
+        const oauthSeed = accounts.find(isOAuthTokenAccount);
         if (oauthSeed) {
           const response = await fetch("/api/deriv-accounts", {
             method: "POST",
@@ -408,7 +492,11 @@ export function useDerivBalance(): LiveBalance {
           if (!response.ok) {
             throw new Error(data.detail ?? data.error ?? "Could not refresh OAuth Deriv balances");
           }
-          const refreshed = mergeFreshAccounts(data.data ?? [], oauthSeed.deriv_token);
+          const refreshed = mergeFreshAccounts(
+            data.data ?? [],
+            oauthSeed.deriv_token,
+            tokenSourceForAccount(oauthSeed),
+          );
           console.info("[Deriv Balance] balance fetch completed", {
             source: "oauth",
             status: response.status,
@@ -417,7 +505,7 @@ export function useDerivBalance(): LiveBalance {
           });
         }
 
-        const legacyAccounts = accounts.filter((account) => isLikelyLegacyToken(account.deriv_token));
+        const legacyAccounts = accounts.filter(isLikelyLegacyToken);
         if (legacyAccounts.length) {
           const response = await fetch("/api/deriv-accounts", {
             method: "POST",
@@ -494,7 +582,7 @@ export function useDerivBalance(): LiveBalance {
         setAccounts((previous) => {
           const previousLegacyIds = new Set(
             previous
-              .filter((account) => isLikelyLegacyToken(account.deriv_token))
+              .filter(isLikelyLegacyToken)
               .map((account) => account.account_id),
           );
           const next = previous.map(
@@ -544,6 +632,17 @@ export function useDerivBalance(): LiveBalance {
   // Subscribe to live balance for the active account.
   useEffect(() => {
     if (!isBrowser || !active || !user || !activeAccountKey) return;
+    if (isOAuthTokenAccount(active)) {
+      console.info("[Deriv Balance] Skipping OAuth live balance WebSocket subscription", {
+        account_id: active.account_id,
+        loginid: active.loginid,
+        normalizedType: active.normalizedType,
+        token_source: tokenSourceForAccount(active),
+        reason:
+          "OAuth accounts refresh balances through /api/deriv-accounts; live balance WS requires OTP and must not run immediately after login.",
+      });
+      return;
+    }
     let unsub: (() => void) | undefined;
     let cancelled = false;
     const activeIsDemo = active.normalizedType === "demo";
@@ -558,8 +657,14 @@ export function useDerivBalance(): LiveBalance {
             requestedAccountId,
             requestedAccountType: active.normalizedType,
             detected_prefix: active.detected_prefix,
+            token_source: tokenSourceForAccount(active),
           });
-          setAuthenticatedAccount(active.deriv_token, requestedAccountId, activeIsDemo);
+          setAuthenticatedAccount(
+            active.deriv_token,
+            requestedAccountId,
+            activeIsDemo,
+            tokenSourceForAccount(active),
+          );
           lastWebSocketAccountKeyRef.current = activeAccountKey;
           console.log("Deriv authenticated WebSocket initialized", {
             account_id: requestedAccountId,
@@ -567,6 +672,7 @@ export function useDerivBalance(): LiveBalance {
             normalizedType: active.normalizedType,
             detected_prefix: active.detected_prefix,
             is_virtual: activeIsDemo,
+            token_source: tokenSourceForAccount(active),
           });
         } else {
           console.info("[Deriv Balance] Skipped Deriv WebSocket account initialization", {
@@ -645,16 +751,16 @@ export function useDerivBalance(): LiveBalance {
 
   useEffect(() => {
     if (!isBrowser || !user || loading || !accounts.length) return;
-    const legacyAccounts = accounts.filter((account) => isLikelyLegacyToken(account.deriv_token));
-    if (!legacyAccounts.length) return;
-    const refreshKey = `${user.id}:${legacyAccounts
+    const refreshableAccounts = accounts.filter((account) => Boolean(account.deriv_token));
+    if (!refreshableAccounts.length) return;
+    const refreshKey = `${user.id}:${refreshableAccounts
       .map((account) => `${account.account_id}:${account.deriv_token.slice(-6)}`)
       .sort()
       .join("|")}`;
     if (legacyAutoRefreshKeysRef.current.has(refreshKey)) return;
     legacyAutoRefreshKeysRef.current.add(refreshKey);
-    void refreshBalances("initial-legacy-load").catch((error) => {
-      console.warn("[Deriv Balance] initial legacy balance refresh failed", error);
+    void refreshBalances("initial-account-load").catch((error) => {
+      console.warn("[Deriv Balance] initial account balance refresh failed", error);
     });
   }, [accounts, isBrowser, loading, refreshBalances, user]);
 

@@ -7,6 +7,7 @@ type DerivAccountOtpRequest = {
   accessToken?: string;
   accountId?: string;
   appIdMode?: "oauth" | "legacy";
+  tokenSource?: "oauth_access_token" | "legacy_authorize_token";
 };
 
 type SessionRow = {
@@ -193,7 +194,12 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          const { accessToken: bodyAccessToken, accountId, appIdMode = "oauth" } =
+          const {
+            accessToken: bodyAccessToken,
+            accountId,
+            appIdMode = "oauth",
+            tokenSource,
+          } =
             await requestBody(request);
           if (!accountId) {
             return errorResponse(
@@ -287,6 +293,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             selectedAccountType,
             createdAt: selectedSession?.created_at ?? null,
             appIdMode,
+            tokenSource,
             bodyToken: tokenLogValue(bodyAccessToken),
             storedToken: tokenLogValue(storedToken),
             bodyTokenMatchesStoredToken: Boolean(
@@ -316,11 +323,15 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             });
           }
 
-          if (!isLikelyDerivOAuthToken(storedToken)) {
+          const shouldUseOAuthOtp =
+            appIdMode === "oauth" || tokenSource === "oauth_access_token";
+
+          if (!shouldUseOAuthOtp && !isLikelyDerivOAuthToken(storedToken)) {
             console.info("[Deriv OTP API] legacy token requires direct WebSocket authorization", {
               requestedAccountId: accountId,
               authenticatedUserId: userId,
               selectedAccountType,
+              tokenSource,
               wsUrl: legacyWsUrl(),
             });
             return errorResponse(
@@ -374,20 +385,19 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
           });
 
           if (otpResponse.status === 401 || otpResponse.status === 403) {
-            if (selectedSession?.id) {
-              await supabase
-                .from("sessions")
-                .update({ is_active: false })
-                .eq("user_id", userId)
-                .eq("id", selectedSession.id);
-            }
-            return sessionExpired({
-              requestedAccountId: accountId,
-              authenticatedUserId: userId,
-              selectedAccountType,
-              otpStatus: otpResponse.status,
-              responseWasJson: parsed.isJson,
-            });
+            return errorResponse(
+              "DERIV_OTP_AUTH_FAILED",
+              "Deriv rejected the trading WebSocket authorization. Your Deriv account remains connected; reconnect only if this continues.",
+              409,
+              {
+                requestedAccountId: accountId,
+                authenticatedUserId: userId,
+                selectedAccountType,
+                otpStatus: otpResponse.status,
+                responseWasJson: parsed.isJson,
+                sessionDeactivated: false,
+              },
+            );
           }
 
           if (otpResponse.status === 429) {

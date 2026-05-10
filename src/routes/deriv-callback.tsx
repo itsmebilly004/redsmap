@@ -5,6 +5,7 @@ import {
   DERIV_CLIENT_ID_VALUE,
   DERIV_REDIRECT_URI_VALUE,
   setAuthenticatedAccount,
+  type DerivTokenSource,
 } from "@/lib/deriv";
 import { normalizeDerivAccount } from "@/lib/deriv-account";
 import { derivCredentials } from "@/lib/deriv-credentials";
@@ -69,6 +70,14 @@ function selectedAccountIdStorageKey(userId: string) {
 
 function selectedAccountTypeStorageKey(userId: string) {
   return `selected_deriv_account_type:${userId}`;
+}
+
+function tokenSourceStorageKey(userId: string, accountId: string) {
+  return `deriv_token_source:${userId}:${accountId.toUpperCase()}`;
+}
+
+function tokenSourceForFetchMode(mode: "oauth" | "legacy"): DerivTokenSource {
+  return mode === "oauth" ? "oauth_access_token" : "legacy_authorize_token";
 }
 
 function sessionStorageKeys() {
@@ -632,6 +641,7 @@ function DerivCallback() {
           accountCount: accounts.length,
         });
         const savedAccounts: string[] = [];
+        const tokenSource = tokenSourceForFetchMode(accountFetchMode);
         for (const account of accounts) {
           const accountId = String(account.loginid ?? account.account_id);
           const accountToken = String(account.deriv_token ?? accessToken);
@@ -651,6 +661,13 @@ function DerivCallback() {
             final_tab_placement: account.final_tab_placement,
             is_demo: isVirtual,
             is_virtual: isVirtual,
+            tokenSource,
+          });
+          localStorage.setItem(tokenSourceStorageKey(sessionUser.id, accountId), tokenSource);
+          markStage("Deriv token source saved", {
+            account_id: accountId,
+            storageKey: tokenSourceStorageKey(sessionUser.id, accountId),
+            tokenSource,
           });
           const { data: savedSession, error: upsertErr } = await supabase.from("sessions").upsert(
             {
@@ -723,17 +740,24 @@ function DerivCallback() {
           selectedAccountTypeStorageKey(sessionUser.id),
           primary.normalizedType,
         );
+        localStorage.setItem(
+          tokenSourceStorageKey(sessionUser.id, selectedAccountId),
+          tokenSource,
+        );
         setAuthenticatedAccount(
           selectedAccessToken,
           selectedAccountId,
           primary.normalizedType === "demo",
+          tokenSource,
         );
         markStage("selected account set", {
           selectedAccountId,
           selectedAccountType: primary.normalizedType,
+          selectedTokenSource: tokenSource,
           storageKey: activeAccountStorageKey(sessionUser.id),
           selectedAccountIdStorageKey: selectedAccountIdStorageKey(sessionUser.id),
           selectedAccountTypeStorageKey: selectedAccountTypeStorageKey(sessionUser.id),
+          tokenSourceStorageKey: tokenSourceStorageKey(sessionUser.id, selectedAccountId),
         });
         window.dispatchEvent(
           new CustomEvent("deriv:sessions-updated", {
@@ -741,6 +765,7 @@ function DerivCallback() {
               userId: sessionUser.id,
               selectedAccountId,
               accountCount: savedAccounts.length,
+              tokenSource,
             },
           }),
         );

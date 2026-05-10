@@ -113,6 +113,7 @@ export type DerivBalance = { balance: number; currency: string; loginid: string 
 export type ActiveSymbol = { symbol: string; display_name: string; market: string };
 type DerivAppIdMode = "oauth" | "legacy";
 export type TradingAdapter = "newOAuthTradingAdapter" | "legacyTradingAdapter";
+export type DerivTokenSource = "oauth_access_token" | "legacy_authorize_token";
 type DerivSocketError = Error & {
   code?: string;
   status?: number;
@@ -123,7 +124,7 @@ export type DerivTradingSession = {
   accountId: string;
   loginid: string;
   token: string;
-  tokenSource: "oauth_access_token" | "legacy_authorize_token";
+  tokenSource: DerivTokenSource;
   adapter: TradingAdapter;
   expiresAt: string | null;
   createdAt: string | null;
@@ -150,6 +151,7 @@ let authenticatedAccount:
       accessToken: string;
       accountId: string;
       isDemo?: boolean | null;
+      tokenSource: DerivTokenSource;
     }
   | null = null;
 
@@ -163,7 +165,8 @@ function isCurrentAuthenticatedAccount(account: NonNullable<typeof authenticated
   return (
     authenticatedAccount?.accessToken === account.accessToken &&
     authenticatedAccount.accountId === account.accountId &&
-    authenticatedAccount.isDemo === account.isDemo
+    authenticatedAccount.isDemo === account.isDemo &&
+    authenticatedAccount.tokenSource === account.tokenSource
   );
 }
 
@@ -195,6 +198,7 @@ export function setAuthenticatedAccount(
   accessToken: string,
   accountId: string,
   isDemo?: boolean | null,
+  tokenSource: DerivTokenSource = tokenSourceFor(accessToken),
 ) {
   const accountIdentity = { account_id: accountId, loginid: accountId };
   const normalizedType = getDerivAccountType(accountIdentity);
@@ -204,10 +208,11 @@ export function setAuthenticatedAccount(
   const sameAccount =
     authenticatedAccount?.accessToken === accessToken &&
     authenticatedAccount.accountId === accountId &&
-    authenticatedAccount.isDemo === normalizedIsDemo;
+    authenticatedAccount.isDemo === normalizedIsDemo &&
+    authenticatedAccount.tokenSource === tokenSource;
   if (sameAccount) return;
 
-  authenticatedAccount = { accessToken, accountId, isDemo: normalizedIsDemo };
+  authenticatedAccount = { accessToken, accountId, isDemo: normalizedIsDemo, tokenSource };
   console.info("[Deriv WS] Active account configured", {
     accountId,
     detected_prefix: detectedPrefix,
@@ -215,6 +220,8 @@ export function setAuthenticatedAccount(
     requested_is_demo: isDemo,
     forced_is_demo: normalizedIsDemo,
     accountType: normalizedType,
+    tokenSource,
+    adapter: adapterForTokenSource(tokenSource),
     socketReadyState: socket?.readyState ?? null,
   });
   if (socket) {
@@ -313,8 +320,13 @@ export async function prepareDerivTradingSession(
   const selectedSession = matchingSessions[0] ?? null;
   const storedToken = textFrom(selectedSession?.deriv_token);
   const expiry = tokenExpiryState(selectedSession?.expires_at);
-  const adapter = storedToken ? adapterForToken(storedToken) : null;
-  const tokenSource = storedToken ? tokenSourceFor(storedToken) : null;
+  const storedTokenSource = storedToken
+    ? readStoredTokenSource(userId, selectedAccountId)
+    : null;
+  const tokenSource = storedToken
+    ? storedTokenSource ?? tokenSourceForAccount(selectedAccount, storedToken)
+    : null;
+  const adapter = tokenSource ? adapterForTokenSource(tokenSource) : null;
 
   console.info("[Deriv Trading] pre-trade session validation", {
     context: options.context ?? "trade",
@@ -337,6 +349,7 @@ export async function prepareDerivTradingSession(
       tokenExpired: expiry.expired,
       expiresWithinClockSkew: expiry.expiresWithinClockSkew,
       invalidExpiry: expiry.invalidExpiry,
+      storedTokenSource,
       tokenSource,
       adapter,
       createdAt: selectedSession?.created_at ?? null,
@@ -367,14 +380,14 @@ export async function prepareDerivTradingSession(
     );
   }
 
-  setAuthenticatedAccount(storedToken, selectedAccountId, normalizedType === "demo");
+  setAuthenticatedAccount(storedToken, selectedAccountId, normalizedType === "demo", tokenSource);
   return {
     sessionId: selectedSession.id ?? null,
     accountId: selectedAccountId,
     loginid: normalizedSelected.loginid,
     token: storedToken,
-    tokenSource: tokenSourceFor(storedToken),
-    adapter: adapterForToken(storedToken),
+    tokenSource,
+    adapter,
     expiresAt: selectedSession.expires_at ?? null,
     createdAt: selectedSession.created_at ?? null,
     sessionAccountId: selectedSession.account_id,
@@ -392,6 +405,14 @@ function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticated
 function isLikelyDerivOAuthToken(token: string | null | undefined) {
   if (!token) return false;
   return token.startsWith("ory_") || token.includes("ory_at_");
+}
+
+function tokenSourceFromText(value: unknown): DerivTokenSource | null {
+  const text = textFrom(value).toLowerCase();
+  if (!text) return null;
+  if (text.includes("oauth")) return "oauth_access_token";
+  if (text.includes("legacy")) return "legacy_authorize_token";
+  return null;
 }
 
 function numericDerivAppId(...ids: Array<string | undefined>) {
@@ -438,6 +459,24 @@ function textFrom(...values: unknown[]) {
     if (text) return text;
   }
   return "";
+}
+
+function tokenSourceStorageKey(userId: string, accountId: string) {
+  return `deriv_token_source:${userId}:${accountId.toUpperCase()}`;
+}
+
+function readStoredTokenSource(
+  userId: string,
+  accountId: string,
+): DerivTokenSource | null {
+  if (!isBrowser) return null;
+  try {
+    const saved = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
+    if (saved === "oauth_access_token" || saved === "legacy_authorize_token") return saved;
+  } catch {
+    /* ignore localStorage access failures */
+  }
+  return null;
 }
 
 function sameDerivId(left: string | null | undefined, right: string | null | undefined) {
@@ -510,7 +549,16 @@ function isInvalidDerivTokenMessage(message: string | undefined, code?: string) 
 function derivMessageError(error: DerivError | undefined) {
   const message = textFrom(error?.message, "Deriv request failed.");
   if (isInvalidDerivTokenMessage(message)) {
-    void deactivateInvalidDerivSession("deriv-invalid-token");
+    if (authenticatedAccount?.tokenSource === "legacy_authorize_token") {
+      void deactivateInvalidDerivSession("deriv-invalid-token");
+    } else {
+      console.warn("[Deriv Trading] OAuth invalid-token response did not deactivate session", {
+        accountId: authenticatedAccount?.accountId ?? null,
+        tokenSource: authenticatedAccount?.tokenSource ?? null,
+        reason:
+          "OAuth sessions are kept active until their stored expiry or manual logout to avoid false immediate disconnects after reconnect.",
+      });
+    }
     return createDerivSocketError(
       "Your Deriv session expired. Please reconnect your Deriv account.",
       DERIV_SESSION_EXPIRED_CODE,
@@ -554,14 +602,34 @@ async function deactivateInvalidDerivSession(reason: string) {
   }
 }
 
-function tokenSourceFor(token: string) {
+function tokenSourceFor(token: string): DerivTokenSource {
   return isLikelyDerivOAuthToken(token)
-    ? ("oauth_access_token" as const)
-    : ("legacy_authorize_token" as const);
+    ? "oauth_access_token"
+    : "legacy_authorize_token";
 }
 
 function adapterForToken(token: string): TradingAdapter {
-  return isLikelyDerivOAuthToken(token) ? "newOAuthTradingAdapter" : "legacyTradingAdapter";
+  return adapterForTokenSource(tokenSourceFor(token));
+}
+
+function tokenSourceForAccount(
+  account: DerivAccountLike,
+  fallbackToken: string,
+): DerivTokenSource {
+  return (
+    tokenSourceFromText(account.token_source) ??
+    tokenSourceFromText(account.deriv_token_source) ??
+    tokenSourceFromText(account.session_source) ??
+    tokenSourceFromText(account.auth_type) ??
+    tokenSourceFromText(account.tokenSource) ??
+    tokenSourceFor(fallbackToken)
+  );
+}
+
+function adapterForTokenSource(tokenSource: DerivTokenSource): TradingAdapter {
+  return tokenSource === "oauth_access_token"
+    ? "newOAuthTradingAdapter"
+    : "legacyTradingAdapter";
 }
 
 function startKeepalive() {
@@ -629,7 +697,7 @@ function openAuthenticatedSocket(
     let ws: WebSocket | null = null;
     let settled = false;
     let legacyAuthorizeReqId: number | null = null;
-    const useLegacyDirectWs = !isLikelyDerivOAuthToken(account.accessToken);
+    const useLegacyDirectWs = account.tokenSource === "legacy_authorize_token";
 
     const completeOpen = () => {
       if (!ws) {
@@ -730,7 +798,7 @@ function openAuthenticatedSocket(
 
       const authenticatedWsUrl = useLegacyDirectWs
         ? legacyTradingWsUrl()
-        : await getAuthenticatedWsUrl(account.accessToken, account.accountId);
+        : await getAuthenticatedWsUrl(account.accessToken, account.accountId, account.tokenSource);
       if (!isCurrentAuthenticatedAccount(account)) {
         connecting = null;
         reject(new Error("Deriv account changed while opening WebSocket."));
@@ -1426,8 +1494,10 @@ export async function buildOAuthUrl(
 export async function getAuthenticatedWsUrl(
   accessToken: string,
   accountId: string,
+  tokenSource: DerivTokenSource = tokenSourceFor(accessToken),
 ): Promise<string> {
-  const appIdMode: DerivAppIdMode = isLikelyDerivOAuthToken(accessToken) ? "oauth" : "legacy";
+  const appIdMode: DerivAppIdMode =
+    tokenSource === "oauth_access_token" ? "oauth" : "legacy";
   if (appIdMode === "legacy") {
     console.info("[Deriv WS] legacy token detected; using direct WebSocket authorization", {
       accountId,
@@ -1453,7 +1523,7 @@ export async function getAuthenticatedWsUrl(
       "Content-Type": "application/json",
       Authorization: `Bearer ${supabaseAccessToken}`,
     },
-    body: JSON.stringify({ accessToken, accountId, appIdMode }),
+    body: JSON.stringify({ accessToken, accountId, appIdMode, tokenSource }),
   });
   const contentType = response.headers.get("content-type") ?? "";
   const responseWasJson = contentType.toLowerCase().includes("application/json");
