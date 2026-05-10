@@ -112,7 +112,7 @@ export type DerivMessage = DerivRecord & {
 export type DerivBalance = { balance: number; currency: string; loginid: string };
 export type ActiveSymbol = { symbol: string; display_name: string; market: string };
 type DerivAppIdMode = "oauth" | "legacy";
-type TradingAdapter = "newOAuthTradingAdapter" | "legacyTradingAdapter";
+export type TradingAdapter = "newOAuthTradingAdapter" | "legacyTradingAdapter";
 type DerivSocketError = Error & {
   code?: string;
   status?: number;
@@ -902,6 +902,14 @@ export async function forgetSubscription(subscriptionId: string) {
 
 export async function send(payload: DerivRecord): Promise<DerivMessage> {
   if (!isBrowser) return {};
+  if (payload.proposal === 1 && "underlying_symbol" in payload) {
+    throw createDerivSocketError(
+      "Invalid Deriv proposal payload: use symbol, not underlying_symbol.",
+      "DERIV_PAYLOAD_INVALID",
+      undefined,
+      false,
+    );
+  }
   const ws = await connect();
   if (authenticatedAccount && socketAccountId !== authenticatedAccount.accountId) {
     throw new Error("Deriv WebSocket account does not match the selected account.");

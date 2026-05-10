@@ -196,19 +196,32 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       });
       await cleanupSubscription();
 
-      const payload = buildAccumulatorProposalPayload({
-        currency: tradeCurrency,
-        growthRate,
-        market,
-        stake,
-        takeProfit: takeProfitEnabled ? takeProfit : null,
+      const payload = buildAccumulatorProposalPayload(
+        {
+          currency: tradeCurrency,
+          growthRate,
+          market,
+          stake,
+          takeProfit: takeProfitEnabled ? takeProfit : null,
+        },
+        tradingSession.adapter,
+      );
+      const proposalResponse = await requestProposal(payload, {
+        adapter: tradingSession.adapter,
+        selectedAccountId: account.account_id,
+        selectedAccountType: account.normalizedType,
+        contractType: payload.contract_type,
       });
-      const proposalResponse = await requestProposal(payload);
       const proposalId = String(proposalResponse.proposal?.id ?? "");
       const askPrice = Number(proposalResponse.proposal?.ask_price ?? stake);
       setState((current) => ({ ...current, proposalId }));
 
-      const buyResponse = await buyProposal(proposalId, askPrice);
+      const buyResponse = await buyProposal(proposalId, askPrice, {
+        adapter: tradingSession.adapter,
+        selectedAccountId: account.account_id,
+        selectedAccountType: account.normalizedType,
+        contractType: payload.contract_type,
+      });
       const contract = buyResponse.buy ?? {};
       const contractId = String(contract.contract_id ?? "");
       console.info("[Accumulator] contract_id", contractId);

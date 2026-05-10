@@ -19,10 +19,15 @@ import {
   send,
   getDerivTradingErrorMessage,
   getTradingSocketAccountId,
-  contractTypeFor,
   prepareDerivTradingSession,
   type TradeCategory,
 } from "@/lib/deriv";
+import { buildAccumulatorProposalPayload } from "@/lib/accumulator-engine";
+import {
+  buildStandardProposalPayload,
+  type ProposalInput,
+} from "@/lib/trade-proposal-builder";
+import { buyProposal, requestProposal } from "@/lib/deriv-trading-service";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -162,22 +167,6 @@ type BotBuilderSnapshot = {
   tradeType: TradeCategory;
   workspaceZoom: number;
 };
-type BotProposalPayload = Record<string, unknown> & {
-  proposal: 1;
-  amount: number;
-  basis: "stake";
-  contract_type: string;
-  currency: string;
-  underlying_symbol: string;
-  duration: number;
-  duration_unit: string;
-  barrier?: string;
-  limit_order?: {
-    take_profit?: number;
-    stop_loss?: number;
-  };
-};
-
 function BotBuilder() {
   const { user } = useAuth();
   const { preset } = Route.useSearch();
@@ -588,29 +577,42 @@ function BotBuilder() {
     }
 
     try {
-      const contractType = contractTypeFor(tradeType, purchaseSide);
-      const proposal: BotProposalPayload = {
-        proposal: 1,
-        amount: currentStakeRef.current,
-        basis: "stake",
-        contract_type: contractType,
-        currency: derivCurrency || "USD",
-        underlying_symbol: symbol,
-        duration,
-        duration_unit: durationUnit,
-      };
-
-      if (["over_under", "matches_differs"].includes(tradeType))
-        proposal.barrier = String(predictionDigit);
-      if (["higher_lower", "touch_no_touch"].includes(tradeType)) proposal.barrier = barrierOffset;
-      if (sellAtProfit > 0 || sellAtLoss > 0) {
-        proposal.limit_order = {};
-        if (sellAtProfit > 0) proposal.limit_order.take_profit = sellAtProfit;
-        if (sellAtLoss > 0) proposal.limit_order.stop_loss = sellAtLoss;
-      }
       const tradingSession = await prepareDerivTradingSession(derivAccount, {
         context: "bot-builder-trade",
       });
+      const normalizedDurationUnit =
+        durationUnit === "s" || durationUnit === "m" ? durationUnit : "t";
+      const proposal =
+        tradeType === "accumulator"
+          ? buildAccumulatorProposalPayload(
+              {
+                currency: derivCurrency || "USD",
+                growthRate: 0.03,
+                market: symbol,
+                stake: currentStakeRef.current,
+                takeProfit: sellAtProfit > 0 ? sellAtProfit : null,
+              },
+              tradingSession.adapter,
+            )
+          : buildStandardProposalPayload(
+              {
+                barrier: barrierOffset,
+                currency: derivCurrency || "USD",
+                duration,
+                durationUnit: normalizedDurationUnit,
+                market: symbol,
+                multiplier: 100,
+                payoutMode: "stake",
+                selectedDigit: predictionDigit,
+                side: purchaseSide,
+                stake: currentStakeRef.current,
+                stopLoss: sellAtLoss,
+                takeProfit: sellAtProfit,
+                tradeType,
+              } satisfies ProposalInput,
+              tradingSession.adapter,
+            );
+      const contractType = proposal.contract_type;
       console.info("[Deriv Bot] Placing trade", {
         selectedAccountId: derivAccount.account_id,
         selectedLoginId: derivAccount.loginid,
@@ -628,13 +630,25 @@ function BotBuilder() {
         finalProposalPayload: proposal,
       });
 
-      const quote = await send(proposal);
+      const quote = await requestProposal(proposal, {
+        adapter: tradingSession.adapter,
+        selectedAccountId: derivAccount.account_id,
+        selectedAccountType: derivAccount.normalizedType,
+        contractType,
+      });
       const proposalId = quote.proposal?.id;
       if (!proposalId) throw new Error("No proposal returned");
 
       const stakeForTrade = currentStakeRef.current;
-      const buy = await send({ buy: proposalId, price: stakeForTrade });
-      const contractId = buy.buy?.contract_id;
+      const askPrice = Number(quote.proposal?.ask_price ?? stakeForTrade);
+      const buy = await buyProposal(String(proposalId), askPrice, {
+        adapter: tradingSession.adapter,
+        selectedAccountId: derivAccount.account_id,
+        selectedAccountType: derivAccount.normalizedType,
+        contractType,
+      });
+      const contractId = String(buy.buy?.contract_id ?? "");
+      if (!contractId) throw new Error("No contract id returned");
       logJournal(`Purchased ${contractType} on ${symbol}`, "success");
 
       const poll = setInterval(async () => {

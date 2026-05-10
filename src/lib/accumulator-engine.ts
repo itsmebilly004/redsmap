@@ -1,4 +1,4 @@
-import { contractTypeFor } from "@/lib/deriv";
+import { contractTypeFor, type TradingAdapter } from "@/lib/deriv";
 
 type DerivRecord = Record<string, unknown>;
 
@@ -13,7 +13,7 @@ export type AccumulatorProposalPayload = {
   basis: "stake";
   contract_type: string;
   currency: string;
-  underlying_symbol: string;
+  symbol: string;
   growth_rate: number;
   limit_order?: { take_profit: number };
 };
@@ -60,19 +60,81 @@ export const EMPTY_ACCUMULATOR_CONTRACT: AccumulatorContractState = {
   error: null,
 };
 
-export function buildAccumulatorProposalPayload({
-  currency,
-  growthRate,
-  market,
-  stake,
-  takeProfit,
-}: {
+const ACCUMULATOR_PROPOSAL_KEYS = new Set([
+  "proposal",
+  "amount",
+  "basis",
+  "contract_type",
+  "currency",
+  "symbol",
+  "growth_rate",
+  "limit_order",
+]);
+
+export type AccumulatorProposalInput = {
   currency: string;
   growthRate: number;
   market: string;
   stake: number;
   takeProfit?: number | null;
-}): AccumulatorProposalPayload {
+};
+
+export function buildLegacyAccumulatorProposalPayload(
+  input: AccumulatorProposalInput,
+): AccumulatorProposalPayload {
+  return buildDerivWsAccumulatorProposalPayload(input, "legacyTradingAdapter");
+}
+
+export function buildOptionsApiAccumulatorProposalPayload(
+  input: AccumulatorProposalInput,
+): AccumulatorProposalPayload {
+  return buildDerivWsAccumulatorProposalPayload(input, "newOAuthTradingAdapter");
+}
+
+export function buildAccumulatorProposalPayload(
+  input: AccumulatorProposalInput,
+  adapter: TradingAdapter = "legacyTradingAdapter",
+): AccumulatorProposalPayload {
+  return adapter === "newOAuthTradingAdapter"
+    ? buildOptionsApiAccumulatorProposalPayload(input)
+    : buildLegacyAccumulatorProposalPayload(input);
+}
+
+export function validateAccumulatorProposalPayload(
+  payload: Record<string, unknown>,
+  adapter: TradingAdapter,
+): asserts payload is AccumulatorProposalPayload {
+  if ("underlying_symbol" in payload) {
+    throw new Error(
+      `Invalid ${adapter} accumulator payload: use symbol, not underlying_symbol.`,
+    );
+  }
+  for (const key of Object.keys(payload)) {
+    if (!ACCUMULATOR_PROPOSAL_KEYS.has(key)) {
+      throw new Error(`Invalid ${adapter} accumulator payload: unsupported property ${key}.`);
+    }
+  }
+  if (payload.proposal !== 1) {
+    throw new Error(`Invalid ${adapter} accumulator payload: proposal must be 1.`);
+  }
+  if (!payload.symbol || typeof payload.symbol !== "string") {
+    throw new Error(`Invalid ${adapter} accumulator payload: symbol is required.`);
+  }
+  if (payload.contract_type !== "ACCU") {
+    throw new Error(`Invalid ${adapter} accumulator payload: contract_type must be ACCU.`);
+  }
+}
+
+function buildDerivWsAccumulatorProposalPayload(
+  {
+    currency,
+    growthRate,
+    market,
+    stake,
+    takeProfit,
+  }: AccumulatorProposalInput,
+  adapter: TradingAdapter,
+): AccumulatorProposalPayload {
   if (!market) throw new Error("Select a market before buying an accumulator.");
   if (!currency) throw new Error("Selected account currency is missing.");
   if (!Number.isFinite(stake) || stake <= 0) throw new Error("Enter a valid stake.");
@@ -86,12 +148,13 @@ export function buildAccumulatorProposalPayload({
     basis: "stake",
     contract_type: contractTypeFor("accumulator", "buy"),
     currency,
-    underlying_symbol: market,
+    symbol: market,
     growth_rate: growthRate,
   };
   if (takeProfit && takeProfit > 0) {
     payload.limit_order = { take_profit: takeProfit };
   }
+  validateAccumulatorProposalPayload(payload, adapter);
   return payload;
 }
 

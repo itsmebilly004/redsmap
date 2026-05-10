@@ -37,6 +37,34 @@ function accountStorageKey(userId: string) {
   return `deriv_active_account:${userId}`;
 }
 
+function selectedAccountIdStorageKey(userId: string) {
+  return `selected_deriv_account_id:${userId}`;
+}
+
+function selectedAccountTypeStorageKey(userId: string) {
+  return `selected_deriv_account_type:${userId}`;
+}
+
+function readSavedSelectedAccount(userId: string) {
+  return {
+    accountId:
+      localStorage.getItem(selectedAccountIdStorageKey(userId)) ??
+      localStorage.getItem(accountStorageKey(userId)),
+    accountType: localStorage.getItem(selectedAccountTypeStorageKey(userId)),
+  };
+}
+
+function persistSelectedAccount(userId: string, account: DerivAccount) {
+  localStorage.setItem(selectedAccountIdStorageKey(userId), account.account_id);
+  localStorage.setItem(selectedAccountTypeStorageKey(userId), account.normalizedType);
+  localStorage.setItem(accountStorageKey(userId), account.account_id);
+  console.info("[Deriv Balance] saved selected account", {
+    userId,
+    selected_deriv_account_id: account.account_id,
+    selected_deriv_account_type: account.normalizedType,
+  });
+}
+
 type DerivAccountsApiResponse = {
   data?: Array<Record<string, unknown>>;
   error?: string;
@@ -63,6 +91,14 @@ function compareAccountFreshness(left: DerivAccount, right: DerivAccount) {
   const rightExpiry = timestampValue(right.expires_at);
   if (leftExpiry !== rightExpiry) return rightExpiry - leftExpiry;
   return timestampValue(right.created_at) - timestampValue(left.created_at);
+}
+
+function accountSessionExpired(account: Pick<DerivAccount, "deriv_token" | "expires_at">) {
+  if (!account.deriv_token) return true;
+  if (!account.expires_at) return false;
+  const expiry = new Date(account.expires_at).getTime();
+  if (!Number.isFinite(expiry)) return false;
+  return expiry <= Date.now() - 60_000;
 }
 
 function dedupeAccountsByLogin(accounts: DerivAccount[]) {
@@ -228,17 +264,53 @@ export function useDerivBalance(): LiveBalance {
       console.info("[Deriv Accounts] demoAccounts", demoAccounts);
       setAccounts(list);
       if (list.length) {
-        const savedId = localStorage.getItem(accountStorageKey(user.id));
-        const savedAccount = list.find((account) => account.account_id === savedId);
+        const savedSelection = readSavedSelectedAccount(user.id);
+        const savedAccount = list.find(
+          (account) =>
+            account.account_id === savedSelection.accountId &&
+            (!savedSelection.accountType ||
+              account.normalizedType === savedSelection.accountType),
+        );
+        const savedAccountExpired = savedAccount ? accountSessionExpired(savedAccount) : false;
+        const savedTypeFallback =
+          savedSelection.accountType === "demo"
+            ? demoAccounts.find((account) => !accountSessionExpired(account))
+            : savedSelection.accountType === "real"
+              ? realAccounts.find((account) => !accountSessionExpired(account))
+              : null;
         const selected =
-          (savedAccount?.normalizedType === "real" ? savedAccount : null) ??
-          realAccounts[0] ??
-          savedAccount ??
-          demoAccounts[0] ??
-          list[0];
+          savedAccount && !savedAccountExpired
+            ? savedAccount
+            : savedTypeFallback ??
+              realAccounts.find((account) => !accountSessionExpired(account)) ??
+              demoAccounts.find((account) => !accountSessionExpired(account)) ??
+              list[0];
+        if (savedAccount && !savedAccountExpired) {
+          console.info("[Deriv Balance] restored selected account", {
+            userId: user.id,
+            savedSelectedAccountId: savedSelection.accountId,
+            savedSelectedAccountType: savedSelection.accountType,
+            restoredAccount: accountSummary(savedAccount),
+          });
+        } else {
+          console.info("[Deriv Balance] selected account fallback", {
+            userId: user.id,
+            savedSelectedAccountId: savedSelection.accountId,
+            savedSelectedAccountType: savedSelection.accountType,
+            fallbackReason: !savedSelection.accountId
+              ? "no-saved-account"
+              : !savedAccount
+                ? "saved-account-not-found-or-type-mismatch"
+                : savedAccountExpired
+                  ? "saved-account-expired"
+                  : "unknown",
+            fallbackAccount: accountSummary(selected),
+          });
+        }
         setActiveId(selected.account_id);
         setBalance(selected.balance != null ? Number(selected.balance) : null);
         setCurrency(selected.currency ?? "");
+        persistSelectedAccount(user.id, selected);
       } else {
         setActiveId(null);
         setBalance(null);
@@ -579,9 +651,9 @@ export function useDerivBalance(): LiveBalance {
         });
         return accountId;
       });
-      if (user) localStorage.setItem(accountStorageKey(user.id), accountId);
       const target = accounts.find((account) => account.account_id === accountId);
       if (target) {
+        if (user) persistSelectedAccount(user.id, target);
         setBalance(target.balance != null ? Number(target.balance) : null);
         setCurrency(target.currency ?? "");
         void refreshBalances("account-switch", accountId).catch((error) => {

@@ -4,12 +4,62 @@ import {
   onMessage,
   send,
   type DerivMessage,
+  type TradingAdapter,
 } from "@/lib/deriv";
 
 type DerivRecord = Record<string, unknown>;
 
-export async function requestProposal(payload: DerivRecord) {
-  console.info("[Deriv Trading] Proposal payload", payload);
+const PROPOSAL_ALLOWED_KEYS = new Set([
+  "proposal",
+  "amount",
+  "basis",
+  "contract_type",
+  "currency",
+  "symbol",
+  "duration",
+  "duration_unit",
+  "barrier",
+  "multiplier",
+  "limit_order",
+  "growth_rate",
+]);
+
+export type TradeRequestContext = {
+  adapter?: TradingAdapter;
+  selectedAccountId?: string | null;
+  selectedAccountType?: string | null;
+  contractType?: string | null;
+};
+
+function assertNoRejectedProposalProperties(payload: DerivRecord, adapter?: TradingAdapter) {
+  if ("underlying_symbol" in payload) {
+    throw new Error(
+      `Invalid ${adapter ?? "Deriv"} proposal payload: use symbol, not underlying_symbol.`,
+    );
+  }
+  if (payload.proposal === 1) {
+    for (const key of Object.keys(payload)) {
+      if (!PROPOSAL_ALLOWED_KEYS.has(key)) {
+        throw new Error(
+          `Invalid ${adapter ?? "Deriv"} proposal payload: unsupported property ${key}.`,
+        );
+      }
+    }
+  }
+}
+
+export async function requestProposal(
+  payload: DerivRecord,
+  context: TradeRequestContext = {},
+) {
+  assertNoRejectedProposalProperties(payload, context.adapter);
+  console.info("[Deriv Trading] Proposal request", {
+    adapter: context.adapter ?? "unknown",
+    selectedAccountId: context.selectedAccountId ?? null,
+    selectedAccountType: context.selectedAccountType ?? null,
+    contractType: context.contractType ?? payload.contract_type ?? null,
+    finalPayload: payload,
+  });
   const response = await send(payload);
   if (!response.proposal?.id) {
     throw new Error("Deriv did not return a proposal id.");
@@ -17,9 +67,27 @@ export async function requestProposal(payload: DerivRecord) {
   return response;
 }
 
-export async function buyProposal(proposalId: string, price: number) {
-  const response = await send({ buy: proposalId, price });
-  console.info("[Deriv Trading] Buy response", response.buy);
+export async function buyProposal(
+  proposalId: string,
+  price: number,
+  context: TradeRequestContext = {},
+) {
+  const payload = { buy: proposalId, price };
+  console.info("[Deriv Trading] Buy request", {
+    adapter: context.adapter ?? "unknown",
+    selectedAccountId: context.selectedAccountId ?? null,
+    selectedAccountType: context.selectedAccountType ?? null,
+    contractType: context.contractType ?? null,
+    finalPayload: payload,
+  });
+  const response = await send(payload);
+  console.info("[Deriv Trading] Buy response", {
+    adapter: context.adapter ?? "unknown",
+    selectedAccountId: context.selectedAccountId ?? null,
+    selectedAccountType: context.selectedAccountType ?? null,
+    contractType: context.contractType ?? null,
+    buy: response.buy,
+  });
   if (!response.buy?.contract_id) {
     throw new Error("Deriv did not return a contract id.");
   }

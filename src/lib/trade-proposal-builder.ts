@@ -1,4 +1,4 @@
-import { contractTypeFor, type TradeCategory } from "@/lib/deriv";
+import { contractTypeFor, type TradeCategory, type TradingAdapter } from "@/lib/deriv";
 import { tradeTypeConfig } from "@/lib/trade-types";
 
 export type StandardProposalPayload = Record<string, unknown> & {
@@ -7,7 +7,7 @@ export type StandardProposalPayload = Record<string, unknown> & {
   basis: "stake" | "payout";
   contract_type: string;
   currency: string;
-  underlying_symbol: string;
+  symbol: string;
   duration?: number;
   duration_unit?: "t" | "s" | "m";
   barrier?: string;
@@ -34,7 +34,66 @@ export type ProposalInput = {
   tradeType: TradeCategory;
 };
 
-export function buildStandardProposalPayload(input: ProposalInput): StandardProposalPayload {
+const STANDARD_PROPOSAL_KEYS = new Set([
+  "proposal",
+  "amount",
+  "basis",
+  "contract_type",
+  "currency",
+  "symbol",
+  "duration",
+  "duration_unit",
+  "barrier",
+  "multiplier",
+  "limit_order",
+]);
+
+export function buildLegacyProposalPayload(input: ProposalInput): StandardProposalPayload {
+  return buildDerivWsProposalPayload(input, "legacyTradingAdapter");
+}
+
+export function buildOptionsApiProposalPayload(input: ProposalInput): StandardProposalPayload {
+  return buildDerivWsProposalPayload(input, "newOAuthTradingAdapter");
+}
+
+export function buildStandardProposalPayload(
+  input: ProposalInput,
+  adapter: TradingAdapter = "legacyTradingAdapter",
+): StandardProposalPayload {
+  return adapter === "newOAuthTradingAdapter"
+    ? buildOptionsApiProposalPayload(input)
+    : buildLegacyProposalPayload(input);
+}
+
+export function validateProposalPayload(
+  payload: Record<string, unknown>,
+  adapter: TradingAdapter,
+): asserts payload is StandardProposalPayload {
+  if ("underlying_symbol" in payload) {
+    throw new Error(
+      `Invalid ${adapter} proposal payload: use symbol, not underlying_symbol.`,
+    );
+  }
+  for (const key of Object.keys(payload)) {
+    if (!STANDARD_PROPOSAL_KEYS.has(key)) {
+      throw new Error(`Invalid ${adapter} proposal payload: unsupported property ${key}.`);
+    }
+  }
+  if (payload.proposal !== 1) {
+    throw new Error(`Invalid ${adapter} proposal payload: proposal must be 1.`);
+  }
+  if (!payload.symbol || typeof payload.symbol !== "string") {
+    throw new Error(`Invalid ${adapter} proposal payload: symbol is required.`);
+  }
+  if (!payload.contract_type || typeof payload.contract_type !== "string") {
+    throw new Error(`Invalid ${adapter} proposal payload: contract_type is required.`);
+  }
+}
+
+function buildDerivWsProposalPayload(
+  input: ProposalInput,
+  adapter: TradingAdapter,
+): StandardProposalPayload {
   const config = tradeTypeConfig(input.tradeType);
   if (!input.market) throw new Error("Select a market before trading.");
   if (!input.currency) throw new Error("Selected account currency is missing.");
@@ -55,7 +114,7 @@ export function buildStandardProposalPayload(input: ProposalInput): StandardProp
     basis: input.payoutMode,
     contract_type: contractTypeFor(input.tradeType, input.side),
     currency: input.currency,
-    underlying_symbol: input.market,
+    symbol: input.market,
   };
 
   if (config.needsDuration) {
@@ -81,5 +140,6 @@ export function buildStandardProposalPayload(input: ProposalInput): StandardProp
     }
   }
 
+  validateProposalPayload(payload, adapter);
   return payload;
 }

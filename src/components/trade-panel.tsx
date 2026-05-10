@@ -30,6 +30,7 @@ import {
   prepareDerivTradingSession,
   redirectToDerivOAuth,
   type TradeCategory,
+  type TradingAdapter,
 } from "@/lib/deriv";
 import { normalizeOpenContract, EMPTY_CONTRACT_STATE, type ActiveContractState } from "@/lib/contract-state";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
@@ -178,8 +179,13 @@ export function TradePanel({
         await Promise.all(
           config.sides.map(async (side) => {
             try {
-              const payload = buildPayload(side.value, payoutMode);
-              const response = await requestProposal(payload);
+              const payload = buildPayload(side.value, payoutMode, tradingSession.adapter);
+              const response = await requestProposal(payload, {
+                adapter: tradingSession.adapter,
+                selectedAccountId: account.account_id,
+                selectedAccountType: account.normalizedType,
+                contractType: payload.contract_type,
+              });
               const proposal = response.proposal ?? {};
               const payout = numberFrom(proposal.payout);
               const askPrice = numberFrom(proposal.ask_price) ?? stake;
@@ -253,7 +259,11 @@ export function TradePanel({
     }
   }, [account?.account_id, activeContract.status]);
 
-  function buildPayload(side: string, basis: "stake" | "payout" = "stake") {
+  function buildPayload(
+    side: string,
+    basis: "stake" | "payout" = "stake",
+    adapter: TradingAdapter = "legacyTradingAdapter",
+  ) {
     const input: ProposalInput = {
       barrier,
       currency: tradeCurrency,
@@ -269,7 +279,7 @@ export function TradePanel({
       takeProfit,
       tradeType: selectedTradeType,
     };
-    return buildStandardProposalPayload(input);
+    return buildStandardProposalPayload(input, adapter);
   }
 
   function validateAccount() {
@@ -364,18 +374,29 @@ export function TradePanel({
       const quote = quotes[side.value];
       let proposalId = quote?.id;
       let askPrice = quote?.askPrice ?? stake;
+      const fallbackPayload = buildPayload(side.value, "stake", tradingSession.adapter);
       if (!proposalId) {
-        const proposalResponse = await requestProposal(buildPayload(side.value, "stake"));
+        const proposalResponse = await requestProposal(fallbackPayload, {
+          adapter: tradingSession.adapter,
+          selectedAccountId: account.account_id,
+          selectedAccountType: account.normalizedType,
+          contractType: fallbackPayload.contract_type,
+        });
         const proposal = proposalResponse.proposal ?? {};
         proposalId = String(proposal.id ?? "");
         askPrice = numberFrom(proposal.ask_price) ?? stake;
       }
       if (!proposalId) throw new Error("No proposal id available.");
 
-      const buyResponse = await buyProposal(proposalId, askPrice);
+      const buyResponse = await buyProposal(proposalId, askPrice, {
+        adapter: tradingSession.adapter,
+        selectedAccountId: account.account_id,
+        selectedAccountType: account.normalizedType,
+        contractType: fallbackPayload.contract_type,
+      });
       const buy = buyResponse.buy ?? {};
       const contractId = String(buy.contract_id ?? "");
-      const contractType = String(buy.contract_type ?? buildPayload(side.value, "stake").contract_type);
+      const contractType = String(buy.contract_type ?? fallbackPayload.contract_type);
       const { data: trade, error: insertError } = await supabase
         .from("trades")
         .insert({

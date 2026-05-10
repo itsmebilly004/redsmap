@@ -106,52 +106,10 @@ export function TopShell({ children }: { children: ReactNode }) {
   const visibleAccounts = activeAccountTab === "real" ? realAccounts : demoAccounts;
 
   useEffect(() => {
-    if (!account) return;
-    const accountsForSelectedTab = activeAccountTab === "real" ? realAccounts : demoAccounts;
-    const currentAccountInSelectedTab = accountsForSelectedTab.some(
-      (visibleAccount) => visibleAccount.account_id === account.account_id,
-    );
-    if (currentAccountInSelectedTab) {
-      console.info("[Deriv Accounts] selected account already belongs to tab", {
-        activeAccountTab,
-        previousSelectedAccountId: account.account_id,
-        nextSelectedAccountId: account.account_id,
-        skipped: true,
-      });
-      return;
-    }
-
-    const nextAccount = accountsForSelectedTab[0];
-    if (nextAccount) {
-      console.info("[Deriv Accounts] selected account changed for active tab", {
-        activeAccountTab,
-        previousSelectedAccountId: account.account_id,
-        previousSelectedAccountType: account.normalizedType,
-        nextSelectedAccountId: nextAccount.account_id,
-        nextSelectedAccountType: nextAccount.normalizedType,
-        skipped: false,
-      });
-      switchAccount(nextAccount.account_id);
-      return;
-    }
-
-    if (account.normalizedType === "real" || account.normalizedType === "demo") {
-      console.info("[Deriv Accounts] selected tab changed because current tab has no accounts", {
-        previousActiveAccountTab: activeAccountTab,
-        nextActiveAccountTab: account.normalizedType,
-        selectedAccountId: account.account_id,
-        selectedAccountType: account.normalizedType,
-      });
-      setActiveAccountTab(account.normalizedType);
-    }
-  }, [
-    account?.account_id,
-    account?.normalizedType,
-    activeAccountTab,
-    demoAccounts,
-    realAccounts,
-    switchAccount,
-  ]);
+    if (!account || dropdownOpen) return;
+    if (account.normalizedType !== "real" && account.normalizedType !== "demo") return;
+    setActiveAccountTab(account.normalizedType);
+  }, [account?.account_id, account?.normalizedType, dropdownOpen]);
 
   useEffect(() => {
     console.info("[Deriv Accounts] dropdown normalized account placement", accounts.map((item) => ({

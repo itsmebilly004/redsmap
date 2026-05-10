@@ -62,6 +62,14 @@ function activeAccountStorageKey(userId: string) {
   return `deriv_active_account:${userId}`;
 }
 
+function selectedAccountIdStorageKey(userId: string) {
+  return `selected_deriv_account_id:${userId}`;
+}
+
+function selectedAccountTypeStorageKey(userId: string) {
+  return `selected_deriv_account_type:${userId}`;
+}
+
 function sessionStorageKeys() {
   return Object.keys(sessionStorage).filter((key) => key.startsWith("deriv_"));
 }
@@ -718,6 +726,11 @@ function DerivCallback() {
           throw new Error("No Deriv token was returned for the selected account.");
         }
         localStorage.setItem(activeAccountStorageKey(sessionUser.id), selectedAccountId);
+        localStorage.setItem(selectedAccountIdStorageKey(sessionUser.id), selectedAccountId);
+        localStorage.setItem(
+          selectedAccountTypeStorageKey(sessionUser.id),
+          primary.normalizedType,
+        );
         setAuthenticatedAccount(
           selectedAccessToken,
           selectedAccountId,
@@ -727,6 +740,8 @@ function DerivCallback() {
           selectedAccountId,
           selectedAccountType: primary.normalizedType,
           storageKey: activeAccountStorageKey(sessionUser.id),
+          selectedAccountIdStorageKey: selectedAccountIdStorageKey(sessionUser.id),
+          selectedAccountTypeStorageKey: selectedAccountTypeStorageKey(sessionUser.id),
         });
         window.dispatchEvent(
           new CustomEvent("deriv:sessions-updated", {
