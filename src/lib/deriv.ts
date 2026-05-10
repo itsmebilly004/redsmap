@@ -19,6 +19,20 @@ export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
 export const DERIV_REDIRECT_URI_VALUE = DERIV_REDIRECT_URI;
 export const DERIV_OAUTH_ENDPOINT_VALUE = DERIV_OAUTH_ENDPOINT;
 export type DerivOAuthAppIdMode = "client_id_only" | "client_id_app_id";
+export type DerivOAuthDiagnostics = {
+  finalUrl: string;
+  endpoint: string;
+  decodedRedirectUri: string;
+  clientId: string;
+  scopes: string;
+  responseType: string;
+  codeChallengeMethod: string;
+  hasAppId: boolean;
+  appIdMatchesClientId: boolean;
+  hasDoubleEncodedRedirectUri: boolean;
+  redirectUriMatchesRegisteredUrl: boolean;
+  requiredParamsPresent: Record<string, boolean>;
+};
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
 
@@ -541,6 +555,41 @@ function legacyOAuthMarker(url: string) {
   return LEGACY_OAUTH_MARKERS.find((item) => lower.includes(item)) ?? null;
 }
 
+export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
+  const parsed = new URL(url);
+  const decodedRedirectUri = parsed.searchParams.get("redirect_uri") ?? "";
+  const requiredParams = [
+    "response_type",
+    "client_id",
+    "redirect_uri",
+    "scope",
+    "state",
+    "code_challenge",
+    "code_challenge_method",
+  ];
+  const requiredParamsPresent = requiredParams.reduce<Record<string, boolean>>((acc, param) => {
+    acc[param] = Boolean(parsed.searchParams.get(param));
+    return acc;
+  }, {});
+
+  return {
+    finalUrl: url,
+    endpoint: `${parsed.origin}${parsed.pathname}`,
+    decodedRedirectUri,
+    clientId: parsed.searchParams.get("client_id") ?? "",
+    scopes: parsed.searchParams.get("scope") ?? "",
+    responseType: parsed.searchParams.get("response_type") ?? "",
+    codeChallengeMethod: parsed.searchParams.get("code_challenge_method") ?? "",
+    hasAppId: parsed.searchParams.has("app_id"),
+    appIdMatchesClientId:
+      parsed.searchParams.has("app_id") &&
+      parsed.searchParams.get("app_id") === parsed.searchParams.get("client_id"),
+    hasDoubleEncodedRedirectUri: /%3a%2f%2f/i.test(decodedRedirectUri),
+    redirectUriMatchesRegisteredUrl: decodedRedirectUri === DERIV_REDIRECT_URI,
+    requiredParamsPresent,
+  };
+}
+
 export function assertValidDerivOAuthRedirectUrl(url: string) {
   const marker = legacyOAuthMarker(url);
   if (marker) {
@@ -556,6 +605,12 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
   }
 
   if (parsed.origin !== "https://auth.deriv.com" || parsed.pathname !== "/oauth2/auth") {
+    if (parsed.origin === "https://home.deriv.com" && parsed.pathname.startsWith("/dashboard/login")) {
+      console.error("Deriv OAuth failure: redirected to dashboard login", { url });
+      throw new Error(
+        "Deriv OAuth failure: Deriv routed this request to dashboard login instead of the authorization flow.",
+      );
+    }
     throw new Error("Invalid Deriv OAuth endpoint. Refusing to redirect to a non-OAuth URL.");
   }
   if (parsed.searchParams.has("redirect") || parsed.searchParams.has("brand")) {
@@ -568,17 +623,38 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
   if (!parsed.searchParams.get("client_id")) {
     throw new Error("Invalid Deriv OAuth URL. Authorization URL must include client_id.");
   }
+  const diagnostics = getDerivOAuthDiagnostics(url);
+  const missingParam = Object.entries(diagnostics.requiredParamsPresent).find(([, exists]) => !exists);
+  if (missingParam) {
+    throw new Error(`Invalid Deriv OAuth URL. Missing required parameter: ${missingParam[0]}.`);
+  }
+  if (diagnostics.responseType !== "code") {
+    throw new Error("Invalid Deriv OAuth URL. response_type must be code.");
+  }
+  if (diagnostics.codeChallengeMethod !== "S256") {
+    throw new Error("Invalid Deriv OAuth URL. code_challenge_method must be S256.");
+  }
+  if (!diagnostics.redirectUriMatchesRegisteredUrl) {
+    throw new Error(
+      "Invalid Deriv OAuth URL. redirect_uri must exactly match https://www.arktradershub.com/deriv-callback.",
+    );
+  }
+  if (diagnostics.hasDoubleEncodedRedirectUri) {
+    throw new Error("Invalid Deriv OAuth URL. redirect_uri appears to be double-encoded.");
+  }
   console.info("[Deriv OAuth] Legacy URL blocked", false);
 }
 
 export function redirectToDerivOAuth(url: string) {
   assertValidDerivOAuthRedirectUrl(url);
   console.info("[Deriv OAuth] Redirecting to authorization URL", url);
+  sessionStorage.setItem("deriv_oauth_last_authorization_url", url);
+  sessionStorage.setItem("deriv_oauth_started_at", new Date().toISOString());
   window.location.href = url;
 }
 
 function selectedOAuthAppIdMode(mode?: DerivOAuthAppIdMode): DerivOAuthAppIdMode {
-  return mode ?? "client_id_app_id";
+  return mode ?? "client_id_only";
 }
 
 export async function buildOAuthUrl(
@@ -663,6 +739,7 @@ export async function buildOAuthUrl(
     );
   }
   console.info("[Deriv OAuth] Final authorization URL", url);
+  console.info("[Deriv OAuth] Visible diagnostics", getDerivOAuthDiagnostics(url));
   console.info("[Deriv OAuth] Authorization diagnostics", {
     finalOAuthUrl: url,
     endpoint: DERIV_OAUTH_ENDPOINT,

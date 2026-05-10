@@ -1,11 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
   DERIV_OAUTH_ENDPOINT_VALUE,
   buildOAuthUrl,
+  getDerivOAuthDiagnostics,
   redirectToDerivOAuth,
+  type DerivOAuthDiagnostics,
   type DerivOAuthAppIdMode,
 } from "@/lib/deriv";
 import { ArrowRight, ShieldCheck } from "lucide-react";
@@ -26,6 +28,7 @@ function AuthPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cacheStatus, setCacheStatus] = useState<string | null>(null);
   const [debugUrl, setDebugUrl] = useState<string | null>(null);
+  const [oauthDiagnostics, setOauthDiagnostics] = useState<DerivOAuthDiagnostics | null>(null);
   const [oauthAppIdMode, setOauthAppIdMode] = useState<DerivOAuthAppIdMode>(() => {
     if (typeof window === "undefined") return "client_id_app_id";
     return localStorage.getItem("deriv_oauth_app_id_mode") === "client_id_only"
@@ -36,10 +39,27 @@ function AuthPage() {
   const isSignup = mode === "signup";
   const showOAuthDebug = import.meta.env.DEV || String(debug_oauth ?? "") === "1";
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const checkDashboardLoginReturn = () => {
+      const attemptedAt = sessionStorage.getItem("deriv_oauth_started_at");
+      const referrer = document.referrer;
+      if (attemptedAt && referrer.startsWith("https://home.deriv.com/dashboard/login")) {
+        setErrorMessage(
+          "Deriv OAuth failure: Deriv routed the request to dashboard login instead of the authorization flow. Check that VITE_DERIV_CLIENT_ID is the OAuth2 client ID registered in Deriv Partners and that the redirect URI matches exactly.",
+        );
+      }
+    };
+    checkDashboardLoginReturn();
+    window.addEventListener("pageshow", checkDashboardLoginReturn);
+    return () => window.removeEventListener("pageshow", checkDashboardLoginReturn);
+  }, []);
+
   async function handleDeriv() {
     setBusy(true);
     setErrorMessage(null);
     setDebugUrl(null);
+    setOauthDiagnostics(null);
     try {
       if (showOAuthDebug) localStorage.setItem("deriv_oauth_app_id_mode", oauthAppIdMode);
       const url = await buildOAuthUrl({
@@ -47,10 +67,14 @@ function AuthPage() {
         mode,
         returnTo: "/dashboard",
       });
+      const diagnostics = getDerivOAuthDiagnostics(url);
+      setOauthDiagnostics(diagnostics);
       console.info("[Deriv OAuth Debug] Exact final URL before redirect", url);
+      console.info("[Deriv OAuth Debug] Visible OAuth diagnostics", diagnostics);
       if (showOAuthDebug) {
         setDebugUrl(url);
       } else {
+        await new Promise((resolve) => setTimeout(resolve, 900));
         redirectToDerivOAuth(url);
       }
     } catch (error) {
@@ -189,6 +213,65 @@ function AuthPage() {
                 Clear service worker/cache for this site
               </button>
               {cacheStatus && <div className="mt-2 text-muted-foreground">{cacheStatus}</div>}
+            </div>
+          )}
+
+          {oauthDiagnostics && (
+            <div className="mt-4 rounded-xl border border-primary/20 bg-background/80 p-3 text-xs">
+              <div className="mb-2 font-semibold text-foreground">Deriv OAuth request</div>
+              <div className="space-y-1 text-muted-foreground">
+                <div>
+                  Endpoint:{" "}
+                  <span className="font-mono text-foreground">{oauthDiagnostics.endpoint}</span>
+                </div>
+                <div>
+                  client_id:{" "}
+                  <span className="font-mono text-foreground">{oauthDiagnostics.clientId}</span>
+                </div>
+                <div>
+                  redirect_uri:{" "}
+                  <span className="font-mono text-foreground">
+                    {oauthDiagnostics.decodedRedirectUri}
+                  </span>
+                </div>
+                <div>
+                  scopes:{" "}
+                  <span className="font-mono text-foreground">{oauthDiagnostics.scopes}</span>
+                </div>
+                <div>
+                  response_type:{" "}
+                  <span className="font-mono text-foreground">
+                    {oauthDiagnostics.responseType}
+                  </span>
+                </div>
+                <div>
+                  code_challenge_method:{" "}
+                  <span className="font-mono text-foreground">
+                    {oauthDiagnostics.codeChallengeMethod}
+                  </span>
+                </div>
+                <div>
+                  app_id included:{" "}
+                  <span className="font-mono text-foreground">
+                    {oauthDiagnostics.hasAppId ? "yes" : "no"}
+                  </span>
+                </div>
+                <div>
+                  redirect_uri exact match:{" "}
+                  <span className="font-mono text-foreground">
+                    {oauthDiagnostics.redirectUriMatchesRegisteredUrl ? "yes" : "no"}
+                  </span>
+                </div>
+                <div>
+                  double encoded redirect_uri:{" "}
+                  <span className="font-mono text-foreground">
+                    {oauthDiagnostics.hasDoubleEncodedRedirectUri ? "yes" : "no"}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-3 break-all rounded-md bg-muted p-2 font-mono text-[11px] text-foreground">
+                {oauthDiagnostics.finalUrl}
+              </div>
             </div>
           )}
 
