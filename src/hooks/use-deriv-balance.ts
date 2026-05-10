@@ -148,6 +148,9 @@ export function useDerivBalance(): LiveBalance {
   const [reloadNonce, setReloadNonce] = useState(0);
   const lastWebSocketAccountKeyRef = useRef<string | null>(null);
   const legacyAutoRefreshKeysRef = useRef<Set<string>>(new Set());
+  const loadedUserIdRef = useRef<string | null>(null);
+  const accountsRef = useRef<DerivAccount[]>([]);
+  const sessionRefreshReasonRef = useRef<string | null>(null);
 
   const isBrowser = typeof window !== "undefined";
 
@@ -157,12 +160,20 @@ export function useDerivBalance(): LiveBalance {
       console.info("[Deriv Balance] session context refresh requested", {
         detail: event instanceof CustomEvent ? event.detail : null,
       });
+      sessionRefreshReasonRef.current =
+        event instanceof CustomEvent && typeof event.detail?.reason === "string"
+          ? event.detail.reason
+          : null;
       setLoading(true);
       setReloadNonce((value) => value + 1);
     };
     window.addEventListener("deriv:sessions-updated", refreshSessions);
     return () => window.removeEventListener("deriv:sessions-updated", refreshSessions);
   }, [isBrowser]);
+
+  useEffect(() => {
+    accountsRef.current = accounts;
+  }, [accounts]);
 
   // Load all sessions for this user.
   useEffect(() => {
@@ -172,18 +183,25 @@ export function useDerivBalance(): LiveBalance {
       setBalance(null);
       setCurrency("");
       setLoading(false);
+      loadedUserIdRef.current = null;
       return;
     }
     let cancelled = false;
+    const userChanged = loadedUserIdRef.current !== user.id;
     setLoading(true);
-    setAccounts([]);
-    setActiveId(null);
-    setBalance(null);
-    setCurrency("");
-    lastWebSocketAccountKeyRef.current = null;
+    if (userChanged) {
+      setAccounts([]);
+      setActiveId(null);
+      setBalance(null);
+      setCurrency("");
+      lastWebSocketAccountKeyRef.current = null;
+      legacyAutoRefreshKeysRef.current.clear();
+      loadedUserIdRef.current = user.id;
+    }
     console.info("[Deriv Accounts] loading sessions for active Supabase user", {
       userId: user.id,
       reloadNonce,
+      userChanged,
     });
     (async () => {
       const { data, error } = await supabase
@@ -312,6 +330,22 @@ export function useDerivBalance(): LiveBalance {
         setCurrency(selected.currency ?? "");
         persistSelectedAccount(user.id, selected);
       } else {
+        const previousAccounts = accountsRef.current;
+        const reason = sessionRefreshReasonRef.current;
+        const shouldClearForExplicitSessionEnd =
+          reason === "deriv-invalid-token" ||
+          reason === "legacy-authorize-invalid-token" ||
+          reason === "deriv-session-expired";
+        if (previousAccounts.length && !shouldClearForExplicitSessionEnd) {
+          console.warn("[Deriv Accounts] empty session refresh preserved existing accounts", {
+            userId: user.id,
+            reloadNonce,
+            reason,
+            preservedAccountIds: previousAccounts.map((account) => account.account_id),
+          });
+          setLoading(false);
+          return;
+        }
         setActiveId(null);
         setBalance(null);
         setCurrency("");
@@ -415,15 +449,12 @@ export function useDerivBalance(): LiveBalance {
             .filter((accountId) => !freshLegacyIds.has(accountId));
 
           if (staleLegacyIds.length) {
-            console.warn("[Deriv Balance] invalidating stale legacy Supabase rows", {
+            console.warn("[Deriv Balance] preserving legacy Supabase rows missing from refresh", {
               staleLegacyIds,
               freshLegacyIds: Array.from(freshLegacyIds),
+              reason:
+                "Balance refresh snapshots can be partial; Deriv sessions are only deactivated on manual logout or explicit token expiry/invalid-token responses.",
             });
-            await supabase
-              .from("sessions")
-              .update({ is_active: false })
-              .eq("user_id", user.id)
-              .in("account_id", staleLegacyIds);
           }
 
           console.info("[Deriv Balance] balance fetch completed", {
@@ -461,22 +492,14 @@ export function useDerivBalance(): LiveBalance {
         }
 
         setAccounts((previous) => {
-          const legacyFreshIds = new Set(
-            Array.from(freshAccountsById.values())
-              .filter((account) => isLikelyLegacyToken(account.deriv_token))
-              .map((account) => account.account_id),
-          );
           const previousLegacyIds = new Set(
             previous
               .filter((account) => isLikelyLegacyToken(account.deriv_token))
               .map((account) => account.account_id),
           );
-          const next = previous
-            .filter((account) => {
-              if (!isLikelyLegacyToken(account.deriv_token)) return true;
-              return !legacyFreshIds.size || legacyFreshIds.has(account.account_id);
-            })
-            .map((account) => freshAccountsById.get(account.account_id) ?? account);
+          const next = previous.map(
+            (account) => freshAccountsById.get(account.account_id) ?? account,
+          );
 
           for (const account of freshAccountsById.values()) {
             if (!next.some((item) => item.account_id === account.account_id)) next.push(account);

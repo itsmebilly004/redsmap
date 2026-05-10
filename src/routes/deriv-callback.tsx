@@ -45,6 +45,7 @@ const CALLBACK_PROCESSING_KEY = "deriv_callback_processing";
 const OAUTH_PROCESSING_KEY = "deriv_oauth_processing";
 const OAUTH_REDIRECTING_KEY = "deriv_oauth_redirecting";
 const DERIV_RAPID_APPROVAL_MESSAGE = "Please wait one minute and try again.";
+const DEFAULT_DERIV_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_COLUMNS = [
   "user_id",
   "account_id",
@@ -168,6 +169,14 @@ function tokenLogValue(token: string | null | undefined) {
     length: token.length,
     prefix: `${token.slice(0, 4)}...`,
   };
+}
+
+function derivTokenExpiresAt(expiresIn: number) {
+  const ttlMs =
+    Number.isFinite(expiresIn) && expiresIn > 0
+      ? expiresIn * 1000
+      : DEFAULT_DERIV_TOKEN_TTL_MS;
+  return new Date(Date.now() + ttlMs).toISOString();
 }
 
 async function ensureSupabaseSession(primaryAccountId: string) {
@@ -582,7 +591,7 @@ function DerivCallback() {
         if (activeSessionUserId !== sessionUser.id) {
           throw new Error("Supabase session was created but is not active. Please sign in again.");
         }
-        const expiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+        const expiresAt = derivTokenExpiresAt(expiresIn);
 
         const freshAccountIds = new Set(
           accounts.map((account) => String(account.loginid ?? account.account_id).toUpperCase()),
@@ -605,30 +614,13 @@ function DerivCallback() {
             return accountId && !freshAccountIds.has(accountId);
           });
           if (staleSessions.length) {
-            markStage("stale Supabase rows invalidation started", {
+            markStage("stale Supabase rows invalidation skipped", {
               accountFetchMode,
               staleAccountIds: staleSessions.map((session) => session.account_id),
               freshAccountIds: Array.from(freshAccountIds),
+              reason:
+                "Fresh Deriv account snapshots can be partial; Deriv sessions are only deactivated on manual logout or explicit token expiry/invalid-token responses.",
             });
-            const { error: staleUpdateError } = await supabase
-              .from("sessions")
-              .update({ is_active: false })
-              .eq("user_id", sessionUser.id)
-              .in(
-                "id",
-                staleSessions.map((session) => session.id),
-              );
-            if (staleUpdateError) {
-              markStage("stale Supabase rows invalidation failure", {
-                message: staleUpdateError.message,
-                code: staleUpdateError.code,
-                details: staleUpdateError.details,
-              });
-            } else {
-              markStage("stale Supabase rows invalidated", {
-                staleAccountIds: staleSessions.map((session) => session.account_id),
-              });
-            }
           }
         }
 
