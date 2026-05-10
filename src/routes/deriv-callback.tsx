@@ -35,6 +35,10 @@ export const Route = createFileRoute("/deriv-callback")({
 });
 
 let callbackInFlight = false;
+const CALLBACK_PROCESSING_KEY = "deriv_callback_processing";
+const OAUTH_PROCESSING_KEY = "deriv_oauth_processing";
+const OAUTH_REDIRECTING_KEY = "deriv_oauth_redirecting";
+const DERIV_RAPID_APPROVAL_MESSAGE = "Please wait one minute and try again.";
 
 async function ensureSupabaseSession(primaryAccountId: string) {
   const { email, password } = await derivCredentials(primaryAccountId);
@@ -74,12 +78,18 @@ function DerivCallback() {
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
-    if (callbackInFlight || sessionStorage.getItem("deriv_callback_processing") === "true") {
+    if (
+      callbackInFlight ||
+      sessionStorage.getItem(CALLBACK_PROCESSING_KEY) === "true" ||
+      sessionStorage.getItem(OAUTH_PROCESSING_KEY) === "true"
+    ) {
       setStatus("Deriv authorization is already being processed...");
       return;
     }
     callbackInFlight = true;
-    sessionStorage.setItem("deriv_callback_processing", "true");
+    sessionStorage.setItem(CALLBACK_PROCESSING_KEY, "true");
+    sessionStorage.setItem(OAUTH_PROCESSING_KEY, "true");
+    sessionStorage.removeItem(OAUTH_REDIRECTING_KEY);
     sessionStorage.removeItem("deriv_callback_failed");
 
     (async () => {
@@ -150,6 +160,7 @@ function DerivCallback() {
         const tokenData = (await tokenResponse.json()) as DerivTokenResponse;
         console.log("Deriv OAuth browser token exchange result", {
           ok: tokenResponse.ok,
+          status: tokenResponse.status,
           hasAccessToken: Boolean(tokenData.access_token),
           expiresIn: tokenData.expires_in,
           tokenType: tokenData.token_type,
@@ -157,6 +168,9 @@ function DerivCallback() {
           errorDescription: tokenData.error_description,
         });
         if (!tokenResponse.ok) {
+          if (tokenResponse.status === 403) {
+            throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
+          }
           throw new Error(
             tokenData?.error_description
               ? `Token exchange failed: ${tokenData.error_description}`
@@ -184,6 +198,9 @@ function DerivCallback() {
           error: accountsData.error,
         });
         if (!accountsResponse.ok) {
+          if (accountsResponse.status === 403) {
+            throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
+          }
           if (accountsResponse.status === 429) {
             throw new Error(
               accountsData.error ??
@@ -270,13 +287,18 @@ function DerivCallback() {
         );
         const returnTo = sessionStorage.getItem("deriv_oauth_return_to") ?? "/dashboard";
         callbackInFlight = false;
-        sessionStorage.removeItem("deriv_callback_processing");
+        sessionStorage.removeItem(CALLBACK_PROCESSING_KEY);
+        sessionStorage.removeItem(OAUTH_PROCESSING_KEY);
+        sessionStorage.removeItem(OAUTH_REDIRECTING_KEY);
         sessionStorage.removeItem("deriv_oauth_return_to");
         window.location.replace(returnTo.startsWith("/") ? returnTo : "/dashboard");
       } catch (e: unknown) {
         console.error(e);
         const message = e instanceof Error ? e.message : "Authorization failed";
         callbackInFlight = false;
+        sessionStorage.removeItem(CALLBACK_PROCESSING_KEY);
+        sessionStorage.removeItem(OAUTH_PROCESSING_KEY);
+        sessionStorage.removeItem(OAUTH_REDIRECTING_KEY);
         sessionStorage.setItem("deriv_callback_failed", message);
         setFailed(true);
         setStatus(message);

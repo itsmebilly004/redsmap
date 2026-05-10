@@ -17,6 +17,8 @@ const LEGACY_OAUTH_MARKERS = [
 ];
 export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
   "Deriv redirected to dashboard instead of authorization. This account may not support the new OAuth app flow or the OAuth app configuration must be checked.";
+const DERIV_LEGACY_OAUTH_ROUTE_MESSAGE =
+  "Blocked legacy Deriv OAuth route. Use the OAuth2 PKCE authorization endpoint.";
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
@@ -53,7 +55,7 @@ export type DerivOAuthDiagnostics = {
 };
 export type DerivOAuthRedirectFailure = {
   message: string;
-  reason: "app-dashboard" | "home-dashboard" | "legacy-oauth" | "legacy-marker";
+  reason: "app-dashboard" | "home-dashboard";
   url: string;
 };
 
@@ -644,6 +646,10 @@ export function getDerivOAuthRedirectFailure(url: string | null | undefined) {
   const parsed = safeParseUrl(url);
   if (!parsed) return null;
 
+  // This detects Deriv returning the browser to a dashboard instead of the
+  // OAuth callback. Legacy OAuth URL blocking is outbound-only in
+  // assertValidDerivOAuthRedirectUrl so Deriv's internal compatibility routing
+  // after consent is not treated as an app-started legacy login.
   if (
     parsed.origin === "https://app.deriv.com" &&
     parsed.pathname === "/" &&
@@ -660,22 +666,6 @@ export function getDerivOAuthRedirectFailure(url: string | null | undefined) {
     return {
       message: DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE,
       reason: "home-dashboard",
-      url,
-    } satisfies DerivOAuthRedirectFailure;
-  }
-
-  if (parsed.origin === "https://oauth.deriv.com" || parsed.pathname === "/oauth2/authorize") {
-    return {
-      message: "Blocked legacy Deriv OAuth route. Use the OAuth2 PKCE authorization endpoint.",
-      reason: "legacy-oauth",
-      url,
-    } satisfies DerivOAuthRedirectFailure;
-  }
-
-  if (parsed.searchParams.get("redirect") === "home" || parsed.searchParams.get("brand") === "deriv") {
-    return {
-      message: "Blocked legacy Deriv dashboard redirect parameters.",
-      reason: "legacy-marker",
       url,
     } satisfies DerivOAuthRedirectFailure;
   }
@@ -747,7 +737,7 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
   const marker = legacyOAuthMarker(url);
   if (marker) {
     console.error("Blocked legacy Deriv OAuth URL", { marker, url });
-    throw new Error("Blocked legacy Deriv OAuth URL");
+    throw new Error(DERIV_LEGACY_OAUTH_ROUTE_MESSAGE);
   }
 
   let parsed: URL;
@@ -803,6 +793,10 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
 
 export function redirectToDerivOAuth(url: string) {
   assertValidDerivOAuthRedirectUrl(url);
+  if (sessionStorage.getItem("deriv_oauth_redirecting") === "true") {
+    console.info("[Deriv OAuth] Authorization redirect already in progress; duplicate ignored.");
+    return;
+  }
   const diagnostics = getDerivOAuthDiagnostics(url);
   logOAuthDebug("[Deriv OAuth Debug] Exact final URL before redirect", url);
   logOAuthDebug("[Deriv OAuth Debug] Final URL diagnostics before redirect", diagnostics);
@@ -817,6 +811,7 @@ export function redirectToDerivOAuth(url: string) {
   });
   sessionStorage.setItem("deriv_oauth_last_authorization_url", url);
   sessionStorage.setItem("deriv_oauth_started_at", new Date().toISOString());
+  sessionStorage.setItem("deriv_oauth_redirecting", "true");
   window.location.href = url;
 }
 
@@ -846,6 +841,8 @@ export async function buildOAuthUrl(
   const attemptId = crypto.randomUUID();
 
   sessionStorage.removeItem("deriv_callback_processing");
+  sessionStorage.removeItem("deriv_oauth_processing");
+  sessionStorage.removeItem("deriv_oauth_redirecting");
   sessionStorage.removeItem("deriv_callback_failed");
   sessionStorage.setItem("deriv_code_verifier", codeVerifier);
   sessionStorage.setItem("deriv_oauth_state", state);

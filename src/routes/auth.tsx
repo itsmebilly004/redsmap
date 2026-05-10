@@ -19,6 +19,8 @@ const search = z.object({
   debug_oauth: z.union([z.literal("1"), z.literal(1)]).optional(),
 });
 
+const DERIV_RAPID_APPROVAL_MESSAGE = "Please wait one minute and try again.";
+
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
   validateSearch: search,
@@ -41,6 +43,18 @@ function AuthPage() {
     const checkDashboardRedirectReturn = () => {
       const attemptedAt = sessionStorage.getItem("deriv_oauth_started_at");
       if (!attemptedAt) return;
+      const rapidApprovalUrl =
+        getDerivLegacyApprovalUrl(window.location.href) ??
+        getDerivLegacyApprovalUrl(document.referrer);
+      if (rapidApprovalUrl) {
+        setOauthFailure(null);
+        setErrorMessage(DERIV_RAPID_APPROVAL_MESSAGE);
+        console.warn("[Deriv OAuth] Deriv reported rapid repeated approval", {
+          url: rapidApprovalUrl,
+          attemptedAt,
+        });
+        return;
+      }
       const failure =
         getDerivOAuthRedirectFailure(window.location.href) ??
         getDerivOAuthRedirectFailure(document.referrer);
@@ -425,4 +439,17 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
       ok: !diagnostics.hasBrandDeriv,
     },
   ];
+}
+
+function getDerivLegacyApprovalUrl(url: string | null | undefined) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.origin === "https://oauth.deriv.com" && parsed.pathname === "/oauth2/authorize") {
+      return url;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
