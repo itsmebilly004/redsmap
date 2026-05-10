@@ -27,7 +27,10 @@ export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
 const DERIV_LEGACY_OAUTH_ROUTE_MESSAGE =
   "Blocked legacy Deriv OAuth route. Use the OAuth2 PKCE authorization endpoint.";
 const DERIV_SESSION_EXPIRED_CODE = "DERIV_SESSION_EXPIRED";
+const DERIV_OTP_AUTH_FAILED_CODE = "DERIV_OTP_AUTH_FAILED";
 const DERIV_RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
+export const DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE =
+  "Account connected. Trading authorization not ready yet.";
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
 const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TRADING_AUTHORIZATION_FRESH_MS = 10 * 60 * 1000;
@@ -279,6 +282,17 @@ export function getDerivTradingErrorMessage(error: unknown) {
     return error.message;
   }
   return "Trade failed.";
+}
+
+export function isDerivTradingAuthorizationFailure(error: unknown) {
+  const socketError = error as DerivSocketError;
+  const text = `${socketError?.message ?? ""} ${socketError?.code ?? ""}`.toLowerCase();
+  return (
+    socketError?.code === DERIV_OTP_AUTH_FAILED_CODE ||
+    socketError?.code === "DERIV_OAUTH_TRADING_AUTH_FAILED" ||
+    text.includes("trading authorization failed") ||
+    text.includes("trading authorization not ready")
+  );
 }
 
 export async function getActiveDerivTradingSession(
@@ -1156,7 +1170,7 @@ function authorizationStateFromSessionRow(
   return tradingAuthorizationStateIsValid(state) ? state : null;
 }
 
-async function persistTradingAuthorizationState(
+export async function persistTradingAuthorizationState(
   userId: string | null | undefined,
   state: TradingAuthorizationState,
 ) {

@@ -16,7 +16,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
-  ensureDerivTradingConnection,
   send,
   getDerivTradingErrorMessage,
   getStatus,
@@ -290,7 +289,6 @@ function BotBuilder() {
 
   useEffect(() => {
     if (!derivAccount || !token) return;
-    let cancelled = false;
     const preparedAuthorizationFresh =
       Boolean(derivAccount.token_source && derivAccount.trading_adapter) &&
       tradingAuthorizationIsFresh({
@@ -315,45 +313,18 @@ function BotBuilder() {
       tradingAuthorizationFresh: preparedAuthorizationFresh,
       last_trading_error: derivAccount.last_trading_error ?? null,
     });
-    ensureDerivTradingConnection(derivAccount, { context: "bot-builder-page-load" })
-      .then((tradingSession) => {
-        if (cancelled) return;
-        console.info("[Deriv Bot] active trading account ready", {
-          activeDashboardAccount: {
-            account_id: derivAccount.account_id,
-            loginid: derivAccount.loginid,
-            normalizedType: derivAccount.normalizedType,
-            token_source: derivAccount.token_source ?? null,
-          },
-          activeTradingAccount: {
-            account_id: tradingSession.account_id,
-            loginid: tradingSession.loginid,
-            normalizedType: tradingSession.normalizedType,
-            token_source: tradingSession.token_source,
-            adapter: tradingSession.adapter,
-            websocketMode: tradingSession.websocketMode,
-            expires_at: tradingSession.expires_at,
-          },
-          websocketMode: tradingSession.websocketMode,
-          connectionStatus: getStatus(),
-          websocketAccountId: getTradingSocketAccountId(),
-        });
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.warn("[Deriv Bot] trading connection check failed", {
-          selectedAccountId: derivAccount.account_id,
-          loginid: derivAccount.loginid,
-          normalizedType: derivAccount.normalizedType,
-          token_source: derivAccount.token_source ?? null,
-          connectionStatus: getStatus(),
-          failureReason: getDerivTradingErrorMessage(error),
-          error,
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
+    console.info("[Deriv Bot] page-load trading authorization retry skipped", {
+      selectedAccountId: derivAccount.account_id,
+      loginid: derivAccount.loginid,
+      normalizedType: derivAccount.normalizedType,
+      token_source: derivAccount.token_source ?? null,
+      tradingAuthorizationFresh: preparedAuthorizationFresh,
+      last_trading_error: derivAccount.last_trading_error ?? null,
+      connectionStatus: getStatus(),
+      websocketAccountId: getTradingSocketAccountId(),
+      reason:
+        "Bot page load does not retry OAuth OTP; starting the bot will prepare the trading connection once.",
+    });
   }, [
     derivAccount?.account_id,
     derivAccount?.deriv_token,

@@ -24,11 +24,13 @@ import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { isDemoAccount } from "@/lib/deriv-account";
 import {
   SYNTHETIC_MARKETS,
+  DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE,
   buildOAuthUrl,
   ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
   getStatus,
   getTradingSocketAccountId,
+  isDerivTradingAuthorizationFailure,
   onStatus,
   prepareDerivTradingSession,
   redirectToDerivOAuth,
@@ -153,6 +155,7 @@ export function TradePanel({
   const buyInFlightRef = useRef(false);
   const tradeIdRef = useRef<string | null>(null);
   const activeAccountIdRef = useRef<string | null>(null);
+  const pageLoadAuthorizationAttemptRef = useRef<string | null>(null);
   const closedRef = useRef(false);
 
   const config = tradeTypeConfig(selectedTradeType);
@@ -200,6 +203,7 @@ export function TradePanel({
     }
     let cancelled = false;
     const preparedAuthorizationFresh = accountHasFreshTradingAuthorization(account);
+    const pageLoadAttemptKey = `${account.account_id}:${account.deriv_token.slice(-8)}:${account.token_source ?? "unknown"}`;
     setTradingConnectionStatus((current) => {
       if (preparedAuthorizationFresh) return "connected";
       return current === "connected" ? current : "connecting";
@@ -220,6 +224,23 @@ export function TradePanel({
       tradingAuthorizationFresh: preparedAuthorizationFresh,
       last_trading_error: account.last_trading_error ?? null,
     });
+    if (!preparedAuthorizationFresh && pageLoadAuthorizationAttemptRef.current === pageLoadAttemptKey) {
+      setTradingConnectionStatus("connected");
+      setTradingConnectionError(
+        account.last_trading_error
+          ? DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE
+          : null,
+      );
+      console.info("[Manual Trader] page-load trading authorization retry skipped", {
+        selectedAccountId: account.account_id,
+        token_source: account.token_source ?? null,
+        last_trading_error: account.last_trading_error ?? null,
+        reason:
+          "Avoiding repeated OTP attempts for the same account; the next trade action can retry.",
+      });
+      return;
+    }
+    pageLoadAuthorizationAttemptRef.current = pageLoadAttemptKey;
     ensureDerivTradingConnection(account, { context: "manual-trader-page-load" })
       .then((tradingSession) => {
         if (cancelled) return;
@@ -248,8 +269,13 @@ export function TradePanel({
       .catch((error) => {
         if (cancelled) return;
         const message = getDerivTradingErrorMessage(error);
-        setTradingConnectionStatus("disconnected");
-        setTradingConnectionError(message);
+        if (isDerivTradingAuthorizationFailure(error)) {
+          setTradingConnectionStatus("connected");
+          setTradingConnectionError(DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE);
+        } else {
+          setTradingConnectionStatus("disconnected");
+          setTradingConnectionError(message);
+        }
         console.warn("[Manual Trader] trading connection check failed", {
           selectedAccountId: account.account_id,
           loginid: account.loginid,
@@ -257,6 +283,9 @@ export function TradePanel({
           token_source: account.token_source ?? null,
           connectionStatus: getStatus(),
           failureReason: message,
+          displayMessage: isDerivTradingAuthorizationFailure(error)
+            ? DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE
+            : message,
           error,
         });
       });

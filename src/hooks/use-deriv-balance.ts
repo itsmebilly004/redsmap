@@ -4,11 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
   adapterForTokenSource,
-  ensureDerivTradingConnection,
   getActiveDerivTradingSession,
   getDerivTradingErrorMessage,
-  getStatus,
-  getTradingSocketAccountId,
   prepareTradingAuthorization,
   readStoredTradingAuthorizationState,
   setAuthenticatedAccount,
@@ -815,109 +812,26 @@ export function useDerivBalance(): LiveBalance {
       return;
     }
     if (isOAuthTokenAccount(active)) {
-      let cancelled = false;
-      const previousAccountKey = lastWebSocketAccountKeyRef.current;
-      const connectionPreconnectAccountId = (() => {
-        try {
-          return sessionStorage.getItem("deriv_oauth_trade_preconnect_account");
-        } catch {
-          return null;
-        }
-      })();
-      const connectionFlowPreconnect =
-        connectionPreconnectAccountId?.toUpperCase() === active.account_id.toUpperCase();
-      if (previousAccountKey === activeAccountKey && getStatus() === "connected") {
-        console.info("[Deriv Balance] OAuth trading preconnect skipped", {
-          account_id: active.account_id,
-          loginid: active.loginid,
-          normalizedType: active.normalizedType,
-          token_source: activeTokenSource,
-          adapter: adapterForTokenSource(activeTokenSource),
-          websocketMode: tradingWebSocketMode(activeTokenSource),
-          websocketAccountId: getTradingSocketAccountId(),
-          reason: "already-connected-for-selected-account",
-        });
-        return;
+      try {
+        sessionStorage.removeItem("deriv_oauth_trade_preconnect_account");
+      } catch {
+        /* ignore sessionStorage access failures */
       }
-
-      (async () => {
-        try {
-          console.info("[Deriv Balance] OAuth trading preconnect started", {
-            previousSelectedAccountKey: previousAccountKey,
-            requestedAccountId: active.account_id,
-            requestedLoginId: active.loginid,
-            requestedAccountType: active.normalizedType,
-            detected_prefix: active.detected_prefix,
-            token_source: activeTokenSource,
-            adapter: adapterForTokenSource(activeTokenSource),
-            websocketMode: tradingWebSocketMode(activeTokenSource),
-            reason:
-              connectionFlowPreconnect
-                ? "OAuth account connection requested immediate trade authorization preconnect."
-                : "New API accounts establish the trade authorization connection when the account session loads.",
-          });
-          const tradingSession = await ensureDerivTradingConnection(active, {
-            context: "oauth-account-session-preconnect",
-          });
-          if (cancelled) return;
-          const preparedAuthorization = readStoredTradingAuthorizationState(
-            user.id,
-            tradingSession.account_id,
-          );
-          if (preparedAuthorization) {
-            setAccounts((previous) =>
-              previous.map((account) =>
-                account.account_id === tradingSession.account_id
-                  ? {
-                      ...account,
-                      trading_authorized: preparedAuthorization.trading_authorized,
-                      trading_adapter: preparedAuthorization.trading_adapter,
-                      trading_authorized_at: preparedAuthorization.trading_authorized_at,
-                      last_trading_error: preparedAuthorization.last_trading_error,
-                    }
-                  : account,
-              ),
-            );
-          }
-          lastWebSocketAccountKeyRef.current = activeAccountKey;
-          if (connectionFlowPreconnect) {
-            try {
-              sessionStorage.removeItem("deriv_oauth_trade_preconnect_account");
-            } catch {
-              /* ignore sessionStorage access failures */
-            }
-          }
-          console.info("[Deriv Balance] OAuth trading preconnect ready", {
-            selectedAccountId: active.account_id,
-            tradingAccountId: tradingSession.account_id,
-            loginid: tradingSession.loginid,
-            normalizedType: tradingSession.normalizedType,
-            token_source: tradingSession.token_source,
-            adapter: tradingSession.adapter,
-            websocketMode: tradingSession.websocketMode,
-            authorizationResult: "connected",
-            connectionStatus: getStatus(),
-            websocketAccountId: getTradingSocketAccountId(),
-          });
-        } catch (error) {
-          if (cancelled) return;
-          console.warn("[Deriv Balance] OAuth trading preconnect failed", {
-            account_id: active.account_id,
-            loginid: active.loginid,
-            normalizedType: active.normalizedType,
-            token_source: activeTokenSource,
-            adapter: adapterForTokenSource(activeTokenSource),
-            websocketMode: tradingWebSocketMode(activeTokenSource),
-            authorizationResult: "failed",
-            disconnectReason: getDerivTradingErrorMessage(error),
-            error,
-          });
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-      };
+      lastWebSocketAccountKeyRef.current = null;
+      console.info("[Deriv Balance] OAuth trading preconnect skipped", {
+        account_id: active.account_id,
+        loginid: active.loginid,
+        normalizedType: active.normalizedType,
+        token_source: activeTokenSource,
+        adapter: adapterForTokenSource(activeTokenSource),
+        websocketMode: tradingWebSocketMode(activeTokenSource),
+        trading_authorized: active.trading_authorized ?? false,
+        trading_authorized_at: active.trading_authorized_at ?? null,
+        last_trading_error: active.last_trading_error ?? null,
+        reason:
+          "Dashboard account loading does not retry OAuth OTP. Trading readiness is prepared once in /deriv-callback and retried from trading pages/actions.",
+      });
+      return;
     }
 
     if (activeTokenSource === "legacy_authorize_token") {
