@@ -3,10 +3,7 @@ import { useEffect, useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
-  DERIV_APP_ID_VALUE,
-  DERIV_CLIENT_ID_VALUE,
   DERIV_OAUTH_ENDPOINT_VALUE,
-  DERIV_REDIRECT_URI_VALUE,
   buildOAuthUrl,
   getDerivOAuthDiagnostics,
   redirectToDerivOAuth,
@@ -30,7 +27,6 @@ function AuthPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cacheStatus, setCacheStatus] = useState<string | null>(null);
   const [debugUrl, setDebugUrl] = useState<string | null>(null);
-  const [pendingOAuthUrl, setPendingOAuthUrl] = useState<string | null>(null);
   const [oauthDiagnostics, setOauthDiagnostics] = useState<DerivOAuthDiagnostics | null>(null);
 
   const isSignup = mode === "signup";
@@ -56,7 +52,6 @@ function AuthPage() {
     setBusy(true);
     setErrorMessage(null);
     setDebugUrl(null);
-    setPendingOAuthUrl(null);
     setOauthDiagnostics(null);
     try {
       const url = await buildOAuthUrl({
@@ -64,13 +59,14 @@ function AuthPage() {
         returnTo: "/dashboard",
       });
       const diagnostics = getDerivOAuthDiagnostics(url);
-      setOauthDiagnostics(diagnostics);
       console.info("[Deriv OAuth Debug] Exact final URL before redirect", url);
-      console.info("[Deriv OAuth Debug] Visible OAuth diagnostics", diagnostics);
+      console.info("[Deriv OAuth Debug] OAuth diagnostics", diagnostics);
       if (showOAuthDebug) {
         setDebugUrl(url);
+        setOauthDiagnostics(diagnostics);
+      } else {
+        redirectToDerivOAuth(url);
       }
-      setPendingOAuthUrl(url);
     } catch (error) {
       console.error("Could not build Deriv OAuth URL", error);
       setErrorMessage(
@@ -97,11 +93,10 @@ function AuthPage() {
   }
 
   function continueToDeriv() {
-    const url = debugUrl ?? pendingOAuthUrl;
-    if (!url) return;
+    if (!debugUrl) return;
     try {
-      console.info("[Deriv OAuth Debug] Redirecting to exact URL", url);
-      redirectToDerivOAuth(url);
+      console.info("[Deriv OAuth Debug] Redirecting to exact URL", debugUrl);
+      redirectToDerivOAuth(debugUrl);
     } catch (error) {
       console.error("Could not redirect to Deriv OAuth URL", error);
       setErrorMessage(
@@ -140,13 +135,7 @@ function AuthPage() {
             disabled={busy}
             className="mt-6 h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
           >
-            {busy
-              ? "Connecting to Deriv..."
-              : pendingOAuthUrl
-                ? "Regenerate Deriv OAuth URL"
-                : isSignup
-                  ? "Sign up with Deriv"
-                  : "Sign in with Deriv"}
+            {busy ? "Connecting to Deriv..." : "Sign in with Deriv"}
             <ArrowRight className="ml-1 size-4" />
           </Button>
 
@@ -181,7 +170,7 @@ function AuthPage() {
             </div>
           )}
 
-          {oauthDiagnostics && (
+          {showOAuthDebug && oauthDiagnostics && (
             <div className="mt-4 rounded-xl border border-primary/20 bg-background/80 p-3 text-xs">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="font-semibold text-foreground">Deriv OAuth validation</div>
@@ -229,9 +218,6 @@ function AuthPage() {
               <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2">
                 <div className="mb-1 font-semibold text-foreground">Production env snapshot</div>
                 <div className="space-y-1 break-all font-mono text-[11px] text-muted-foreground">
-                  <div>VITE_DERIV_CLIENT_ID={DERIV_CLIENT_ID_VALUE || "(missing)"}</div>
-                  <div>VITE_DERIV_APP_ID={DERIV_APP_ID_VALUE || "(missing)"}</div>
-                  <div>VITE_DERIV_REDIRECT_URI={DERIV_REDIRECT_URI_VALUE}</div>
                   <div>OAuth app_id query param included: {oauthDiagnostics.hasAppId ? "yes" : "no"}</div>
                 </div>
               </div>
