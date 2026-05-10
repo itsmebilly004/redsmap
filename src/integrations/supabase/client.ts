@@ -13,6 +13,9 @@ export const supabase = createClient<Database, "public">(SUPABASE_URL, SUPABASE_
     storage: isBrowser ? localStorage : undefined,
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: isBrowser,
+    // Deriv OAuth also returns ?code=...&state=..., which Supabase can mistake for
+    // its own OAuth callback and clear the app session. Supabase auth here uses
+    // generated email/password credentials, so URL callback detection must stay off.
+    detectSessionInUrl: false,
   },
 });
