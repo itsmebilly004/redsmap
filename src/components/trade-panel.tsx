@@ -21,7 +21,7 @@ import {
 } from "@/components/trade-option-components";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
-import { isDerivDemoAccount } from "@/hooks/use-deriv-balance";
+import { isDemoAccount } from "@/lib/deriv-account";
 import { SYNTHETIC_MARKETS, buildOAuthUrl, getTradingSocketAccountId, redirectToDerivOAuth, setAuthenticatedAccount, type TradeCategory } from "@/lib/deriv";
 import { normalizeOpenContract, EMPTY_CONTRACT_STATE, type ActiveContractState } from "@/lib/contract-state";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
@@ -149,7 +149,7 @@ export function TradePanel({
       setQuotes({});
       return;
     }
-    setAuthenticatedAccount(token, account.account_id, account.is_virtual ?? account.is_demo);
+    setAuthenticatedAccount(token, account.account_id, isDemoAccount(account));
     let cancelled = false;
     const timeout = setTimeout(async () => {
       setQuotesLoading(true);
@@ -252,10 +252,14 @@ export function TradePanel({
         `Insufficient balance: ${accountBalance.toFixed(2)} ${tradeCurrency} available.`,
       );
     }
-    const demo = isDerivDemoAccount(account);
-    const loginId = accountLoginId.toUpperCase();
-    if (!demo && /^(VRTC|VR)/.test(loginId)) {
-      throw new Error("Real trading requires a selected real account, not a virtual account.");
+    const selectedAccountIsDemo = isDemoAccount(account);
+    if (selectedAccountIsDemo !== Boolean(account.is_demo)) {
+      console.info("[Deriv Trade] Account classification corrected", {
+        account_id: account.account_id,
+        loginid: account.loginid,
+        stored_is_demo: account.is_demo,
+        normalized_is_demo: selectedAccountIsDemo,
+      });
     }
   }
 
@@ -306,7 +310,7 @@ export function TradePanel({
     try {
       validateAccount();
       if (!account || !token || !user) throw new Error("Connect and select your Deriv account first.");
-      setAuthenticatedAccount(token, account.account_id, account.is_virtual ?? account.is_demo);
+      setAuthenticatedAccount(token, account.account_id, isDemoAccount(account));
       await cleanupSubscription();
 
       const quote = quotes[side.value];

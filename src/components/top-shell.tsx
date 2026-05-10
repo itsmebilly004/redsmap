@@ -29,7 +29,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { isDerivDemoAccount, type DerivAccount } from "@/hooks/use-deriv-balance";
+import { type DerivAccount } from "@/hooks/use-deriv-balance";
+import { isDemoAccount, isRealAccount } from "@/lib/deriv-account";
 
 const CURRENCY_META: Record<string, { country?: string; name: string; symbol?: string }> = {
   AUD: { country: "au", name: "Australian Dollar" },
@@ -92,15 +93,31 @@ export function TopShell({ children }: { children: ReactNode }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeAccountTab, setActiveAccountTab] = useState<"real" | "demo">("real");
 
-  const realAccounts = useMemo(() => accounts.filter((a) => !isDerivDemoAccount(a)), [accounts]);
-  const demoAccounts = useMemo(() => accounts.filter((a) => isDerivDemoAccount(a)), [accounts]);
+  const realAccounts = useMemo(() => accounts.filter(isRealAccount), [accounts]);
+  const demoAccounts = useMemo(() => accounts.filter(isDemoAccount), [accounts]);
   const visibleAccounts = activeAccountTab === "real" ? realAccounts : demoAccounts;
 
   useEffect(() => {
     if (account) {
-      setActiveAccountTab(isDerivDemoAccount(account) ? "demo" : "real");
+      setActiveAccountTab(isDemoAccount(account) ? "demo" : "real");
     }
   }, [account]);
+
+  useEffect(() => {
+    if (!account || !visibleAccounts.length) return;
+    if (visibleAccounts.some((visibleAccount) => visibleAccount.account_id === account.account_id)) {
+      return;
+    }
+    switchAccount(visibleAccounts[0].account_id);
+  }, [account, switchAccount, visibleAccounts]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    console.info("[Deriv Accounts] dropdown all normalized accounts", accounts);
+    console.info("[Deriv Accounts] dropdown realAccounts", realAccounts);
+    console.info("[Deriv Accounts] dropdown demoAccounts", demoAccounts);
+    console.info("[Deriv Accounts] dropdown selectedAccount", account);
+  }, [account, accounts, demoAccounts, realAccounts]);
 
   async function handleLogout() {
     if (user) {
@@ -361,7 +378,7 @@ function AccountItem({
   isActive: boolean;
   onSelect: () => void;
 }) {
-  const demo = isDerivDemoAccount(account);
+  const demo = isDemoAccount(account);
   const meta = currencyMeta(account.currency);
 
   return (
@@ -402,7 +419,7 @@ function AccountIcon({
   >;
   size?: "sm" | "md";
 }) {
-  const demo = isDerivDemoAccount(account);
+  const demo = isDemoAccount(account);
   const meta = currencyMeta(account.currency);
   const box = size === "sm" ? "size-5" : "size-8";
   const text = size === "sm" ? "text-[10px]" : "text-sm";

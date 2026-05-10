@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { buildOAuthUrl, redirectToDerivOAuth } from "@/lib/deriv";
+import { isDemoAccount, normalizeDerivAccount } from "@/lib/deriv-account";
 import { Plug, Trash2 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -37,7 +38,11 @@ function SettingsPage() {
       toast.error("Could not load settings");
       return;
     }
-    setAccounts(accs ?? []);
+    const normalizedAccounts = (accs ?? []).map((account) => {
+      const normalized = normalizeDerivAccount(account);
+      return normalized ? { ...account, ...normalized } : account;
+    });
+    setAccounts(normalizedAccounts);
     setSettings(
       sett ?? {
         created_at: new Date().toISOString(),
@@ -128,30 +133,38 @@ function SettingsPage() {
           <p className="text-sm text-muted-foreground">No accounts connected yet.</p>
         ) : (
           <ul className="divide-y divide-glass-border">
-            {accounts.map((a) => (
-              <li key={a.id} className="flex min-w-0 items-center justify-between gap-3 py-3">
-                <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="truncate font-mono text-sm">{a.account_id}</span>
-                    <span
-                      className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${
-                        a.is_demo
-                          ? "bg-foreground/5 text-muted-foreground"
-                          : "bg-success/20 text-success"
-                      }`}
-                    >
-                      {a.is_demo ? "Demo" : "Live"}
-                    </span>
+            {accounts.map((a) => {
+              const demo = isDemoAccount(a);
+              return (
+                <li key={a.id} className="flex min-w-0 items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="truncate font-mono text-sm">{a.account_id}</span>
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${
+                          demo
+                            ? "bg-foreground/5 text-muted-foreground"
+                            : "bg-success/20 text-success"
+                        }`}
+                      >
+                        {demo ? "Demo" : "Live"}
+                      </span>
+                    </div>
+                    <div className="truncate font-mono text-xs text-muted-foreground">
+                      {Number(a.balance ?? 0).toFixed(2)} {a.currency}
+                    </div>
                   </div>
-                  <div className="truncate font-mono text-xs text-muted-foreground">
-                    {Number(a.balance ?? 0).toFixed(2)} {a.currency}
-                  </div>
-                </div>
-                <Button size="icon" variant="ghost" onClick={() => disconnect(a.id)} className="shrink-0">
-                  <Trash2 className="size-4" />
-                </Button>
-              </li>
-            ))}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => disconnect(a.id)}
+                    className="shrink-0"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

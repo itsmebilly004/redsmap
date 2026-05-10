@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
-import { isDerivDemoAccount } from "@/hooks/use-deriv-balance";
+import { isDemoAccount } from "@/lib/deriv-account";
 import {
   buildOAuthUrl,
   getTradingSocketAccountId,
@@ -57,7 +57,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
   const accountLoginId = account?.loginid || account?.account_id || "";
-  const selectedAccountIsDemo = account ? isDerivDemoAccount(account) : false;
+  const selectedAccountIsDemo = account ? isDemoAccount(account) : false;
 
   const [stake, setStake] = useState(10);
   const [growthRate, setGrowthRate] = useState<number>(0.03);
@@ -138,9 +138,13 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         `Insufficient balance: ${accountBalance.toFixed(2)} ${tradeCurrency} available.`,
       );
     }
-    const loginId = accountLoginId.toUpperCase();
-    if (!selectedAccountIsDemo && /^(VRTC|VR)/.test(loginId)) {
-      throw new Error("Real trading requires a selected real account, not a virtual account.");
+    if (selectedAccountIsDemo !== Boolean(account.is_demo)) {
+      console.info("[Accumulator] Account classification corrected", {
+        account_id: account.account_id,
+        loginid: account.loginid,
+        stored_is_demo: account.is_demo,
+        normalized_is_demo: selectedAccountIsDemo,
+      });
     }
   }
 
@@ -170,7 +174,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     try {
       validateAccount();
       if (!account || !token) throw new Error("Connect and select your Deriv account first.");
-      setAuthenticatedAccount(token, account.account_id, account.is_virtual ?? account.is_demo);
+      setAuthenticatedAccount(token, account.account_id, isDemoAccount(account));
       await cleanupSubscription();
 
       const payload = buildAccumulatorProposalPayload({

@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { DERIV_CLIENT_ID_VALUE, DERIV_REDIRECT_URI_VALUE } from "@/lib/deriv";
+import { isDemoAccount, normalizeDerivAccount } from "@/lib/deriv-account";
 import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -34,29 +35,6 @@ export const Route = createFileRoute("/deriv-callback")({
 });
 
 let callbackInFlight = false;
-
-function booleanFrom(value: unknown) {
-  if (value === true || value === "true" || value === 1 || value === "1") return true;
-  if (value === false || value === "false" || value === 0 || value === "0") return false;
-  return null;
-}
-
-function isDemoAccount(account: DerivAccount) {
-  const loginId = String(account.loginid ?? account.account_id ?? "").toUpperCase();
-  const accountType = String(account.account_type ?? "").toLowerCase();
-  const isVirtual = booleanFrom(account.is_virtual);
-  const isDemo = booleanFrom(account.is_demo);
-
-  if (isVirtual === true || isDemo === true) return true;
-  if (isVirtual === false || isDemo === false) return false;
-  if (loginId.startsWith("VRTC") || loginId.startsWith("VR")) return true;
-  if (loginId.startsWith("CR") || loginId.startsWith("DOT") || loginId.includes("USDT")) {
-    return false;
-  }
-  if (accountType.includes("demo") || accountType.includes("virtual")) return true;
-  if (accountType.includes("real")) return false;
-  return false;
-}
 
 async function ensureSupabaseSession(primaryAccountId: string) {
   const { email, password } = await derivCredentials(primaryAccountId);
@@ -215,8 +193,17 @@ function DerivCallback() {
           throw new Error(accountsData.error ?? "Could not load Deriv accounts");
         }
 
-        const accounts = accountsData?.data ?? [];
+        const accounts = (accountsData?.data ?? [])
+          .map((account) => normalizeDerivAccount(account))
+          .filter((account): account is NonNullable<ReturnType<typeof normalizeDerivAccount>> =>
+            Boolean(account),
+          );
         if (!accounts.length) throw new Error("No Deriv accounts returned");
+        if (import.meta.env.DEV) {
+          console.info("[Deriv Accounts] callback normalized accounts", accounts);
+          console.info("[Deriv Accounts] callback realAccounts", accounts.filter((account) => !isDemoAccount(account)));
+          console.info("[Deriv Accounts] callback demoAccounts", accounts.filter(isDemoAccount));
+        }
 
         const primary =
           accounts.find((account) => !isDemoAccount(account)) ?? accounts[0];

@@ -14,6 +14,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { TopShell } from "@/components/top-shell";
 import { disconnectAll } from "@/lib/deriv";
+import { isDemoAccount } from "@/lib/deriv-account";
 
 export const Route = createFileRoute("/dashboard")({
   component: DashboardLayout,
@@ -32,6 +33,7 @@ function DashboardLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { account } = useDerivBalanceContext();
+  const selectedAccountIsDemo = account ? isDemoAccount(account) : false;
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth", search: { mode: "signin" } });
@@ -64,12 +66,12 @@ function DashboardLayout() {
                 <span
                   className={[
                     "shrink-0 rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wider",
-                    account.is_demo
+                    selectedAccountIsDemo
                       ? "bg-[oklch(0.96_0.005_240)] text-[oklch(0.5_0.02_260)]"
                       : "bg-[oklch(0.93_0.06_150)] text-[oklch(0.35_0.12_150)]",
                   ].join(" ")}
                 >
-                  {account.is_demo ? "Demo" : "Live"}
+                  {selectedAccountIsDemo ? "Demo" : "Live"}
                 </span>
               </div>
             </div>

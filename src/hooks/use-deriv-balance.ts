@@ -3,8 +3,14 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { setAuthenticatedAccount, subscribeBalance } from "@/lib/deriv";
+import {
+  isDemoAccount,
+  isRealAccount,
+  normalizeDerivAccount,
+  type NormalizedDerivAccount,
+} from "@/lib/deriv-account";
 
-export type DerivAccount = {
+export type DerivAccount = NormalizedDerivAccount & {
   account_id: string;
   deriv_token: string;
   is_demo: boolean;
@@ -23,34 +29,6 @@ export type LiveBalance = {
   loading: boolean;
   switchAccount: (accountId: string) => void;
 };
-
-export function isDerivDemoAccount(
-  account: Pick<
-    DerivAccount,
-    "account_id" | "loginid" | "is_demo" | "is_virtual" | "account_type"
-  >,
-) {
-  const loginId = String(account.loginid ?? account.account_id ?? "").toUpperCase();
-  const accountType = String(account.account_type ?? "").toLowerCase();
-  const isVirtual = booleanFrom(account.is_virtual);
-  const isDemo = booleanFrom(account.is_demo);
-
-  if (isVirtual === true || isDemo === true) return true;
-  if (isVirtual === false || isDemo === false) return false;
-  if (loginId.startsWith("VRTC") || loginId.startsWith("VR")) return true;
-  if (loginId.startsWith("CR") || loginId.startsWith("DOT") || loginId.includes("USDT")) {
-    return false;
-  }
-  if (accountType.includes("demo") || accountType.includes("virtual")) return true;
-  if (accountType.includes("real")) return false;
-  return false;
-}
-
-function booleanFrom(value: unknown) {
-  if (value === true || value === "true" || value === 1 || value === "1") return true;
-  if (value === false || value === "false" || value === 0 || value === "0") return false;
-  return null;
-}
 
 function accountStorageKey(userId: string) {
   return `deriv_active_account:${userId}`;
@@ -87,14 +65,14 @@ export function useDerivBalance(): LiveBalance {
         return;
       }
 
-      const list = ((data ?? []) as DerivAccount[]).map((account) => {
-        const isDemo = isDerivDemoAccount(account);
-        return {
-          ...account,
-          is_demo: isDemo,
-          is_virtual: isDemo,
-        };
-      });
+      const list = ((data ?? []) as DerivAccount[])
+        .map((account) => normalizeDerivAccount(account))
+        .filter((account): account is DerivAccount => Boolean(account?.deriv_token));
+      if (import.meta.env.DEV) {
+        console.info("[Deriv Accounts] normalized accounts", list);
+        console.info("[Deriv Accounts] realAccounts", list.filter(isRealAccount));
+        console.info("[Deriv Accounts] demoAccounts", list.filter(isDemoAccount));
+      }
       setAccounts(list);
       if (list.length) {
         const savedId = localStorage.getItem(accountStorageKey(user.id));
@@ -127,12 +105,12 @@ export function useDerivBalance(): LiveBalance {
         setAuthenticatedAccount(
           active.deriv_token,
           active.account_id,
-          active.is_virtual ?? active.is_demo,
+          isDemoAccount(active),
         );
         console.log("Deriv authenticated WebSocket initialized", {
           account_id: active.account_id,
           loginid: active.loginid,
-          is_virtual: active.is_virtual ?? active.is_demo,
+          is_virtual: isDemoAccount(active),
         });
         const nextUnsub = await subscribeBalance(active.deriv_token, async (b) => {
           if (cancelled) return;

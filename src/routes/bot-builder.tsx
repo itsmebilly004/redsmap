@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isDemoAccount } from "@/lib/deriv-account";
 import { BOT_PRESETS } from "./trading-bots";
 
 export const Route = createFileRoute("/bot-builder")({
@@ -400,13 +401,13 @@ function BotBuilder() {
       setAuthenticatedAccount(
         token,
         derivAccount.account_id,
-        derivAccount.is_virtual ?? derivAccount.is_demo,
+        isDemoAccount(derivAccount),
       );
       console.info("[Deriv Bot] Placing trade", {
         selectedAccountId: derivAccount.account_id,
         selectedLoginId: derivAccount.loginid,
-        is_demo: derivAccount.is_demo,
-        is_virtual: derivAccount.is_virtual,
+        is_demo: isDemoAccount(derivAccount),
+        is_virtual: isDemoAccount(derivAccount),
         wsAccountId: getTradingSocketAccountId(),
         finalProposalPayload: proposal,
       });

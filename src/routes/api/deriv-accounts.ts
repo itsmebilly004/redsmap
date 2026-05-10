@@ -1,12 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
+import {
+  accountLoginId,
+  normalizeDerivAccount,
+  stringFrom,
+  type DerivAccountLike,
+} from "@/lib/deriv-account";
 
 type DerivAccountsRequest = {
   accessToken?: string;
 };
 
-type UnknownRecord = Record<string, unknown>;
-
-type DerivAccount = UnknownRecord & {
+type DerivAccount = DerivAccountLike & {
   account_id?: string;
   loginid?: string;
   login_id?: string;
@@ -28,30 +32,6 @@ type DerivAccountsResponse = {
   error?: { message?: string } | string;
   errors?: { message?: string; code?: string; status?: number }[];
 };
-
-function stringFrom(...values: unknown[]) {
-  for (const value of values) {
-    if (value == null) continue;
-    const text = String(value).trim();
-    if (text) return text;
-  }
-  return "";
-}
-
-function booleanFrom(value: unknown) {
-  if (value === true || value === "true" || value === 1 || value === "1") return true;
-  if (value === false || value === "false" || value === 0 || value === "0") return false;
-  return null;
-}
-
-function numberFrom(value: unknown) {
-  const raw = typeof value === "object" && value !== null && "amount" in value
-    ? (value as { amount?: unknown }).amount
-    : value;
-  if (raw == null || raw === "") return 0;
-  const number = Number(raw);
-  return Number.isFinite(number) ? number : 0;
-}
 
 function errorMessage(data: DerivAccountsResponse) {
   if (typeof data.error === "string") return data.error;
@@ -78,48 +58,19 @@ function accountShape(accounts: DerivAccount[]) {
   return accounts.slice(0, 3).map((account) => Object.keys(account).sort());
 }
 
-function isDemoAccount(account: DerivAccount, accountId: string) {
-  const loginId = accountId.toUpperCase();
-  const accountType = stringFrom(
-    account.account_type,
-    account.category,
-    account.type,
-    account["account_category"],
-  ).toLowerCase();
-  const isVirtual = booleanFrom(account.is_virtual);
-  const isDemo = booleanFrom(account.is_demo);
-
-  if (isVirtual === true || isDemo === true) return true;
-  if (isVirtual === false || isDemo === false) return false;
-  if (loginId.startsWith("VRTC") || loginId.startsWith("VR")) return true;
-  if (loginId.startsWith("CR") || loginId.startsWith("DOT") || loginId.includes("USDT")) {
-    return false;
-  }
-  if (accountType.includes("demo") || accountType.includes("virtual")) return true;
-  if (accountType.includes("real")) return false;
-  return false;
-}
-
 function normalizeAccount(account: DerivAccount) {
-  const accountId = stringFrom(
-    account.loginid,
-    account.account_id,
-    account.login_id,
-    account.accountId,
-    account.id,
-  );
-  if (!accountId) return null;
-
-  const isVirtual = isDemoAccount(account, accountId);
+  const normalized = normalizeDerivAccount(account);
+  if (!normalized) return null;
+  const accountId = accountLoginId(normalized);
   return {
     account_id: accountId,
     loginid: accountId,
-    currency: stringFrom(account.currency, isVirtual ? "USD" : ""),
-    balance: numberFrom(account.balance),
-    is_demo: isVirtual,
-    is_virtual: isVirtual,
-    account_type: stringFrom(account.account_type, account.category, account.type),
-    status: stringFrom(account.status, "active"),
+    currency: normalized.currency ?? "",
+    balance: normalized.balance,
+    is_demo: normalized.is_demo,
+    is_virtual: normalized.is_virtual,
+    account_type: normalized.account_type ?? "",
+    status: normalized.status ?? "active",
   };
 }
 
