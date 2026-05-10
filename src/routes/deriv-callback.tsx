@@ -5,6 +5,8 @@ import {
   DERIV_CLIENT_ID_VALUE,
   DERIV_REDIRECT_URI_VALUE,
   adapterForTokenSource,
+  getActiveDerivTradingSession,
+  prepareTradingAuthorization,
   setAuthenticatedAccount,
   tradingWebSocketMode,
   type DerivTokenSource,
@@ -61,6 +63,11 @@ const SESSION_COLUMNS = [
   "is_active",
   "expires_at",
   "created_at",
+  "trading_authorized",
+  "trading_adapter",
+  "token_source",
+  "trading_authorized_at",
+  "last_trading_error",
 ] as const;
 
 function activeAccountStorageKey(userId: string) {
@@ -705,9 +712,14 @@ function DerivCallback() {
               is_active: true,
               expires_at: expiresAt,
               created_at: connectedAt,
+              trading_authorized: false,
+              trading_adapter: adapterForTokenSource(tokenSource),
+              token_source: tokenSource,
+              trading_authorized_at: null,
+              last_trading_error: null,
             },
             { onConflict: "user_id,account_id" },
-          ).select("id, account_id, loginid, is_demo, is_virtual, currency, balance, is_active, expires_at")
+          ).select("id, account_id, loginid, is_demo, is_virtual, currency, balance, is_active, expires_at, trading_authorized, trading_adapter, token_source, trading_authorized_at, last_trading_error")
             .maybeSingle();
           if (upsertErr) {
             markStage("Supabase upsert failure", {
@@ -788,6 +800,13 @@ function DerivCallback() {
           primary.normalizedType === "demo",
           tokenSource,
         );
+        markStage("callback account selected", {
+          selectedAccountId,
+          selectedAccountType: primary.normalizedType,
+          token_source: tokenSource,
+          adapter: adapterForTokenSource(tokenSource),
+          websocketMode: tradingWebSocketMode(tokenSource),
+        });
         markStage("selected account set", {
           selectedAccountId,
           selectedAccountType: primary.normalizedType,
@@ -803,6 +822,37 @@ function DerivCallback() {
           tradingAdapterStorageKey: tradingAdapterStorageKey(sessionUser.id, selectedAccountId),
           tradePreconnectRequested: tokenSource === "oauth_access_token",
         });
+        setStatus("Preparing Deriv trading authorization...");
+        const selectedTradingSession = await getActiveDerivTradingSession(
+          {
+            ...primary,
+            account_id: selectedAccountId,
+            loginid: selectedAccountId,
+            deriv_token: selectedAccessToken,
+            token_source: tokenSource,
+            expires_at: expiresAt,
+            created_at: connectedAt,
+          },
+          { context: "deriv-callback-selected-account" },
+        );
+        markStage("trading authorization started", {
+          selectedAccountId,
+          token_source: selectedTradingSession.token_source,
+          adapter: selectedTradingSession.adapter,
+          websocketMode: selectedTradingSession.websocketMode,
+        });
+        const tradingAuthorization = await prepareTradingAuthorization(selectedTradingSession, {
+          context: "deriv-callback",
+          force: true,
+        });
+        markStage("trading authorization passed", {
+          selectedAccountId,
+          token_source: tradingAuthorization.token_source,
+          adapter: tradingAuthorization.trading_adapter,
+          trading_authorized: tradingAuthorization.trading_authorized,
+          trading_authorized_at: tradingAuthorization.trading_authorized_at,
+          last_trading_error: tradingAuthorization.last_trading_error,
+        });
         window.dispatchEvent(
           new CustomEvent("deriv:sessions-updated", {
             detail: {
@@ -812,6 +862,8 @@ function DerivCallback() {
               tokenSource,
               adapter: adapterForTokenSource(tokenSource),
               websocketMode: tradingWebSocketMode(tokenSource),
+              trading_authorized: tradingAuthorization.trading_authorized,
+              trading_authorized_at: tradingAuthorization.trading_authorized_at,
             },
           }),
         );

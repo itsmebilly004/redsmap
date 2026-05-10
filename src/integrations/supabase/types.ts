@@ -50,7 +50,12 @@ export type Database = {
           is_active: boolean;
           is_demo: boolean;
           is_virtual: boolean | null;
+          last_trading_error: string | null;
           loginid: string | null;
+          token_source: string | null;
+          trading_adapter: string | null;
+          trading_authorized: boolean;
+          trading_authorized_at: string | null;
           user_id: string;
         };
         Insert: {
@@ -64,7 +69,12 @@ export type Database = {
           is_active?: boolean;
           is_demo?: boolean;
           is_virtual?: boolean | null;
+          last_trading_error?: string | null;
           loginid?: string | null;
+          token_source?: string | null;
+          trading_adapter?: string | null;
+          trading_authorized?: boolean;
+          trading_authorized_at?: string | null;
           user_id: string;
         };
         Update: {
@@ -78,7 +88,12 @@ export type Database = {
           is_active?: boolean;
           is_demo?: boolean;
           is_virtual?: boolean | null;
+          last_trading_error?: string | null;
           loginid?: string | null;
+          token_source?: string | null;
+          trading_adapter?: string | null;
+          trading_authorized?: boolean;
+          trading_authorized_at?: string | null;
           user_id?: string;
         };
         Relationships: [];

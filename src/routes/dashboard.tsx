@@ -52,6 +52,10 @@ function DashboardLayout() {
             is_demo: account.is_demo,
             normalizedType: account.normalizedType,
             token_source: account.token_source ?? null,
+            trading_authorized: account.trading_authorized ?? false,
+            trading_adapter: account.trading_adapter ?? null,
+            trading_authorized_at: account.trading_authorized_at ?? null,
+            last_trading_error: account.last_trading_error ?? null,
             deriv_token_exists: Boolean(account.deriv_token),
             expires_at: account.expires_at ?? null,
           },
@@ -86,6 +90,10 @@ function DashboardLayout() {
     account?.expires_at,
     account?.normalizedType,
     account?.token_source,
+    account?.trading_authorized,
+    account?.trading_adapter,
+    account?.trading_authorized_at,
+    account?.last_trading_error,
   ]);
 
   async function logout() {

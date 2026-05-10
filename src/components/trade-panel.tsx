@@ -32,6 +32,7 @@ import {
   onStatus,
   prepareDerivTradingSession,
   redirectToDerivOAuth,
+  tradingAuthorizationIsFresh,
   type ConnectionStatus,
   type TradeCategory,
   type TradingAdapter,
@@ -72,6 +73,20 @@ const EMPTY_QUOTE: ProposalQuote = {
   payout: null,
   pct: null,
 };
+
+function accountHasFreshTradingAuthorization(
+  account: ReturnType<typeof useDerivBalanceContext>["account"],
+) {
+  if (!account?.token_source || !account.trading_adapter) return false;
+  return tradingAuthorizationIsFresh({
+    account_id: account.account_id,
+    trading_authorized: Boolean(account.trading_authorized),
+    trading_adapter: account.trading_adapter,
+    token_source: account.token_source,
+    trading_authorized_at: account.trading_authorized_at ?? null,
+    last_trading_error: account.last_trading_error ?? null,
+  });
+}
 
 function TradingConnectionBadge({
   error,
@@ -157,7 +172,24 @@ export function TradePanel({
     };
   }, []);
 
-  useEffect(() => onStatus(setTradingConnectionStatus), []);
+  useEffect(
+    () =>
+      onStatus((nextStatus) => {
+        if (nextStatus === "disconnected" && accountHasFreshTradingAuthorization(account)) {
+          setTradingConnectionStatus("connected");
+          return;
+        }
+        setTradingConnectionStatus(nextStatus);
+      }),
+    [
+      account?.account_id,
+      account?.token_source,
+      account?.trading_authorized,
+      account?.trading_adapter,
+      account?.trading_authorized_at,
+      account?.last_trading_error,
+    ],
+  );
 
   useEffect(() => {
     setErrorMessage(null);
@@ -167,9 +199,11 @@ export function TradePanel({
       return;
     }
     let cancelled = false;
-    setTradingConnectionStatus((current) =>
-      current === "connected" ? current : "connecting",
-    );
+    const preparedAuthorizationFresh = accountHasFreshTradingAuthorization(account);
+    setTradingConnectionStatus((current) => {
+      if (preparedAuthorizationFresh) return "connected";
+      return current === "connected" ? current : "connecting";
+    });
     console.info("[Manual Trader] page load active dashboard account", {
       selectedAccountId: account.account_id,
       loginid: account.loginid,
@@ -180,6 +214,11 @@ export function TradePanel({
       expires_at: account.expires_at ?? null,
       balance: accountBalance,
       currency: tradeCurrency,
+      trading_authorized: account.trading_authorized ?? false,
+      trading_adapter: account.trading_adapter ?? null,
+      trading_authorized_at: account.trading_authorized_at ?? null,
+      tradingAuthorizationFresh: preparedAuthorizationFresh,
+      last_trading_error: account.last_trading_error ?? null,
     });
     ensureDerivTradingConnection(account, { context: "manual-trader-page-load" })
       .then((tradingSession) => {
@@ -229,6 +268,10 @@ export function TradePanel({
     account?.deriv_token,
     account?.expires_at,
     account?.token_source,
+    account?.trading_authorized,
+    account?.trading_adapter,
+    account?.trading_authorized_at,
+    account?.last_trading_error,
     account?.normalizedType,
     accountBalance,
     token,

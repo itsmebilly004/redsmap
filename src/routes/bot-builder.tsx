@@ -22,6 +22,7 @@ import {
   getStatus,
   getTradingSocketAccountId,
   prepareDerivTradingSession,
+  tradingAuthorizationIsFresh,
   type TradeCategory,
 } from "@/lib/deriv";
 import { buildAccumulatorProposalPayload } from "@/lib/accumulator-engine";
@@ -290,6 +291,16 @@ function BotBuilder() {
   useEffect(() => {
     if (!derivAccount || !token) return;
     let cancelled = false;
+    const preparedAuthorizationFresh =
+      Boolean(derivAccount.token_source && derivAccount.trading_adapter) &&
+      tradingAuthorizationIsFresh({
+        account_id: derivAccount.account_id,
+        trading_authorized: Boolean(derivAccount.trading_authorized),
+        trading_adapter: derivAccount.trading_adapter!,
+        token_source: derivAccount.token_source!,
+        trading_authorized_at: derivAccount.trading_authorized_at ?? null,
+        last_trading_error: derivAccount.last_trading_error ?? null,
+      });
     console.info("[Deriv Bot] page load active dashboard account", {
       selectedAccountId: derivAccount.account_id,
       loginid: derivAccount.loginid,
@@ -298,6 +309,11 @@ function BotBuilder() {
       token_source: derivAccount.token_source ?? null,
       deriv_token_exists: Boolean(derivAccount.deriv_token),
       expires_at: derivAccount.expires_at ?? null,
+      trading_authorized: derivAccount.trading_authorized ?? false,
+      trading_adapter: derivAccount.trading_adapter ?? null,
+      trading_authorized_at: derivAccount.trading_authorized_at ?? null,
+      tradingAuthorizationFresh: preparedAuthorizationFresh,
+      last_trading_error: derivAccount.last_trading_error ?? null,
     });
     ensureDerivTradingConnection(derivAccount, { context: "bot-builder-page-load" })
       .then((tradingSession) => {
@@ -344,6 +360,10 @@ function BotBuilder() {
     derivAccount?.expires_at,
     derivAccount?.normalizedType,
     derivAccount?.token_source,
+    derivAccount?.trading_authorized,
+    derivAccount?.trading_adapter,
+    derivAccount?.trading_authorized_at,
+    derivAccount?.last_trading_error,
     token,
   ]);
 

@@ -30,6 +30,7 @@ const DERIV_SESSION_EXPIRED_CODE = "DERIV_SESSION_EXPIRED";
 const DERIV_RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
 const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const TRADING_AUTHORIZATION_FRESH_MS = 10 * 60 * 1000;
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
@@ -116,6 +117,14 @@ type DerivAppIdMode = "oauth" | "legacy";
 export type TradingAdapter = "newOAuthTradingAdapter" | "legacyTradingAdapter";
 export type TradingWebSocketMode = "oauth-otp" | "legacy-direct-authorize";
 export type DerivTokenSource = "oauth_access_token" | "legacy_authorize_token";
+export type TradingAuthorizationState = {
+  account_id: string;
+  trading_authorized: boolean;
+  trading_adapter: TradingAdapter;
+  token_source: DerivTokenSource;
+  trading_authorized_at: string | null;
+  last_trading_error: string | null;
+};
 type DerivSocketError = Error & {
   code?: string;
   status?: number;
@@ -138,6 +147,10 @@ export type DerivTradingSession = {
   sessionAccountId: string;
   sessionLoginid: string | null;
   normalizedType: "real" | "demo" | "unknown";
+  trading_authorized: boolean;
+  trading_adapter: TradingAdapter;
+  trading_authorized_at: string | null;
+  last_trading_error: string | null;
 };
 
 type Listener = (msg: DerivMessage) => void;
@@ -333,6 +346,10 @@ export async function getActiveDerivTradingSession(
           sessionAccountId: requestedAccountId,
           sessionLoginid: normalizedRequested.loginid ?? null,
           normalizedType,
+          trading_authorized: false,
+          trading_adapter: adapter,
+          trading_authorized_at: null,
+          last_trading_error: null,
         };
       }
     }
@@ -373,7 +390,7 @@ export async function getActiveDerivTradingSession(
   const { data: sessionRows, error: sessionsError } = await supabase
     .from("sessions")
     .select(
-      "id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at, is_active, created_at",
+      "id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at, is_active, created_at, trading_authorized, trading_adapter, token_source, trading_authorized_at, last_trading_error",
     )
     .eq("user_id", userId)
     .eq("is_active", true);
@@ -434,6 +451,7 @@ export async function getActiveDerivTradingSession(
 
   const storedToken = textFrom(selectedSession?.deriv_token);
   const selectedAccountPersistedTokenSource = readStoredTokenSource(userId, selectedAccountId);
+  const sessionTokenSource = tokenSourceFromText(selectedSession?.token_source);
   const savedSelectedTokenSource = sameDerivId(savedSelection.accountId, selectedAccountId)
     ? savedSelection.tokenSource
     : null;
@@ -445,7 +463,10 @@ export async function getActiveDerivTradingSession(
       ? explicitTokenSourceForAccount(selectedAccountForToken)
       : null;
   const selectedAccountResolvedTokenSource =
-    requestedExplicitTokenSource ?? selectedAccountPersistedTokenSource ?? savedSelectedTokenSource;
+    requestedExplicitTokenSource ??
+    sessionTokenSource ??
+    selectedAccountPersistedTokenSource ??
+    savedSelectedTokenSource;
   const selectedAccountExpiresAt = selectedAccountForToken
     ? textFrom(selectedAccountForToken.expires_at)
     : "";
@@ -488,6 +509,13 @@ export async function getActiveDerivTradingSession(
   );
   const adapter = tokenSource ? adapterForTokenSource(tokenSource) : null;
   const websocketMode = tokenSource ? tradingWebSocketMode(tokenSource) : null;
+  const storedAuthorization = readStoredTradingAuthorizationState(userId, selectedAccountId);
+  const sessionAuthorization = authorizationStateFromSessionRow(
+    selectedSession,
+    selectedAccountId,
+    tokenSource,
+  );
+  const preparedAuthorization = storedAuthorization ?? sessionAuthorization;
 
   console.info("[Deriv Trading] pre-trade session validation", {
     context: options.context ?? "trade",
@@ -528,11 +556,14 @@ export async function getActiveDerivTradingSession(
       storedTokenSource,
       selectedAccountExplicitTokenSource: requestedExplicitTokenSource,
       selectedAccountPersistedTokenSource,
+      sessionTokenSource,
       savedSelectedTokenSource,
       tokenSource,
       adapter,
       websocketMode,
       createdAt: resolvedCreatedAt,
+      preparedTradingAuthorization: preparedAuthorization,
+      preparedTradingAuthorizationFresh: tradingAuthorizationIsFresh(preparedAuthorization),
     },
     selectedReactTokenMatchesSession: Boolean(
       selectedAccountForToken &&
@@ -577,6 +608,10 @@ export async function getActiveDerivTradingSession(
     sessionAccountId: selectedSession?.account_id ?? selectedAccountId,
     sessionLoginid: selectedSession?.loginid ?? normalizedSelected.loginid ?? null,
     normalizedType,
+    trading_authorized: Boolean(preparedAuthorization?.trading_authorized),
+    trading_adapter: preparedAuthorization?.trading_adapter ?? adapterForTokenSource(tokenSource),
+    trading_authorized_at: preparedAuthorization?.trading_authorized_at ?? null,
+    last_trading_error: preparedAuthorization?.last_trading_error ?? null,
   };
   persistSelectedTradingSession(userId, session);
   return session;
@@ -601,6 +636,9 @@ export async function ensureDerivTradingConnection(
   options: { context?: string } = {},
 ): Promise<DerivTradingSession> {
   const session = await prepareDerivTradingSession(selectedAccount, options);
+  await prepareTradingAuthorization(session, {
+    context: options.context ?? "trade",
+  });
   await connect();
   console.info("[Deriv Trading] active trading connection ready", {
     context: options.context ?? "trade",
@@ -618,6 +656,300 @@ export async function ensureDerivTradingConnection(
     websocketAccountId: getTradingSocketAccountId(),
   });
   return session;
+}
+
+export async function prepareTradingAuthorization(
+  session: DerivTradingSession,
+  options: { context?: string; force?: boolean } = {},
+): Promise<TradingAuthorizationState> {
+  if (!isBrowser) {
+    throw createDerivSocketError(
+      "Deriv trading authorization is only available in the browser.",
+      "DERIV_BROWSER_REQUIRED",
+      undefined,
+      false,
+    );
+  }
+
+  const { data: authData } = await supabase.auth.getSession();
+  const userId = authData.session?.user?.id ?? null;
+  const cached = readStoredTradingAuthorizationState(userId, session.account_id);
+  if (
+    !options.force &&
+    cached &&
+    tradingAuthorizationIsFresh(cached) &&
+    cached.token_source === session.token_source &&
+    cached.trading_adapter === session.adapter
+  ) {
+    console.info("[Deriv Trading] trading authorization reused", {
+      context: options.context ?? "trade",
+      selectedAccountId: session.account_id,
+      token_source: session.token_source,
+      adapter: session.adapter,
+      websocketMode: session.websocketMode,
+      trading_authorized_at: cached.trading_authorized_at,
+      freshnessMs: cached.trading_authorized_at
+        ? Date.now() - new Date(cached.trading_authorized_at).getTime()
+        : null,
+    });
+    return cached;
+  }
+
+  console.info("[Deriv Trading] trading authorization started", {
+    context: options.context ?? "trade",
+    selectedAccountId: session.account_id,
+    loginid: session.loginid,
+    normalizedType: session.normalizedType,
+    token_source: session.token_source,
+    adapter: session.adapter,
+    websocketMode: session.websocketMode,
+    cachedFound: Boolean(cached),
+    cachedFresh: tradingAuthorizationIsFresh(cached),
+    force: Boolean(options.force),
+  });
+
+  try {
+    if (session.token_source === "oauth_access_token") {
+      const authenticatedWsUrl = await getAuthenticatedWsUrl(
+        session.deriv_token,
+        session.account_id,
+        session.token_source,
+      );
+      await verifyOAuthOtpTradingSocket(authenticatedWsUrl, session);
+    } else {
+      await verifyLegacyTradingAuthorize(session);
+    }
+
+    const state: TradingAuthorizationState = {
+      account_id: session.account_id,
+      trading_authorized: true,
+      trading_adapter: session.adapter,
+      token_source: session.token_source,
+      trading_authorized_at: new Date().toISOString(),
+      last_trading_error: null,
+    };
+    await persistTradingAuthorizationState(userId, state);
+    console.info("[Deriv Trading] trading authorization passed", {
+      context: options.context ?? "trade",
+      selectedAccountId: session.account_id,
+      token_source: session.token_source,
+      adapter: session.adapter,
+      websocketMode: session.websocketMode,
+      trading_authorized_at: state.trading_authorized_at,
+    });
+    return state;
+  } catch (error) {
+    const message = getDerivTradingErrorMessage(error);
+    const state: TradingAuthorizationState = {
+      account_id: session.account_id,
+      trading_authorized: false,
+      trading_adapter: session.adapter,
+      token_source: session.token_source,
+      trading_authorized_at: null,
+      last_trading_error: message,
+    };
+    await persistTradingAuthorizationState(userId, state);
+    console.warn("[Deriv Trading] trading authorization failed", {
+      context: options.context ?? "trade",
+      selectedAccountId: session.account_id,
+      token_source: session.token_source,
+      adapter: session.adapter,
+      websocketMode: session.websocketMode,
+      last_trading_error: message,
+      error,
+    });
+    throw error;
+  }
+}
+
+function verifyOAuthOtpTradingSocket(
+  authenticatedWsUrl: string,
+  session: DerivTradingSession,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let ws: WebSocket | null = null;
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        ws?.close();
+      } catch {
+        /* ignore */
+      }
+      reject(
+        createDerivSocketError(
+          "OAuth trading WebSocket verification timed out.",
+          "DERIV_OAUTH_TRADING_AUTH_FAILED",
+          408,
+          false,
+        ),
+      );
+    }, 15000);
+
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        ws?.close(1000, "OAuth trading authorization verified");
+      } catch {
+        /* ignore */
+      }
+      if (error) reject(error);
+      else resolve();
+    };
+
+    try {
+      ws = new WebSocket(authenticatedWsUrl);
+      ws.onopen = () => {
+        console.info("[Deriv Trading] OAuth OTP trading socket verification opened", {
+          selectedAccountId: session.account_id,
+          token_source: session.token_source,
+          adapter: session.adapter,
+          websocketMode: session.websocketMode,
+          authorizationResult: "oauth-otp-socket-open",
+        });
+        finish();
+      };
+      ws.onerror = () => {
+        finish(
+          createDerivSocketError(
+            "OAuth trading WebSocket verification failed.",
+            "DERIV_OAUTH_TRADING_AUTH_FAILED",
+            401,
+            false,
+          ),
+        );
+      };
+      ws.onclose = (event) => {
+        if (settled) return;
+        finish(
+          createDerivSocketError(
+            event.reason
+              ? `OAuth trading WebSocket closed: ${event.reason}`
+              : `OAuth trading WebSocket closed with code ${event.code}`,
+            "DERIV_OAUTH_TRADING_AUTH_FAILED",
+            401,
+            false,
+          ),
+        );
+      };
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error("OAuth trading WebSocket verification failed."));
+    }
+  });
+}
+
+function verifyLegacyTradingAuthorize(session: DerivTradingSession): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let ws: WebSocket | null = null;
+    let settled = false;
+    const authorizeReqId = reqId++;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        ws?.close();
+      } catch {
+        /* ignore */
+      }
+      reject(
+        createDerivSocketError(
+          "Legacy trading authorization timed out.",
+          DERIV_SESSION_EXPIRED_CODE,
+          408,
+          false,
+        ),
+      );
+    }, 15000);
+
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        ws?.close(1000, "Legacy trading authorization verified");
+      } catch {
+        /* ignore */
+      }
+      if (error) reject(error);
+      else resolve();
+    };
+
+    try {
+      ws = new WebSocket(legacyTradingWsUrl());
+      ws.onopen = () => {
+        console.info("[Deriv Trading] legacy trading authorization verify started", {
+          selectedAccountId: session.account_id,
+          token_source: session.token_source,
+          adapter: session.adapter,
+          websocketMode: session.websocketMode,
+          req_id: authorizeReqId,
+        });
+        ws?.send(JSON.stringify({ authorize: session.deriv_token, req_id: authorizeReqId }));
+      };
+      ws.onerror = () => {
+        finish(
+          createDerivSocketError(
+            "Legacy trading WebSocket authorization failed.",
+            DERIV_SESSION_EXPIRED_CODE,
+            401,
+            false,
+          ),
+        );
+      };
+      ws.onclose = (event) => {
+        if (settled) return;
+        finish(
+          createDerivSocketError(
+            event.reason
+              ? `Legacy trading WebSocket closed: ${event.reason}`
+              : `Legacy trading WebSocket closed with code ${event.code}`,
+            DERIV_SESSION_EXPIRED_CODE,
+            401,
+            false,
+          ),
+        );
+      };
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as DerivMessage;
+          if (data.req_id !== authorizeReqId && data.msg_type !== "authorize") return;
+          if (data.error) {
+            finish(derivMessageError(data.error));
+            return;
+          }
+          const authorizedLoginid = textFrom(data.authorize?.loginid, data.authorize?.account_id);
+          if (authorizedLoginid && !sameDerivId(authorizedLoginid, session.account_id)) {
+            finish(
+              createDerivSocketError(
+                "Legacy trading authorization account mismatch. Please reconnect this account.",
+                "DERIV_TOKEN_ACCOUNT_MISMATCH",
+                401,
+                false,
+              ),
+            );
+            return;
+          }
+          console.info("[Deriv Trading] legacy trading authorization verify passed", {
+            selectedAccountId: session.account_id,
+            authorizedLoginid: authorizedLoginid || null,
+            token_source: session.token_source,
+            adapter: session.adapter,
+            websocketMode: session.websocketMode,
+            authorizationResult: "legacy-direct-authorize-success",
+            req_id: authorizeReqId,
+          });
+          finish();
+        } catch (error) {
+          finish(error instanceof Error ? error : new Error("Legacy authorize response parse failed."));
+        }
+      };
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error("Legacy trading authorization failed."));
+    }
+  });
 }
 
 function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticatedAccount>) {
@@ -706,6 +1038,10 @@ function tradingAdapterStorageKey(userId: string, accountId: string) {
   return `deriv_trading_adapter:${userId}:${accountId.toUpperCase()}`;
 }
 
+function tradingAuthorizationStorageKey(userId: string, accountId: string) {
+  return `deriv_trading_authorization:${userId}:${accountId.toUpperCase()}`;
+}
+
 function tokenSourceIsValid(value: unknown): value is DerivTokenSource {
   return value === "oauth_access_token" || value === "legacy_authorize_token";
 }
@@ -716,6 +1052,130 @@ function adapterIsValid(value: unknown): value is TradingAdapter {
 
 function accountTypeIsValid(value: unknown): value is DerivTradingSession["normalizedType"] {
   return value === "real" || value === "demo" || value === "unknown";
+}
+
+function tradingAuthorizationStateIsValid(value: unknown): value is TradingAuthorizationState {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<TradingAuthorizationState>;
+  return (
+    typeof record.account_id === "string" &&
+    typeof record.trading_authorized === "boolean" &&
+    adapterIsValid(record.trading_adapter) &&
+    tokenSourceIsValid(record.token_source) &&
+    (record.trading_authorized_at === null ||
+      typeof record.trading_authorized_at === "string") &&
+    (record.last_trading_error === null || typeof record.last_trading_error === "string")
+  );
+}
+
+export function tradingAuthorizationIsFresh(
+  state: TradingAuthorizationState | null | undefined,
+) {
+  if (!state?.trading_authorized || !state.trading_authorized_at) return false;
+  const authorizedAt = new Date(state.trading_authorized_at).getTime();
+  if (!Number.isFinite(authorizedAt)) return false;
+  return Date.now() - authorizedAt <= TRADING_AUTHORIZATION_FRESH_MS;
+}
+
+export function readStoredTradingAuthorizationState(
+  userId: string | null | undefined,
+  accountId: string | null | undefined,
+): TradingAuthorizationState | null {
+  if (!isBrowser || !userId || !accountId) return null;
+  try {
+    const raw = localStorage.getItem(tradingAuthorizationStorageKey(userId, accountId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!tradingAuthorizationStateIsValid(parsed)) return null;
+    if (!sameDerivId(parsed.account_id, accountId)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function authorizationStateFromSessionRow(
+  row: DerivRecord | null | undefined,
+  accountId: string,
+  fallbackTokenSource: DerivTokenSource | null,
+): TradingAuthorizationState | null {
+  if (!row) return null;
+  const tokenSource = tokenSourceFromText(row.token_source) ?? fallbackTokenSource;
+  const adapter = adapterIsValid(row.trading_adapter)
+    ? row.trading_adapter
+    : tokenSource
+      ? adapterForTokenSource(tokenSource)
+      : null;
+  if (!tokenSource || !adapter) return null;
+  const tradingAuthorized =
+    row.trading_authorized === true || row.trading_authorized === "true";
+  const state = {
+    account_id: textFrom(row.account_id, row.loginid, accountId),
+    trading_authorized: tradingAuthorized,
+    trading_adapter: adapter,
+    token_source: tokenSource,
+    trading_authorized_at: textFrom(row.trading_authorized_at) || null,
+    last_trading_error: textFrom(row.last_trading_error) || null,
+  } satisfies TradingAuthorizationState;
+  return tradingAuthorizationStateIsValid(state) ? state : null;
+}
+
+async function persistTradingAuthorizationState(
+  userId: string | null | undefined,
+  state: TradingAuthorizationState,
+) {
+  if (!isBrowser || !userId) return;
+  try {
+    localStorage.setItem(
+      tradingAuthorizationStorageKey(userId, state.account_id),
+      JSON.stringify(state),
+    );
+    localStorage.setItem(tokenSourceStorageKey(userId, state.account_id), state.token_source);
+    localStorage.setItem(tradingAdapterStorageKey(userId, state.account_id), state.trading_adapter);
+    const selectedAccountId =
+      localStorage.getItem(selectedAccountIdStorageKey(userId)) ??
+      localStorage.getItem(activeAccountStorageKey(userId));
+    if (sameDerivId(selectedAccountId, state.account_id)) {
+      localStorage.setItem(selectedTokenSourceStorageKey(userId), state.token_source);
+      localStorage.setItem(selectedAdapterStorageKey(userId), state.trading_adapter);
+    }
+  } catch (error) {
+    console.warn("[Deriv Trading] could not persist trading readiness locally", {
+      userId,
+      accountId: state.account_id,
+      error,
+    });
+  }
+
+  const { error } = await supabase
+    .from("sessions")
+    .update({
+      trading_authorized: state.trading_authorized,
+      trading_adapter: state.trading_adapter,
+      token_source: state.token_source,
+      trading_authorized_at: state.trading_authorized_at,
+      last_trading_error: state.last_trading_error,
+    })
+    .eq("user_id", userId)
+    .eq("account_id", state.account_id);
+
+  if (error) {
+    console.warn("[Deriv Trading] could not persist trading readiness to Supabase", {
+      userId,
+      accountId: state.account_id,
+      trading_authorized: state.trading_authorized,
+      trading_adapter: state.trading_adapter,
+      token_source: state.token_source,
+      message: error.message,
+      code: error.code,
+      details: error.details,
+    });
+  }
+
+  console.info("[Deriv Trading] stored trading readiness state", {
+    userId,
+    ...state,
+  });
 }
 
 function readSavedSelectedAccount(userId: string) {
