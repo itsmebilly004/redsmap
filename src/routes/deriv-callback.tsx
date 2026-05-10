@@ -576,51 +576,50 @@ function DerivCallback() {
         }
         const expiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
 
-        if (accountFetchMode === "legacy") {
-          const freshAccountIds = new Set(
-            accounts.map((account) => String(account.loginid ?? account.account_id).toUpperCase()),
-          );
-          const { data: existingSessions, error: existingSessionsError } = await supabase
-            .from("sessions")
-            .select("id, account_id, loginid")
-            .eq("user_id", sessionUser.id)
-            .eq("is_active", true);
+        const freshAccountIds = new Set(
+          accounts.map((account) => String(account.loginid ?? account.account_id).toUpperCase()),
+        );
+        const { data: existingSessions, error: existingSessionsError } = await supabase
+          .from("sessions")
+          .select("id, account_id, loginid")
+          .eq("user_id", sessionUser.id)
+          .eq("is_active", true);
 
-          if (existingSessionsError) {
-            markStage("stale Supabase session lookup failure", {
-              message: existingSessionsError.message,
-              code: existingSessionsError.code,
-              details: existingSessionsError.details,
+        if (existingSessionsError) {
+          markStage("stale Supabase session lookup failure", {
+            message: existingSessionsError.message,
+            code: existingSessionsError.code,
+            details: existingSessionsError.details,
+          });
+        } else {
+          const staleSessions = (existingSessions ?? []).filter((session) => {
+            const accountId = String(session.loginid ?? session.account_id ?? "").toUpperCase();
+            return accountId && !freshAccountIds.has(accountId);
+          });
+          if (staleSessions.length) {
+            markStage("stale Supabase rows invalidation started", {
+              accountFetchMode,
+              staleAccountIds: staleSessions.map((session) => session.account_id),
+              freshAccountIds: Array.from(freshAccountIds),
             });
-          } else {
-            const staleSessions = (existingSessions ?? []).filter((session) => {
-              const accountId = String(session.loginid ?? session.account_id ?? "").toUpperCase();
-              return accountId && !freshAccountIds.has(accountId);
-            });
-            if (staleSessions.length) {
-              markStage("stale Supabase rows invalidation started", {
-                staleAccountIds: staleSessions.map((session) => session.account_id),
-                freshAccountIds: Array.from(freshAccountIds),
+            const { error: staleUpdateError } = await supabase
+              .from("sessions")
+              .update({ is_active: false })
+              .eq("user_id", sessionUser.id)
+              .in(
+                "id",
+                staleSessions.map((session) => session.id),
+              );
+            if (staleUpdateError) {
+              markStage("stale Supabase rows invalidation failure", {
+                message: staleUpdateError.message,
+                code: staleUpdateError.code,
+                details: staleUpdateError.details,
               });
-              const { error: staleUpdateError } = await supabase
-                .from("sessions")
-                .update({ is_active: false })
-                .eq("user_id", sessionUser.id)
-                .in(
-                  "id",
-                  staleSessions.map((session) => session.id),
-                );
-              if (staleUpdateError) {
-                markStage("stale Supabase rows invalidation failure", {
-                  message: staleUpdateError.message,
-                  code: staleUpdateError.code,
-                  details: staleUpdateError.details,
-                });
-              } else {
-                markStage("stale Supabase rows invalidated", {
-                  staleAccountIds: staleSessions.map((session) => session.account_id),
-                });
-              }
+            } else {
+              markStage("stale Supabase rows invalidated", {
+                staleAccountIds: staleSessions.map((session) => session.account_id),
+              });
             }
           }
         }
@@ -685,6 +684,28 @@ function DerivCallback() {
             account_id: accountId,
             savedSession,
           });
+          if (savedSession?.id) {
+            const { error: duplicateSessionError } = await supabase
+              .from("sessions")
+              .update({ is_active: false })
+              .eq("user_id", sessionUser.id)
+              .eq("account_id", accountId)
+              .neq("id", savedSession.id);
+            if (duplicateSessionError) {
+              markStage("duplicate Supabase session invalidation failure", {
+                account_id: accountId,
+                keptSessionId: savedSession.id,
+                message: duplicateSessionError.message,
+                code: duplicateSessionError.code,
+                details: duplicateSessionError.details,
+              });
+            } else {
+              markStage("duplicate Supabase sessions invalidated", {
+                account_id: accountId,
+                keptSessionId: savedSession.id,
+              });
+            }
+          }
         }
         markStage("Supabase upsert success", {
           savedAccountIds: savedAccounts,

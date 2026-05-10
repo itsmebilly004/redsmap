@@ -10,6 +10,7 @@ type DerivAccountOtpRequest = {
 };
 
 type SessionRow = {
+  id?: string | null;
   account_id: string;
   loginid: string | null;
   deriv_token: string | null;
@@ -19,10 +20,12 @@ type SessionRow = {
   balance: number | null;
   expires_at: string | null;
   is_active: boolean;
+  created_at?: string | null;
 };
 
 const DERIV_SESSION_EXPIRED = "DERIV_SESSION_EXPIRED";
 const RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
+const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
 
 function derivApiAppId(mode: DerivAccountOtpRequest["appIdMode"] = "oauth") {
   const oauthAppId = process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID ?? "";
@@ -86,10 +89,47 @@ function sameAccountId(left: string | null | undefined, right: string | null | u
   return Boolean(left && right && left.trim().toUpperCase() === right.trim().toUpperCase());
 }
 
-function isExpired(expiresAt: string | null | undefined) {
-  if (!expiresAt) return false;
+function timestampValue(value: string | null | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function tokenExpiryState(expiresAt: string | null | undefined) {
+  const currentTimeMs = Date.now();
+  if (!expiresAt) {
+    return {
+      expiresAt: null,
+      currentTime: new Date(currentTimeMs).toISOString(),
+      expired: false,
+      expiresWithinClockSkew: false,
+      invalidExpiry: false,
+    };
+  }
   const expiry = new Date(expiresAt).getTime();
-  return Number.isFinite(expiry) && expiry <= Date.now();
+  if (!Number.isFinite(expiry)) {
+    return {
+      expiresAt,
+      currentTime: new Date(currentTimeMs).toISOString(),
+      expired: false,
+      expiresWithinClockSkew: false,
+      invalidExpiry: true,
+    };
+  }
+  return {
+    expiresAt,
+    currentTime: new Date(currentTimeMs).toISOString(),
+    expired: expiry <= currentTimeMs - TOKEN_EXPIRY_CLOCK_SKEW_MS,
+    expiresWithinClockSkew: expiry <= currentTimeMs + TOKEN_EXPIRY_CLOCK_SKEW_MS,
+    invalidExpiry: false,
+  };
+}
+
+function compareSessionFreshness(left: SessionRow, right: SessionRow) {
+  const leftExpiry = timestampValue(left.expires_at);
+  const rightExpiry = timestampValue(right.expires_at);
+  if (leftExpiry !== rightExpiry) return rightExpiry - leftExpiry;
+  return timestampValue(right.created_at) - timestampValue(left.created_at);
 }
 
 function isLikelyDerivOAuthToken(token: string | null | undefined) {
@@ -197,7 +237,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
           const { data: sessionRows, error: sessionsError } = await supabase
             .from("sessions")
             .select(
-              "account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at, is_active",
+              "id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at, is_active, created_at",
             )
             .eq("user_id", userId)
             .eq("is_active", true);
@@ -217,26 +257,35 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             );
           }
 
-          const selectedSession = ((sessionRows ?? []) as SessionRow[]).find(
-            (session) =>
-              sameAccountId(session.account_id, accountId) ||
-              sameAccountId(session.loginid, accountId),
-          );
+          const matchingSessions = ((sessionRows ?? []) as SessionRow[])
+            .filter(
+              (session) =>
+                sameAccountId(session.account_id, accountId) ||
+                sameAccountId(session.loginid, accountId),
+            )
+            .sort(compareSessionFreshness);
+          const selectedSession = matchingSessions[0] ?? null;
           const normalized = selectedSession
             ? normalizeDerivAccount(selectedSession, { trustVirtualFlags: false })
             : null;
           const storedToken = stringFrom(selectedSession?.deriv_token);
-          const tokenExpired = isExpired(selectedSession?.expires_at);
+          const expiry = tokenExpiryState(selectedSession?.expires_at);
           const selectedAccountType = normalized?.normalizedType ?? "unknown";
 
           console.info("[Deriv OTP API] session validation", {
             requestedAccountId: accountId,
             authenticatedUserId: userId,
             sessionFound: Boolean(selectedSession),
+            matchingSessionCount: matchingSessions.length,
+            sessionId: selectedSession?.id ?? null,
             deriv_token_exists: Boolean(storedToken),
-            tokenExpiry: selectedSession?.expires_at ?? null,
-            tokenExpired,
+            tokenExpiry: expiry.expiresAt,
+            currentTime: expiry.currentTime,
+            tokenExpired: expiry.expired,
+            expiresWithinClockSkew: expiry.expiresWithinClockSkew,
+            invalidExpiry: expiry.invalidExpiry,
             selectedAccountType,
+            createdAt: selectedSession?.created_at ?? null,
             appIdMode,
             bodyToken: tokenLogValue(bodyAccessToken),
             storedToken: tokenLogValue(storedToken),
@@ -245,13 +294,15 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             ),
           });
 
-          if (!selectedSession || !storedToken || tokenExpired) {
+          if (!selectedSession || !storedToken || expiry.expired) {
             return sessionExpired({
               requestedAccountId: accountId,
               authenticatedUserId: userId,
               sessionFound: Boolean(selectedSession),
               derivTokenExists: Boolean(storedToken),
-              tokenExpiry: selectedSession?.expires_at ?? null,
+              tokenExpiry: expiry.expiresAt,
+              currentTime: expiry.currentTime,
+              tokenExpired: expiry.expired,
               selectedAccountType,
             });
           }
@@ -323,6 +374,13 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
           });
 
           if (otpResponse.status === 401 || otpResponse.status === 403) {
+            if (selectedSession?.id) {
+              await supabase
+                .from("sessions")
+                .update({ is_active: false })
+                .eq("user_id", userId)
+                .eq("id", selectedSession.id);
+            }
             return sessionExpired({
               requestedAccountId: accountId,
               authenticatedUserId: userId,

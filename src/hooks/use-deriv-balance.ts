@@ -19,6 +19,7 @@ export type DerivAccount = NormalizedDerivAccount & {
   currency: string | null;
   balance: number | null;
   expires_at?: string | null;
+  created_at?: string | null;
 };
 
 export type LiveBalance = {
@@ -49,6 +50,29 @@ function isLikelyDerivOAuthToken(token: string | null | undefined) {
 
 function isLikelyLegacyToken(token: string | null | undefined) {
   return Boolean(token && !isLikelyDerivOAuthToken(token));
+}
+
+function timestampValue(value: string | null | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function compareAccountFreshness(left: DerivAccount, right: DerivAccount) {
+  const leftExpiry = timestampValue(left.expires_at);
+  const rightExpiry = timestampValue(right.expires_at);
+  if (leftExpiry !== rightExpiry) return rightExpiry - leftExpiry;
+  return timestampValue(right.created_at) - timestampValue(left.created_at);
+}
+
+function dedupeAccountsByLogin(accounts: DerivAccount[]) {
+  const sorted = [...accounts].sort(compareAccountFreshness);
+  const byAccountId = new Map<string, DerivAccount>();
+  for (const account of sorted) {
+    const key = account.account_id.toUpperCase();
+    if (!byAccountId.has(key)) byAccountId.set(key, account);
+  }
+  return Array.from(byAccountId.values());
 }
 
 function accountSummary(account: Pick<DerivAccount, "account_id" | "loginid" | "currency" | "balance" | "normalizedType" | "detected_prefix">) {
@@ -128,7 +152,7 @@ export function useDerivBalance(): LiveBalance {
     (async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at")
+        .select("id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at, created_at")
         .eq("user_id", user.id)
         .eq("is_active", true)
         .order("is_demo", { ascending: true });
@@ -141,9 +165,9 @@ export function useDerivBalance(): LiveBalance {
 
       const rawAccounts = (data ?? []) as DerivAccount[];
       console.info("[Deriv Accounts] raw session accounts before normalization", rawAccounts);
-      const normalized = rawAccounts
+      const normalized = dedupeAccountsByLogin(rawAccounts
         .map((account) => normalizeDerivAccount(account, { trustVirtualFlags: false }))
-        .filter((account): account is DerivAccount => Boolean(account?.deriv_token));
+        .filter((account): account is DerivAccount => Boolean(account?.deriv_token)));
       console.info("[Deriv Accounts] normalized session accounts", normalized.map((account) => ({
         account_id: account.account_id,
         loginid: account.loginid,
