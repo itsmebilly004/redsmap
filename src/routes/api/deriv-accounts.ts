@@ -57,7 +57,7 @@ type DerivWebSocketSnapshot = {
 function derivApiAppId(mode: DerivAccountsRequest["appIdMode"] = "oauth") {
   const oauthAppId = process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID ?? "";
   const legacyAppId = process.env.VITE_DERIV_LEGACY_APP_ID ?? "";
-  return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId || legacyAppId;
+  return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId;
 }
 
 function derivApiAppIdSource(mode: DerivAccountsRequest["appIdMode"] = "oauth") {
@@ -70,7 +70,7 @@ function derivApiAppIdSource(mode: DerivAccountsRequest["appIdMode"] = "oauth") 
   if (hasOAuthAppId) {
     return process.env.VITE_DERIV_APP_ID ? "VITE_DERIV_APP_ID" : "VITE_DERIV_CLIENT_ID";
   }
-  return "VITE_DERIV_LEGACY_APP_ID";
+  return "missing:VITE_DERIV_APP_ID_OR_VITE_DERIV_CLIENT_ID";
 }
 
 function errorMessage(data: DerivAccountsResponse) {

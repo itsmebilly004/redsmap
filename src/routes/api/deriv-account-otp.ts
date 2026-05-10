@@ -32,7 +32,7 @@ const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 function derivApiAppId(mode: DerivAccountOtpRequest["appIdMode"] = "oauth") {
   const oauthAppId = process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID ?? "";
   const legacyAppId = process.env.VITE_DERIV_LEGACY_APP_ID ?? "";
-  return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId || legacyAppId;
+  return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId;
 }
 
 function derivApiAppIdSource(mode: DerivAccountOtpRequest["appIdMode"] = "oauth") {
@@ -45,7 +45,7 @@ function derivApiAppIdSource(mode: DerivAccountOtpRequest["appIdMode"] = "oauth"
   if (hasOAuthAppId) {
     return process.env.VITE_DERIV_APP_ID ? "VITE_DERIV_APP_ID" : "VITE_DERIV_CLIENT_ID";
   }
-  return "VITE_DERIV_LEGACY_APP_ID";
+  return "missing:VITE_DERIV_APP_ID_OR_VITE_DERIV_CLIENT_ID";
 }
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
@@ -472,6 +472,12 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               : "legacy_authorize_token");
           const shouldUseOAuthOtp =
             appIdMode === "oauth" || requestedTokenSource === "oauth_access_token";
+          const tokenForOtp =
+            shouldUseOAuthOtp && bodyAccessToken ? bodyAccessToken : storedToken;
+          const tokenForOtpSource =
+            shouldUseOAuthOtp && bodyAccessToken
+              ? "request-body-oauth-token"
+              : "supabase-session-token";
           const expiry = effectiveTokenExpiryState(
             selectedSession?.expires_at,
             selectedSession?.created_at,
@@ -500,6 +506,8 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             tokenSource: requestedTokenSource,
             bodyToken: tokenLogValue(bodyAccessToken),
             storedToken: tokenLogValue(storedToken),
+            tokenForOtp: tokenLogValue(tokenForOtp),
+            tokenForOtpSource,
             bodyTokenMatchesStoredToken: Boolean(
               bodyAccessToken && storedToken && bodyAccessToken === storedToken,
             ),
@@ -556,12 +564,18 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
           }
 
           if (bodyAccessToken && bodyAccessToken !== storedToken) {
-            console.warn("[Deriv OTP API] stale client token ignored", {
-              requestedAccountId: accountId,
-              authenticatedUserId: userId,
-              bodyToken: tokenLogValue(bodyAccessToken),
-              storedToken: tokenLogValue(storedToken),
-            });
+            console.warn(
+              shouldUseOAuthOtp
+                ? "[Deriv OTP API] using request OAuth token for OTP instead of stored session token"
+                : "[Deriv OTP API] stale client token ignored",
+              {
+                requestedAccountId: accountId,
+                authenticatedUserId: userId,
+                bodyToken: tokenLogValue(bodyAccessToken),
+                storedToken: tokenLogValue(storedToken),
+                tokenForOtpSource,
+              },
+            );
           }
 
           if (!shouldUseOAuthOtp && !isLikelyDerivOAuthToken(storedToken)) {
@@ -589,7 +603,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             authMode: "supabase-session",
             authenticatedUserId: userId,
             selectedAccountType,
-            storedToken,
+            storedToken: tokenForOtp,
             tokenExpiry: expiry.expiresAt,
           });
         } catch (error: unknown) {

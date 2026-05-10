@@ -375,21 +375,43 @@ export async function prepareDerivTradingSession(
     .sort(compareSessionFreshness);
   const selectedSession = matchingSessions[0] ?? null;
   const storedToken = textFrom(selectedSession?.deriv_token);
+  const selectedAccountExpiresAt = textFrom(selectedAccount.expires_at);
+  const selectedAccountCreatedAt = textFrom(selectedAccount.created_at);
+  const selectedAccountTokenFreshness = tokenFreshnessScore(
+    selectedAccountExpiresAt,
+    selectedAccountCreatedAt,
+  );
+  const storedTokenFreshness = tokenFreshnessScore(
+    selectedSession?.expires_at,
+    selectedSession?.created_at,
+  );
   const useSelectedAccountOAuthFallback =
     !storedToken &&
     selectedAccountToken &&
     selectedAccountTokenSource === "oauth_access_token";
-  const resolvedToken = storedToken || (useSelectedAccountOAuthFallback ? selectedAccountToken : "");
+  const useSelectedAccountOAuthToken =
+    Boolean(selectedAccountToken) &&
+    selectedAccountTokenSource === "oauth_access_token" &&
+    (!storedToken ||
+      selectedAccountToken === storedToken ||
+      selectedAccountTokenFreshness >= storedTokenFreshness);
+  const resolvedToken = useSelectedAccountOAuthToken
+    ? selectedAccountToken
+    : storedToken || (useSelectedAccountOAuthFallback ? selectedAccountToken : "");
   const storedTokenSource = storedToken
     ? readStoredTokenSource(userId, selectedAccountId)
     : null;
   const tokenSource = resolvedToken
-    ? storedTokenSource ?? tokenSourceForAccount(selectedAccount, resolvedToken)
+    ? useSelectedAccountOAuthToken
+      ? selectedAccountTokenSource
+      : storedTokenSource ?? tokenSourceForAccount(selectedAccount, resolvedToken)
     : null;
-  const resolvedExpiresAt =
-    selectedSession?.expires_at ?? textFrom(selectedAccount.expires_at) ?? null;
-  const resolvedCreatedAt =
-    selectedSession?.created_at ?? textFrom(selectedAccount.created_at) ?? null;
+  const resolvedExpiresAt = useSelectedAccountOAuthToken
+    ? selectedAccountExpiresAt || selectedSession?.expires_at || null
+    : selectedSession?.expires_at ?? selectedAccountExpiresAt ?? null;
+  const resolvedCreatedAt = useSelectedAccountOAuthToken
+    ? selectedAccountCreatedAt || selectedSession?.created_at || null
+    : selectedSession?.created_at ?? selectedAccountCreatedAt ?? null;
   const expiry = effectiveTokenExpiryState(
     resolvedExpiresAt,
     resolvedCreatedAt,
@@ -416,6 +438,12 @@ export async function prepareDerivTradingSession(
       storedTokenExists: Boolean(storedToken),
       selectedAccountTokenExists: Boolean(selectedAccountToken),
       selectedAccountOAuthFallback: Boolean(useSelectedAccountOAuthFallback),
+      selectedAccountOAuthTokenPreferred: Boolean(useSelectedAccountOAuthToken),
+      resolvedTokenSource: useSelectedAccountOAuthToken
+        ? "selected-account-context"
+        : "supabase-session",
+      selectedAccountTokenFreshness,
+      storedTokenFreshness,
       tokenExpiry: expiry.expiresAt,
       storedTokenExpiry: expiry.storedExpiresAt,
       platformTokenExpiry: expiry.platformExpiresAt,
@@ -553,6 +581,13 @@ function timestampValue(value: string | null | undefined) {
   if (!value) return 0;
   const time = new Date(value).getTime();
   return Number.isFinite(time) ? time : 0;
+}
+
+function tokenFreshnessScore(
+  expiresAt: string | null | undefined,
+  createdAt: string | null | undefined,
+) {
+  return Math.max(timestampValue(expiresAt), timestampValue(createdAt));
 }
 
 function tokenExpiryState(expiresAt: string | null | undefined) {
