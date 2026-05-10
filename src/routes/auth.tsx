@@ -11,7 +11,6 @@ import {
   getDerivOAuthDiagnostics,
   redirectToDerivOAuth,
   type DerivOAuthDiagnostics,
-  type DerivOAuthAppIdMode,
 } from "@/lib/deriv";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 
@@ -33,12 +32,6 @@ function AuthPage() {
   const [debugUrl, setDebugUrl] = useState<string | null>(null);
   const [pendingOAuthUrl, setPendingOAuthUrl] = useState<string | null>(null);
   const [oauthDiagnostics, setOauthDiagnostics] = useState<DerivOAuthDiagnostics | null>(null);
-  const [oauthAppIdMode, setOauthAppIdMode] = useState<DerivOAuthAppIdMode>(() => {
-    if (typeof window === "undefined") return "client_id_app_id";
-    return localStorage.getItem("deriv_oauth_app_id_mode") === "client_id_only"
-      ? "client_id_only"
-      : "client_id_app_id";
-  });
 
   const isSignup = mode === "signup";
   const showOAuthDebug = import.meta.env.DEV || String(debug_oauth ?? "") === "1";
@@ -66,9 +59,7 @@ function AuthPage() {
     setPendingOAuthUrl(null);
     setOauthDiagnostics(null);
     try {
-      if (showOAuthDebug) localStorage.setItem("deriv_oauth_app_id_mode", oauthAppIdMode);
       const url = await buildOAuthUrl({
-        appIdMode: showOAuthDebug ? oauthAppIdMode : undefined,
         mode,
         returnTo: "/dashboard",
       });
@@ -162,44 +153,12 @@ function AuthPage() {
           {showOAuthDebug && (
             <div className="mt-4 rounded-xl border border-primary/20 bg-background/80 p-3 text-xs">
               <div className="mb-2 font-semibold text-foreground">Deriv OAuth debug</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    localStorage.setItem("deriv_oauth_app_id_mode", "client_id_only");
-                    setOauthAppIdMode("client_id_only");
-                    setDebugUrl(null);
-                  }}
-                  className={`rounded-md border px-2 py-1.5 ${
-                    oauthAppIdMode === "client_id_only"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground"
-                  }`}
-                >
-                  client_id only
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    localStorage.setItem("deriv_oauth_app_id_mode", "client_id_app_id");
-                    setOauthAppIdMode("client_id_app_id");
-                    setDebugUrl(null);
-                  }}
-                  className={`rounded-md border px-2 py-1.5 ${
-                    oauthAppIdMode === "client_id_app_id"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground"
-                  }`}
-                >
-                  client_id + app_id
-                </button>
-              </div>
               <div className="mt-3 space-y-1 text-muted-foreground">
                 <div>
                   Expected endpoint:{" "}
                   <span className="font-mono text-foreground">{DERIV_OAUTH_ENDPOINT_VALUE}</span>
                 </div>
-                <div>Selected mode: {oauthAppIdMode}</div>
+                <div>OAuth mode: client_id only</div>
               </div>
               {debugUrl && (
                 <div className="mt-3 space-y-2">
@@ -273,12 +232,7 @@ function AuthPage() {
                   <div>VITE_DERIV_CLIENT_ID={DERIV_CLIENT_ID_VALUE || "(missing)"}</div>
                   <div>VITE_DERIV_APP_ID={DERIV_APP_ID_VALUE || "(missing)"}</div>
                   <div>VITE_DERIV_REDIRECT_URI={DERIV_REDIRECT_URI_VALUE}</div>
-                  <div>
-                    client_id/app_id same value:{" "}
-                    {DERIV_CLIENT_ID_VALUE && DERIV_CLIENT_ID_VALUE === DERIV_APP_ID_VALUE
-                      ? "yes"
-                      : "no"}
-                  </div>
+                  <div>OAuth app_id query param included: {oauthDiagnostics.hasAppId ? "yes" : "no"}</div>
                 </div>
               </div>
 
