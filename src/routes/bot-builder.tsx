@@ -315,12 +315,10 @@ function BotBuilder() {
             normalizedType: tradingSession.normalizedType,
             token_source: tradingSession.token_source,
             adapter: tradingSession.adapter,
+            websocketMode: tradingSession.websocketMode,
             expires_at: tradingSession.expires_at,
           },
-          websocketMode:
-            tradingSession.token_source === "legacy_authorize_token"
-              ? "legacy-direct-authorize"
-              : "oauth-direct-authorize",
+          websocketMode: tradingSession.websocketMode,
           connectionStatus: getStatus(),
           websocketAccountId: getTradingSocketAccountId(),
         });
@@ -690,14 +688,15 @@ function BotBuilder() {
         tokenExpiry: tradingSession.expiresAt,
         tokenSource: tradingSession.tokenSource,
         adapter: tradingSession.adapter,
+        websocketMode: tradingSession.websocketMode,
         wsAccountId: getTradingSocketAccountId(),
         finalProposalPayload: proposal,
       });
 
       const quote = await requestProposal(proposal, {
         adapter: tradingSession.adapter,
-        selectedAccountId: derivAccount.account_id,
-        selectedAccountType: derivAccount.normalizedType,
+        selectedAccountId: tradingSession.account_id,
+        selectedAccountType: tradingSession.normalizedType,
         contractType,
       });
       const proposalId = quote.proposal?.id;
@@ -707,8 +706,8 @@ function BotBuilder() {
       const askPrice = Number(quote.proposal?.ask_price ?? stakeForTrade);
       const buy = await buyProposal(String(proposalId), askPrice, {
         adapter: tradingSession.adapter,
-        selectedAccountId: derivAccount.account_id,
-        selectedAccountType: derivAccount.normalizedType,
+        selectedAccountId: tradingSession.account_id,
+        selectedAccountType: tradingSession.normalizedType,
         contractType,
       });
       const contractId = String(buy.buy?.contract_id ?? "");

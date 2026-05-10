@@ -61,6 +61,7 @@ function DashboardLayout() {
             normalizedType: tradingSession.normalizedType,
             token_source: tradingSession.token_source,
             adapter: tradingSession.adapter,
+            websocketMode: tradingSession.websocketMode,
             expires_at: tradingSession.expires_at,
           },
         });

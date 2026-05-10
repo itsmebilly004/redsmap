@@ -193,6 +193,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         tokenExpiry: tradingSession.expiresAt,
         tokenSource: tradingSession.tokenSource,
         adapter: tradingSession.adapter,
+        websocketMode: tradingSession.websocketMode,
       });
       await cleanupSubscription();
 
@@ -208,8 +209,8 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       );
       const proposalResponse = await requestProposal(payload, {
         adapter: tradingSession.adapter,
-        selectedAccountId: account.account_id,
-        selectedAccountType: account.normalizedType,
+        selectedAccountId: tradingSession.account_id,
+        selectedAccountType: tradingSession.normalizedType,
         contractType: payload.contract_type,
       });
       const proposalId = String(proposalResponse.proposal?.id ?? "");
@@ -218,14 +219,14 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
 
       const buyResponse = await buyProposal(proposalId, askPrice, {
         adapter: tradingSession.adapter,
-        selectedAccountId: account.account_id,
-        selectedAccountType: account.normalizedType,
+        selectedAccountId: tradingSession.account_id,
+        selectedAccountType: tradingSession.normalizedType,
         contractType: payload.contract_type,
       });
       const contract = buyResponse.buy ?? {};
       const contractId = String(contract.contract_id ?? "");
       console.info("[Accumulator] contract_id", contractId);
-      activeAccountIdRef.current = account.account_id;
+      activeAccountIdRef.current = tradingSession.account_id;
 
       const { data: trade, error: tradeInsertError } = await supabase
         .from("trades")

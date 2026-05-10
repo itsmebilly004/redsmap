@@ -495,10 +495,19 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             );
           }
           const incomingAppIdMode = appIdMode;
-          const requestTokenSource: TokenSource =
-            tokenSource ?? (incomingAppIdMode === "legacy"
-              ? "legacy_authorize_token"
-              : "oauth_access_token");
+          if (tokenSource !== "oauth_access_token" && tokenSource !== "legacy_authorize_token") {
+            return errorResponse(
+              "DERIV_TOKEN_SOURCE_REQUIRED",
+              "Missing Deriv token_source. Reconnect this account before trading.",
+              400,
+              {
+                requestedAccountId: accountId,
+                incomingAppIdMode,
+                tokenSource: tokenSource ?? null,
+              },
+            );
+          }
+          const requestTokenSource: TokenSource = tokenSource;
           const finalAppIdMode: AppIdMode =
             requestTokenSource === "legacy_authorize_token" ? "legacy" : "oauth";
           const canUseOAuthTokenOnly =

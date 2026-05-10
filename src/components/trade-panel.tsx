@@ -162,8 +162,14 @@ export function TradePanel({
   useEffect(() => {
     setErrorMessage(null);
     setTradingConnectionError(null);
-    if (!account || !token) return;
+    if (!account || !token) {
+      setTradingConnectionStatus("disconnected");
+      return;
+    }
     let cancelled = false;
+    setTradingConnectionStatus((current) =>
+      current === "connected" ? current : "connecting",
+    );
     console.info("[Manual Trader] page load active dashboard account", {
       selectedAccountId: account.account_id,
       loginid: account.loginid,
@@ -192,12 +198,10 @@ export function TradePanel({
             normalizedType: tradingSession.normalizedType,
             token_source: tradingSession.token_source,
             adapter: tradingSession.adapter,
+            websocketMode: tradingSession.websocketMode,
             expires_at: tradingSession.expires_at,
           },
-          websocketMode:
-            tradingSession.token_source === "legacy_authorize_token"
-              ? "legacy-direct-authorize"
-              : "oauth-direct-authorize",
+          websocketMode: tradingSession.websocketMode,
           connectionStatus: getStatus(),
           websocketAccountId: getTradingSocketAccountId(),
         });
@@ -205,6 +209,7 @@ export function TradePanel({
       .catch((error) => {
         if (cancelled) return;
         const message = getDerivTradingErrorMessage(error);
+        setTradingConnectionStatus("disconnected");
         setTradingConnectionError(message);
         console.warn("[Manual Trader] trading connection check failed", {
           selectedAccountId: account.account_id,
@@ -283,6 +288,7 @@ export function TradePanel({
           tokenExpiry: tradingSession.expiresAt,
           tokenSource: tradingSession.tokenSource,
           adapter: tradingSession.adapter,
+          websocketMode: tradingSession.websocketMode,
         });
         await Promise.all(
           config.sides.map(async (side) => {
@@ -290,8 +296,8 @@ export function TradePanel({
               const payload = buildPayload(side.value, payoutMode, tradingSession.adapter);
               const response = await requestProposal(payload, {
                 adapter: tradingSession.adapter,
-                selectedAccountId: account.account_id,
-                selectedAccountType: account.normalizedType,
+                selectedAccountId: tradingSession.account_id,
+                selectedAccountType: tradingSession.normalizedType,
                 contractType: payload.contract_type,
               });
               const proposal = response.proposal ?? {};
@@ -476,6 +482,7 @@ export function TradePanel({
         tokenExpiry: tradingSession.expiresAt,
         tokenSource: tradingSession.tokenSource,
         adapter: tradingSession.adapter,
+        websocketMode: tradingSession.websocketMode,
       });
       await cleanupSubscription();
 
@@ -486,8 +493,8 @@ export function TradePanel({
       if (!proposalId) {
         const proposalResponse = await requestProposal(fallbackPayload, {
           adapter: tradingSession.adapter,
-          selectedAccountId: account.account_id,
-          selectedAccountType: account.normalizedType,
+          selectedAccountId: tradingSession.account_id,
+          selectedAccountType: tradingSession.normalizedType,
           contractType: fallbackPayload.contract_type,
         });
         const proposal = proposalResponse.proposal ?? {};
@@ -498,8 +505,8 @@ export function TradePanel({
 
       const buyResponse = await buyProposal(proposalId, askPrice, {
         adapter: tradingSession.adapter,
-        selectedAccountId: account.account_id,
-        selectedAccountType: account.normalizedType,
+        selectedAccountId: tradingSession.account_id,
+        selectedAccountType: tradingSession.normalizedType,
         contractType: fallbackPayload.contract_type,
       });
       const buy = buyResponse.buy ?? {};
@@ -523,7 +530,7 @@ export function TradePanel({
         toast.error("Trade placed, but history could not be saved.");
       }
       tradeIdRef.current = trade?.id ?? null;
-      activeAccountIdRef.current = account.account_id;
+      activeAccountIdRef.current = tradingSession.account_id;
       setActiveContract({
         ...EMPTY_CONTRACT_STATE,
         buyPrice: numberFrom(buy.buy_price) ?? askPrice,

@@ -3,8 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  adapterForTokenSource,
   setAuthenticatedAccount,
   subscribeBalance,
+  tradingWebSocketMode,
   type DerivTokenSource,
 } from "@/lib/deriv";
 import {
@@ -50,8 +52,20 @@ function selectedAccountTypeStorageKey(userId: string) {
   return `selected_deriv_account_type:${userId}`;
 }
 
+function selectedTokenSourceStorageKey(userId: string) {
+  return `selected_deriv_token_source:${userId}`;
+}
+
+function selectedAdapterStorageKey(userId: string) {
+  return `selected_deriv_adapter:${userId}`;
+}
+
 function tokenSourceStorageKey(userId: string, accountId: string) {
   return `deriv_token_source:${userId}:${accountId.toUpperCase()}`;
+}
+
+function tradingAdapterStorageKey(userId: string, accountId: string) {
+  return `deriv_trading_adapter:${userId}:${accountId.toUpperCase()}`;
 }
 
 function readSavedSelectedAccount(userId: string) {
@@ -60,6 +74,8 @@ function readSavedSelectedAccount(userId: string) {
       localStorage.getItem(selectedAccountIdStorageKey(userId)) ??
       localStorage.getItem(accountStorageKey(userId)),
     accountType: localStorage.getItem(selectedAccountTypeStorageKey(userId)),
+    tokenSource: localStorage.getItem(selectedTokenSourceStorageKey(userId)),
+    adapter: localStorage.getItem(selectedAdapterStorageKey(userId)),
   };
 }
 
@@ -67,10 +83,20 @@ function persistSelectedAccount(userId: string, account: DerivAccount) {
   localStorage.setItem(selectedAccountIdStorageKey(userId), account.account_id);
   localStorage.setItem(selectedAccountTypeStorageKey(userId), account.normalizedType);
   localStorage.setItem(accountStorageKey(userId), account.account_id);
+  if (account.token_source) {
+    const adapter = adapterForTokenSource(account.token_source);
+    localStorage.setItem(selectedTokenSourceStorageKey(userId), account.token_source);
+    localStorage.setItem(selectedAdapterStorageKey(userId), adapter);
+    localStorage.setItem(tokenSourceStorageKey(userId, account.account_id), account.token_source);
+    localStorage.setItem(tradingAdapterStorageKey(userId, account.account_id), adapter);
+  }
   console.info("[Deriv Balance] saved selected account", {
     userId,
     selected_deriv_account_id: account.account_id,
     selected_deriv_account_type: account.normalizedType,
+    token_source: account.token_source ?? null,
+    adapter: account.token_source ? adapterForTokenSource(account.token_source) : null,
+    websocketMode: account.token_source ? tradingWebSocketMode(account.token_source) : null,
   });
 }
 
@@ -83,23 +109,15 @@ type DerivAccountsApiResponse = {
 const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function tokenSourceFromText(value: unknown): DerivTokenSource | null {
-  const text = String(value ?? "").trim().toLowerCase();
-  if (!text) return null;
-  if (text.includes("oauth")) return "oauth_access_token";
-  if (text.includes("legacy")) return "legacy_authorize_token";
+  const text = String(value ?? "").trim();
+  if (text === "oauth_access_token" || text === "legacy_authorize_token") return text;
   return null;
 }
 
 function fallbackTokenSourceForRaw(
   account: Record<string, unknown>,
 ): DerivTokenSource | undefined {
-  return (
-    tokenSourceFromText(account.token_source) ??
-    tokenSourceFromText(account.deriv_token_source) ??
-    tokenSourceFromText(account.session_source) ??
-    tokenSourceFromText(account.auth_type) ??
-    undefined
-  );
+  return tokenSourceFromText(account.token_source) ?? undefined;
 }
 
 function tokenSourceForAccount(
@@ -128,6 +146,18 @@ function readTokenSource(
   try {
     const saved = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
     if (saved === "oauth_access_token" || saved === "legacy_authorize_token") return saved;
+    const selectedAccountId =
+      localStorage.getItem(selectedAccountIdStorageKey(userId)) ??
+      localStorage.getItem(accountStorageKey(userId));
+    if (selectedAccountId?.toUpperCase() === accountId.toUpperCase()) {
+      const selectedTokenSource = localStorage.getItem(selectedTokenSourceStorageKey(userId));
+      if (
+        selectedTokenSource === "oauth_access_token" ||
+        selectedTokenSource === "legacy_authorize_token"
+      ) {
+        return selectedTokenSource;
+      }
+    }
   } catch {
     /* ignore localStorage access failures */
   }
@@ -196,6 +226,7 @@ function dedupeAccountsByLogin(accounts: DerivAccount[]) {
 }
 
 function accountSummary(account: Pick<DerivAccount, "account_id" | "loginid" | "currency" | "balance" | "normalizedType" | "detected_prefix" | "token_source">) {
+  const adapter = account.token_source ? adapterForTokenSource(account.token_source) : null;
   return {
     account_id: account.account_id,
     loginid: account.loginid,
@@ -204,6 +235,8 @@ function accountSummary(account: Pick<DerivAccount, "account_id" | "loginid" | "
     normalizedType: account.normalizedType,
     detected_prefix: account.detected_prefix,
     token_source: account.token_source,
+    adapter,
+    websocketMode: account.token_source ? tradingWebSocketMode(account.token_source) : null,
   };
 }
 
@@ -333,6 +366,8 @@ export function useDerivBalance(): LiveBalance {
         is_demo: account.is_demo,
         is_virtual: account.is_virtual,
         token_source: account.token_source,
+        adapter: account.token_source ? adapterForTokenSource(account.token_source) : null,
+        websocketMode: account.token_source ? tradingWebSocketMode(account.token_source) : null,
         reason: account.classification_reason,
       })));
 
@@ -695,6 +730,8 @@ export function useDerivBalance(): LiveBalance {
             requestedAccountType: active.normalizedType,
             detected_prefix: active.detected_prefix,
             token_source: activeTokenSource,
+            adapter: adapterForTokenSource(activeTokenSource),
+            websocketMode: tradingWebSocketMode(activeTokenSource),
           });
           setAuthenticatedAccount(
             active.deriv_token,
@@ -710,6 +747,8 @@ export function useDerivBalance(): LiveBalance {
             detected_prefix: active.detected_prefix,
             is_virtual: activeIsDemo,
             token_source: activeTokenSource,
+            adapter: adapterForTokenSource(activeTokenSource),
+            websocketMode: tradingWebSocketMode(activeTokenSource),
           });
         } else {
           console.info("[Deriv Balance] Skipped Deriv WebSocket account initialization", {

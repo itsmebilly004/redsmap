@@ -4,7 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   DERIV_CLIENT_ID_VALUE,
   DERIV_REDIRECT_URI_VALUE,
+  adapterForTokenSource,
   setAuthenticatedAccount,
+  tradingWebSocketMode,
   type DerivTokenSource,
 } from "@/lib/deriv";
 import { normalizeDerivAccount } from "@/lib/deriv-account";
@@ -73,8 +75,20 @@ function selectedAccountTypeStorageKey(userId: string) {
   return `selected_deriv_account_type:${userId}`;
 }
 
+function selectedTokenSourceStorageKey(userId: string) {
+  return `selected_deriv_token_source:${userId}`;
+}
+
+function selectedAdapterStorageKey(userId: string) {
+  return `selected_deriv_adapter:${userId}`;
+}
+
 function tokenSourceStorageKey(userId: string, accountId: string) {
   return `deriv_token_source:${userId}:${accountId.toUpperCase()}`;
+}
+
+function tradingAdapterStorageKey(userId: string, accountId: string) {
+  return `deriv_trading_adapter:${userId}:${accountId.toUpperCase()}`;
 }
 
 function tokenSourceForFetchMode(mode: "oauth" | "legacy"): DerivTokenSource {
@@ -662,12 +676,21 @@ function DerivCallback() {
             is_demo: isVirtual,
             is_virtual: isVirtual,
             tokenSource,
+            adapter: adapterForTokenSource(tokenSource),
+            websocketMode: tradingWebSocketMode(tokenSource),
           });
           localStorage.setItem(tokenSourceStorageKey(sessionUser.id, accountId), tokenSource);
+          localStorage.setItem(
+            tradingAdapterStorageKey(sessionUser.id, accountId),
+            adapterForTokenSource(tokenSource),
+          );
           markStage("Deriv token source saved", {
             account_id: accountId,
             storageKey: tokenSourceStorageKey(sessionUser.id, accountId),
             tokenSource,
+            adapterStorageKey: tradingAdapterStorageKey(sessionUser.id, accountId),
+            adapter: adapterForTokenSource(tokenSource),
+            websocketMode: tradingWebSocketMode(tokenSource),
           });
           const { data: savedSession, error: upsertErr } = await supabase.from("sessions").upsert(
             {
@@ -741,9 +764,18 @@ function DerivCallback() {
           selectedAccountTypeStorageKey(sessionUser.id),
           primary.normalizedType,
         );
+        localStorage.setItem(selectedTokenSourceStorageKey(sessionUser.id), tokenSource);
+        localStorage.setItem(
+          selectedAdapterStorageKey(sessionUser.id),
+          adapterForTokenSource(tokenSource),
+        );
         localStorage.setItem(
           tokenSourceStorageKey(sessionUser.id, selectedAccountId),
           tokenSource,
+        );
+        localStorage.setItem(
+          tradingAdapterStorageKey(sessionUser.id, selectedAccountId),
+          adapterForTokenSource(tokenSource),
         );
         setAuthenticatedAccount(
           selectedAccessToken,
@@ -755,10 +787,15 @@ function DerivCallback() {
           selectedAccountId,
           selectedAccountType: primary.normalizedType,
           selectedTokenSource: tokenSource,
+          selectedAdapter: adapterForTokenSource(tokenSource),
+          websocketMode: tradingWebSocketMode(tokenSource),
           storageKey: activeAccountStorageKey(sessionUser.id),
           selectedAccountIdStorageKey: selectedAccountIdStorageKey(sessionUser.id),
           selectedAccountTypeStorageKey: selectedAccountTypeStorageKey(sessionUser.id),
+          selectedTokenSourceStorageKey: selectedTokenSourceStorageKey(sessionUser.id),
+          selectedAdapterStorageKey: selectedAdapterStorageKey(sessionUser.id),
           tokenSourceStorageKey: tokenSourceStorageKey(sessionUser.id, selectedAccountId),
+          tradingAdapterStorageKey: tradingAdapterStorageKey(sessionUser.id, selectedAccountId),
         });
         window.dispatchEvent(
           new CustomEvent("deriv:sessions-updated", {
@@ -767,6 +804,8 @@ function DerivCallback() {
               selectedAccountId,
               accountCount: savedAccounts.length,
               tokenSource,
+              adapter: adapterForTokenSource(tokenSource),
+              websocketMode: tradingWebSocketMode(tokenSource),
             },
           }),
         );
