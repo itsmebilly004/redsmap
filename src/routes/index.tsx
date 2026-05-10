@@ -50,8 +50,9 @@ function Index() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("code") && params.get("state")) {
+    if ((params.get("code") && params.get("state")) || hasLegacyDerivCallback(params)) {
       window.location.replace(`/deriv-callback${window.location.search}`);
+      return;
     }
     if (params.get("error")) {
       navigate({ to: "/auth", search: { mode: "signin" } });
@@ -122,4 +123,13 @@ function Index() {
       </div>
     </TopShell>
   );
+}
+
+function hasLegacyDerivCallback(params: URLSearchParams) {
+  const keys = Array.from(params.keys()).map((key) => key.toLowerCase());
+  const hasAccount = keys.some((key) =>
+    /^(acct|account|account_id|loginid|login_id)\d*$/.test(key),
+  );
+  const hasToken = keys.some((key) => /^(token|deriv_token)\d*$/.test(key));
+  return hasAccount && hasToken;
 }

@@ -24,6 +24,7 @@ type DerivAccount = {
   loginid?: string;
   currency?: string;
   balance?: string | number;
+  deriv_token?: string | null;
   is_demo?: boolean | string | number;
   is_virtual?: boolean | string | number;
   account_type?: string;
@@ -94,6 +95,70 @@ function accountLogSummary(account: ReturnType<typeof normalizeDerivAccount>) {
     currency: account.currency,
     balance: account.balance,
     reason: account.classification_reason,
+  };
+}
+
+function getCallbackParam(params: URLSearchParams, ...names: string[]) {
+  for (const name of names) {
+    const direct = params.get(name);
+    if (direct) return direct;
+    const lowerName = name.toLowerCase();
+    const entry = Array.from(params.entries()).find(([key]) => key.toLowerCase() === lowerName);
+    if (entry?.[1]) return entry[1];
+  }
+  return "";
+}
+
+function indexedCallbackParam(params: URLSearchParams, prefixes: string[], index: number) {
+  return getCallbackParam(params, ...prefixes.map((prefix) => `${prefix}${index}`));
+}
+
+function parseLegacyCallbackAccounts(params: URLSearchParams): DerivAccount[] {
+  const indexes = new Set<number>();
+  for (const key of params.keys()) {
+    const match = key
+      .toLowerCase()
+      .match(/^(acct|account|account_id|loginid|login_id|token|deriv_token|cur|currency)(\d+)$/);
+    if (match) indexes.add(Number(match[2]));
+  }
+
+  if (
+    !indexes.size &&
+    getCallbackParam(params, "acct", "account", "account_id", "loginid", "login_id") &&
+    getCallbackParam(params, "token", "deriv_token")
+  ) {
+    indexes.add(1);
+  }
+
+  return Array.from(indexes)
+    .sort((a, b) => a - b)
+    .map((index) => {
+      const accountId =
+        indexedCallbackParam(params, ["acct", "account", "account_id", "loginid", "login_id"], index) ||
+        getCallbackParam(params, "acct", "account", "account_id", "loginid", "login_id");
+      const token =
+        indexedCallbackParam(params, ["token", "deriv_token"], index) ||
+        getCallbackParam(params, "token", "deriv_token");
+      const currency =
+        indexedCallbackParam(params, ["cur", "currency"], index) ||
+        getCallbackParam(params, "cur", "currency");
+      if (!accountId || !token) return null;
+      return {
+        account_id: accountId,
+        loginid: accountId,
+        deriv_token: token,
+        currency: currency || "USD",
+        balance: 0,
+      } satisfies DerivAccount;
+    })
+    .filter((account): account is DerivAccount => Boolean(account));
+}
+
+function tokenLogValue(token: string | null | undefined) {
+  if (!token) return null;
+  return {
+    length: token.length,
+    prefix: `${token.slice(0, 4)}...`,
   };
 }
 
@@ -191,6 +256,7 @@ function DerivCallback() {
     const errorDescription = params.get("error_description");
     const code = params.get("code");
     const state = params.get("state");
+    const legacyCallbackAccounts = parseLegacyCallbackAccounts(params);
     markStage("callback URL received", {
       origin: window.location.origin,
       pathname: window.location.pathname,
@@ -205,6 +271,13 @@ function DerivCallback() {
       hasState: Boolean(state),
       statePrefix: state ? `${state.slice(0, 8)}...` : null,
     });
+    if (legacyCallbackAccounts.length) {
+      markStage("legacy callback account tokens received", {
+        accountCount: legacyCallbackAccounts.length,
+        accountIds: legacyCallbackAccounts.map((account) => account.account_id),
+        tokenShapes: legacyCallbackAccounts.map((account) => tokenLogValue(account.deriv_token)),
+      });
+    }
 
     if (callbackInFlight) {
       markStage("duplicate callback blocked", {
@@ -261,130 +334,158 @@ function DerivCallback() {
           throw new Error(`Authorization failed: ${detail}`);
         }
 
-        if (!code) throw new Error("Missing authorization code");
-        if (!state) throw new Error("State mismatch");
+        let accessToken = "";
+        let expiresIn = 0;
+        let rawAccounts: DerivAccount[] = [];
 
-        const expectedState = sessionStorage.getItem("deriv_oauth_state");
-        markStage("state matches stored state", {
-          returnedStateExists: Boolean(state),
-          storedStateExists: Boolean(expectedState),
-          matches: expectedState === state,
-          storageKey: "deriv_oauth_state",
-        });
-        if (!expectedState || expectedState !== state) {
-          throw new Error("State mismatch. Please restart the Deriv authorization flow.");
-        }
+        if (code) {
+          if (!state) throw new Error("State mismatch");
 
-        const codeVerifier = sessionStorage.getItem("deriv_code_verifier");
-        markStage("code_verifier exists", {
-          exists: Boolean(codeVerifier),
-          length: codeVerifier?.length ?? 0,
-          storageKey: "deriv_code_verifier",
-        });
-        if (!codeVerifier) {
-          logCallbackFailure("missing code_verifier", {
-            sessionStorageKeys: sessionStorageKeys(),
+          const expectedState = sessionStorage.getItem("deriv_oauth_state");
+          markStage("state matches stored state", {
+            returnedStateExists: Boolean(state),
+            storedStateExists: Boolean(expectedState),
+            matches: expectedState === state,
+            storageKey: "deriv_oauth_state",
           });
-          throw new Error("Expired login session. Please sign in with Deriv again.");
-        }
-
-        sessionStorage.removeItem("deriv_oauth_state");
-        sessionStorage.removeItem("deriv_code_verifier");
-
-        setStatus("Exchanging Deriv authorization code...");
-        markStage("token exchange started", {
-          localRoute: "/api/deriv-token-exchange",
-          providerEndpoint: "https://auth.deriv.com/oauth2/token",
-          method: "POST",
-          grant_type: "authorization_code",
-          client_id: DERIV_CLIENT_ID_VALUE,
-          redirect_uri: DERIV_REDIRECT_URI_VALUE,
-          hasCode: Boolean(code),
-          hasCodeVerifier: Boolean(codeVerifier),
-        });
-        const tokenResponse = await fetch("/api/deriv-token-exchange", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code, codeVerifier }),
-        });
-        const tokenData = await responseJson<DerivTokenResponse>(tokenResponse, {
-          error: "invalid_response",
-          error_description: "Token exchange returned a non-JSON response",
-        });
-        const tokenLog = {
-          ok: tokenResponse.ok,
-          status: tokenResponse.status,
-          hasAccessToken: Boolean(tokenData.access_token),
-          expiresIn: tokenData.expires_in,
-          tokenType: tokenData.token_type,
-          error: tokenData.error,
-          errorDescription: tokenData.error_description,
-        };
-        if (!tokenResponse.ok) {
-          markStage("token exchange failure", tokenLog);
-          if (tokenResponse.status === 403) {
-            throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
+          if (!expectedState || expectedState !== state) {
+            throw new Error("State mismatch. Please restart the Deriv authorization flow.");
           }
-          throw new Error(
-            tokenData?.error_description
-              ? `Token exchange failed: ${tokenData.error_description}`
-              : tokenData?.error
-                ? `Token exchange failed: ${tokenData.error}`
-                : "Token exchange failed",
-          );
-        }
-        markStage("token exchange success", tokenLog);
 
-        const accessToken = tokenData.access_token;
-        const expiresIn = Number(tokenData.expires_in ?? 0);
-        markStage("access_token exists", {
-          exists: Boolean(accessToken),
-          expiresIn,
-          tokenType: tokenData.token_type ?? null,
-        });
-        if (!accessToken) throw new Error("No access token returned");
-
-        setStatus("Loading Deriv accounts...");
-        markStage("accounts fetch started", {
-          localRoute: "/api/deriv-accounts",
-          browserDirectToDeriv: false,
-          hasAccessToken: Boolean(accessToken),
-        });
-        const accountsResponse = await fetch("/api/deriv-accounts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accessToken }),
-        });
-        const accountsData = await responseJson<DerivAccountsResponse>(accountsResponse, {
-          error: "Deriv accounts endpoint returned a non-JSON response",
-        });
-        const accountsLog = {
-          ok: accountsResponse.ok,
-          status: accountsResponse.status,
-          accountCount: accountsData.data?.length ?? 0,
-          error: accountsData.error,
-          detail: accountsData.detail,
-        };
-        if (!accountsResponse.ok) {
-          markStage("accounts fetch failure", accountsLog);
-          if (accountsResponse.status === 403) {
-            throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
+          const codeVerifier = sessionStorage.getItem("deriv_code_verifier");
+          markStage("code_verifier exists", {
+            exists: Boolean(codeVerifier),
+            length: codeVerifier?.length ?? 0,
+            storageKey: "deriv_code_verifier",
+          });
+          if (!codeVerifier) {
+            logCallbackFailure("missing code_verifier", {
+              sessionStorageKeys: sessionStorageKeys(),
+            });
+            throw new Error("Expired login session. Please sign in with Deriv again.");
           }
-          if (accountsResponse.status === 429) {
+
+          sessionStorage.removeItem("deriv_oauth_state");
+          sessionStorage.removeItem("deriv_code_verifier");
+
+          setStatus("Exchanging Deriv authorization code...");
+          markStage("token exchange started", {
+            localRoute: "/api/deriv-token-exchange",
+            providerEndpoint: "https://auth.deriv.com/oauth2/token",
+            method: "POST",
+            grant_type: "authorization_code",
+            client_id: DERIV_CLIENT_ID_VALUE,
+            redirect_uri: DERIV_REDIRECT_URI_VALUE,
+            hasCode: Boolean(code),
+            hasCodeVerifier: Boolean(codeVerifier),
+          });
+          const tokenResponse = await fetch("/api/deriv-token-exchange", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code, codeVerifier }),
+          });
+          const tokenData = await responseJson<DerivTokenResponse>(tokenResponse, {
+            error: "invalid_response",
+            error_description: "Token exchange returned a non-JSON response",
+          });
+          const tokenLog = {
+            ok: tokenResponse.ok,
+            status: tokenResponse.status,
+            hasAccessToken: Boolean(tokenData.access_token),
+            expiresIn: tokenData.expires_in,
+            tokenType: tokenData.token_type,
+            error: tokenData.error,
+            errorDescription: tokenData.error_description,
+          };
+          if (!tokenResponse.ok) {
+            markStage("token exchange failure", tokenLog);
+            if (tokenResponse.status === 403) {
+              throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
+            }
             throw new Error(
-              accountsData.error ??
-                "Deriv is rate limiting account requests. Please wait a moment, then start login again.",
+              tokenData?.error_description
+                ? `Token exchange failed: ${tokenData.error_description}`
+                : tokenData?.error
+                  ? `Token exchange failed: ${tokenData.error}`
+                  : "Token exchange failed",
             );
           }
-          throw new Error(accountsData.detail ?? accountsData.error ?? "Could not load Deriv accounts");
+          markStage("token exchange success", tokenLog);
+
+          accessToken = tokenData.access_token ?? "";
+          expiresIn = Number(tokenData.expires_in ?? 0);
+          markStage("access_token exists", {
+            exists: Boolean(accessToken),
+            expiresIn,
+            tokenType: tokenData.token_type ?? null,
+          });
+          if (!accessToken) throw new Error("No access token returned");
+
+          setStatus("Loading Deriv accounts...");
+          markStage("accounts fetch started", {
+            localRoute: "/api/deriv-accounts",
+            browserDirectToDeriv: false,
+            hasAccessToken: Boolean(accessToken),
+          });
+          const accountsResponse = await fetch("/api/deriv-accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accessToken }),
+          });
+          const accountsData = await responseJson<DerivAccountsResponse>(accountsResponse, {
+            error: "Deriv accounts endpoint returned a non-JSON response",
+          });
+          const accountsLog = {
+            ok: accountsResponse.ok,
+            status: accountsResponse.status,
+            accountCount: accountsData.data?.length ?? 0,
+            error: accountsData.error,
+            detail: accountsData.detail,
+          };
+          if (!accountsResponse.ok) {
+            markStage("accounts fetch failure", accountsLog);
+            if (accountsResponse.status === 403) {
+              throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
+            }
+            if (accountsResponse.status === 429) {
+              throw new Error(
+                accountsData.error ??
+                  "Deriv is rate limiting account requests. Please wait a moment, then start login again.",
+              );
+            }
+            throw new Error(accountsData.detail ?? accountsData.error ?? "Could not load Deriv accounts");
+          }
+          markStage("accounts fetch success", accountsLog);
+          rawAccounts = accountsData.data ?? [];
+        } else if (legacyCallbackAccounts.length) {
+          sessionStorage.removeItem("deriv_oauth_state");
+          sessionStorage.removeItem("deriv_code_verifier");
+          accessToken = legacyCallbackAccounts[0]?.deriv_token ?? "";
+          expiresIn = 0;
+          setStatus("Loading Deriv accounts...");
+          markStage("legacy token callback accepted", {
+            accountCount: legacyCallbackAccounts.length,
+            accountIds: legacyCallbackAccounts.map((account) => account.account_id),
+            oauthStartedAt: sessionStorage.getItem("deriv_oauth_started_at"),
+          });
+          markStage("token exchange skipped", {
+            reason: "Deriv returned legacy account tokens for this old account.",
+          });
+          markStage("accounts fetch success", {
+            source: "legacy callback query parameters",
+            accountCount: legacyCallbackAccounts.length,
+          });
+          rawAccounts = legacyCallbackAccounts;
+        } else {
+          throw new Error("Missing authorization code");
         }
-        markStage("accounts fetch success", accountsLog);
+
         markStage("accounts count", {
-          count: accountsData.data?.length ?? 0,
+          count: rawAccounts.length,
         });
 
-        console.info("[Deriv Accounts] callback raw accounts before normalization", accountsData?.data ?? []);
-        const normalizedAccounts = (accountsData?.data ?? [])
+        console.info("[Deriv Accounts] callback raw accounts before normalization", rawAccounts);
+        const normalizedAccounts = rawAccounts
           .map((account) => normalizeDerivAccount(account, { trustVirtualFlags: true }))
           .filter((account): account is NonNullable<ReturnType<typeof normalizeDerivAccount>> =>
             Boolean(account),
@@ -429,7 +530,7 @@ function DerivCallback() {
         if (activeSessionUserId !== sessionUser.id) {
           throw new Error("Supabase session was created but is not active. Please sign in again.");
         }
-        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+        const expiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
 
         markStage("Supabase upsert started", {
           table: "sessions",
@@ -441,6 +542,12 @@ function DerivCallback() {
         const savedAccounts: string[] = [];
         for (const account of accounts) {
           const accountId = String(account.loginid ?? account.account_id);
+          const accountToken = String(account.deriv_token ?? accessToken);
+          if (!accountToken) {
+            throw new Error(
+              `No Deriv token was returned for ${accountId}. Please reconnect this account.`,
+            );
+          }
           const isVirtual = account.normalizedType === "demo";
           const accountCurrency = account.currency ?? (isVirtual ? "USD" : "");
           setStatus(`Linking ${accountId}...`);
@@ -458,7 +565,7 @@ function DerivCallback() {
               user_id: sessionUser.id,
               account_id: accountId,
               loginid: accountId,
-              deriv_token: accessToken,
+              deriv_token: accountToken,
               currency: accountCurrency,
               balance: Number(account.balance ?? 0),
               is_demo: isVirtual,
@@ -492,9 +599,13 @@ function DerivCallback() {
         });
 
         const selectedAccountId = String(primary.loginid ?? primary.account_id);
+        const selectedAccessToken = String(primary.deriv_token ?? accessToken);
+        if (!selectedAccessToken) {
+          throw new Error("No Deriv token was returned for the selected account.");
+        }
         localStorage.setItem(activeAccountStorageKey(sessionUser.id), selectedAccountId);
         setAuthenticatedAccount(
-          accessToken,
+          selectedAccessToken,
           selectedAccountId,
           primary.normalizedType === "demo",
         );
