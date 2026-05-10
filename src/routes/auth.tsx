@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import {
   DERIV_OAUTH_ENDPOINT_VALUE,
   buildOAuthUrl,
+  getDerivOAuthRedirectFailure,
   getDerivOAuthDiagnostics,
   redirectToDerivOAuth,
+  type DerivOAuthRedirectFailure,
   type DerivOAuthDiagnostics,
 } from "@/lib/deriv";
 import { ArrowRight, ShieldCheck } from "lucide-react";
@@ -27,41 +29,54 @@ function AuthPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cacheStatus, setCacheStatus] = useState<string | null>(null);
   const [debugUrl, setDebugUrl] = useState<string | null>(null);
+  const [oauthFailure, setOauthFailure] = useState<DerivOAuthRedirectFailure | null>(null);
   const [oauthDiagnostics, setOauthDiagnostics] = useState<DerivOAuthDiagnostics | null>(null);
 
   const isSignup = mode === "signup";
-  const showOAuthDebug = import.meta.env.DEV || String(debug_oauth ?? "") === "1";
+  const showOAuthDebug = String(debug_oauth ?? "") === "1";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const checkDashboardLoginReturn = () => {
+    const checkDashboardRedirectReturn = () => {
       const attemptedAt = sessionStorage.getItem("deriv_oauth_started_at");
-      const referrer = document.referrer;
-      if (attemptedAt && referrer.startsWith("https://home.deriv.com/dashboard/login")) {
-        setErrorMessage(
-          "Deriv OAuth failure: Deriv routed the request to dashboard login instead of the authorization flow. Check that VITE_DERIV_CLIENT_ID is the OAuth2 client ID registered in Deriv Partners and that the redirect URI matches exactly.",
-        );
-      }
+      if (!attemptedAt) return;
+      const failure =
+        getDerivOAuthRedirectFailure(window.location.href) ??
+        getDerivOAuthRedirectFailure(document.referrer);
+      if (!failure) return;
+      setOauthFailure(failure);
+      setErrorMessage(failure.message);
+      console.warn("[Deriv OAuth] Authorization flow returned from non-OAuth Deriv route", {
+        reason: failure.reason,
+        url: failure.url,
+        attemptedAt,
+      });
     };
-    checkDashboardLoginReturn();
-    window.addEventListener("pageshow", checkDashboardLoginReturn);
-    return () => window.removeEventListener("pageshow", checkDashboardLoginReturn);
+    checkDashboardRedirectReturn();
+    window.addEventListener("pageshow", checkDashboardRedirectReturn);
+    window.addEventListener("focus", checkDashboardRedirectReturn);
+    return () => {
+      window.removeEventListener("pageshow", checkDashboardRedirectReturn);
+      window.removeEventListener("focus", checkDashboardRedirectReturn);
+    };
   }, []);
 
   async function handleDeriv() {
     setBusy(true);
     setErrorMessage(null);
+    setOauthFailure(null);
     setDebugUrl(null);
     setOauthDiagnostics(null);
     try {
       const url = await buildOAuthUrl({
+        debug: showOAuthDebug,
         mode,
         returnTo: "/dashboard",
       });
       const diagnostics = getDerivOAuthDiagnostics(url);
-      console.info("[Deriv OAuth Debug] Exact final URL before redirect", url);
-      console.info("[Deriv OAuth Debug] OAuth diagnostics", diagnostics);
       if (showOAuthDebug) {
+        console.info("[Deriv OAuth Debug] Exact final URL before redirect", url);
+        console.info("[Deriv OAuth Debug] OAuth diagnostics", diagnostics);
         setDebugUrl(url);
         setOauthDiagnostics(diagnostics);
       } else {
@@ -148,6 +163,7 @@ function AuthPage() {
                   <span className="font-mono text-foreground">{DERIV_OAUTH_ENDPOINT_VALUE}</span>
                 </div>
                 <div>OAuth mode: client_id only</div>
+                <div>Legacy fallback enabled: no</div>
               </div>
               {debugUrl && (
                 <div className="mt-3 space-y-2">
@@ -227,10 +243,17 @@ function AuthPage() {
               </div>
 
               <div className="mt-3 rounded-md border border-amber-300/50 bg-amber-50 p-2 text-[11px] text-amber-900">
-                If Deriv still sends this validated URL to home.deriv.com/dashboard/login, Deriv
-                rejected the OAuth request. Check that VITE_DERIV_CLIENT_ID is the OAuth app Client
-                ID in Deriv Partners and that this redirect URI is registered there exactly.
+                If Deriv sends this validated URL to app.deriv.com or
+                home.deriv.com/dashboard/login, Deriv rejected the OAuth authorization route for
+                that account or OAuth app configuration.
               </div>
+
+              {oauthFailure && (
+                <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-[11px] text-destructive">
+                  <div className="font-semibold">{oauthFailure.message}</div>
+                  <div className="mt-1 break-all font-mono">{oauthFailure.url}</div>
+                </div>
+              )}
 
               <Button
                 onClick={continueToDeriv}
@@ -344,6 +367,44 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
       actual: diagnostics.hasDoubleEncodedRedirectUri ? "double-encoded" : "normal URLSearchParams encoding",
       expected: "encoded once in the final URL",
       ok: !diagnostics.hasDoubleEncodedRedirectUri,
+    },
+    {
+      label: "legacy OAuth host",
+      actual: diagnostics.hasOAuthDerivHost ? "oauth.deriv.com present" : "absent",
+      expected: "absent",
+      ok: !diagnostics.hasOAuthDerivHost,
+    },
+    {
+      label: "legacy authorize path",
+      actual: diagnostics.hasLegacyAuthorizeEndpoint ? "/oauth2/authorize present" : "absent",
+      expected: "absent",
+      ok: !diagnostics.hasLegacyAuthorizeEndpoint,
+    },
+    {
+      label: "app.deriv.com dashboard",
+      actual: diagnostics.hasAppDerivDashboardRedirect ? "app.deriv.com present" : "absent",
+      expected: "absent",
+      ok: !diagnostics.hasAppDerivDashboardRedirect,
+    },
+    {
+      label: "home dashboard login",
+      actual: diagnostics.hasHomeDashboardLoginRedirect
+        ? "home.deriv.com/dashboard/login present"
+        : "absent",
+      expected: "absent",
+      ok: !diagnostics.hasHomeDashboardLoginRedirect,
+    },
+    {
+      label: "redirect=home",
+      actual: diagnostics.hasRedirectHome ? "present" : "absent",
+      expected: "absent",
+      ok: !diagnostics.hasRedirectHome,
+    },
+    {
+      label: "brand=deriv",
+      actual: diagnostics.hasBrandDeriv ? "present" : "absent",
+      expected: "absent",
+      ok: !diagnostics.hasBrandDeriv,
     },
   ];
 }
