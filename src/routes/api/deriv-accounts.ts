@@ -574,21 +574,15 @@ async function fetchOptionsAccounts(
   };
 
   let result = await requestWithCandidate(appIdCandidates[0]);
-  if (
-    (result.response.status === 401 || result.response.status === 403) &&
-    appIdCandidates.length > 1
-  ) {
-    const alternate = appIdCandidates.find(
-      (candidate) => candidate.value !== result.appIdCandidate.value,
-    );
-    if (alternate) {
-      console.warn("[Deriv Accounts API] OAuth accounts fetch rejected for primary app id; retrying alternate app id once", {
-        primaryAppIdSource: result.appIdCandidate.source,
-        primaryStatus: result.response.status,
-        alternateAppIdSource: alternate.source,
-      });
-      result = await requestWithCandidate(alternate);
-    }
+  for (let index = 1; index < appIdCandidates.length; index += 1) {
+    if (result.response.status !== 401 && result.response.status !== 403) break;
+    const nextCandidate = appIdCandidates[index];
+    console.warn("[Deriv Accounts API] OAuth accounts fetch rejected for app id; retrying next app id candidate", {
+      previousAppIdSource: result.appIdCandidate.source,
+      previousStatus: result.response.status,
+      nextAppIdSource: nextCandidate.source,
+    });
+    result = await requestWithCandidate(nextCandidate);
   }
 
   return { ...result, attemptedAppIds };
@@ -624,21 +618,15 @@ async function createDemoOptionsAccount(
   };
 
   let result = await requestWithCandidate(appIdCandidates[0]);
-  if (
-    (result.response.status === 401 || result.response.status === 403) &&
-    appIdCandidates.length > 1
-  ) {
-    const alternate = appIdCandidates.find(
-      (candidate) => candidate.value !== result.appIdCandidate.value,
-    );
-    if (alternate) {
-      console.warn("[Deriv Accounts API] OAuth demo account create rejected for primary app id; retrying alternate app id once", {
-        primaryAppIdSource: result.appIdCandidate.source,
-        primaryStatus: result.response.status,
-        alternateAppIdSource: alternate.source,
-      });
-      result = await requestWithCandidate(alternate);
-    }
+  for (let index = 1; index < appIdCandidates.length; index += 1) {
+    if (result.response.status !== 401 && result.response.status !== 403) break;
+    const nextCandidate = appIdCandidates[index];
+    console.warn("[Deriv Accounts API] OAuth demo account create rejected for app id; retrying next app id candidate", {
+      previousAppIdSource: result.appIdCandidate.source,
+      previousStatus: result.response.status,
+      nextAppIdSource: nextCandidate.source,
+    });
+    result = await requestWithCandidate(nextCandidate);
   }
 
   return { ...result, attemptedAppIds };

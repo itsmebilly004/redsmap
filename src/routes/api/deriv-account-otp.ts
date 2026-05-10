@@ -247,6 +247,30 @@ function createRouteSupabase(jwt: string) {
   });
 }
 
+async function deactivateSessionRows(
+  supabase: ReturnType<typeof createRouteSupabase>,
+  userId: string,
+  accountId: string,
+) {
+  if (!supabase) return false;
+  const { error } = await supabase
+    .from("sessions")
+    .update({ is_active: false })
+    .eq("user_id", userId)
+    .or(`account_id.eq.${accountId},loginid.eq.${accountId}`);
+  if (error) {
+    console.warn("[Deriv OTP API] could not deactivate expired OAuth session rows", {
+      authenticatedUserId: userId,
+      requestedAccountId: accountId,
+      message: error.message,
+      code: error.code,
+      details: error.details,
+    });
+    return false;
+  }
+  return true;
+}
+
 async function parseJsonResponse(response: Response) {
   const contentType = response.headers.get("content-type") ?? "";
   const isJson = contentType.toLowerCase().includes("application/json");
@@ -319,6 +343,7 @@ async function requestOAuthOtp({
   alternateTokenSourceLabel,
   authMode,
   authenticatedUserId,
+  supabaseClient,
   appIdHints,
   selectedAccountType,
   storedToken,
@@ -330,6 +355,7 @@ async function requestOAuthOtp({
   alternateTokenSourceLabel?: string | null;
   authMode: "supabase-session" | "oauth-token-only";
   authenticatedUserId?: string | null;
+  supabaseClient?: ReturnType<typeof createRouteSupabase> | null;
   appIdHints?: Pick<DerivAccountOtpRequest, "oauthClientId" | "oauthAppId">;
   selectedAccountType: string;
   storedToken: string;
@@ -345,6 +371,8 @@ async function requestOAuthOtp({
     value: appId,
     source: derivApiAppIdSource("oauth", appIdHints),
   };
+  const otpAppIdCandidates =
+    appIdCandidates.length > 0 ? appIdCandidates : [primaryAppIdCandidate];
 
   const endpoint = `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`;
   const requestOtp = async (
@@ -395,36 +423,30 @@ async function requestOAuthOtp({
 
   const requestOtpWithAppIdFallback = async (token: string, sourceLabel: string) => {
     const attemptedAppIds: Array<{ appId: string; appIdSource: string; status: number }> = [];
-    let result = await requestOtp(token, sourceLabel, primaryAppIdCandidate);
+    let result = await requestOtp(token, sourceLabel, otpAppIdCandidates[0]);
     attemptedAppIds.push({
       appId: result.appIdCandidate.value,
       appIdSource: result.appIdCandidate.source,
       status: result.response.status,
     });
-    if (
-      (result.response.status === 401 || result.response.status === 403) &&
-      appIdCandidates.length > 1
-    ) {
-      const alternateAppIdCandidate = appIdCandidates.find(
-        (candidate) => candidate.value !== result.appIdCandidate.value,
-      );
-      if (alternateAppIdCandidate) {
-        console.warn("[Deriv OTP API] OAuth OTP rejected for primary app id; retrying alternate app id once", {
-          requestedAccountId: accountId,
-          authenticatedUserId: authenticatedUserId ?? null,
-          authMode,
-          tokenSourceLabel: sourceLabel,
-          primaryAppIdSource: result.appIdCandidate.source,
-          primaryStatus: result.response.status,
-          alternateAppIdSource: alternateAppIdCandidate.source,
-        });
-        result = await requestOtp(token, sourceLabel, alternateAppIdCandidate);
-        attemptedAppIds.push({
-          appId: result.appIdCandidate.value,
-          appIdSource: result.appIdCandidate.source,
-          status: result.response.status,
-        });
-      }
+    for (let index = 1; index < otpAppIdCandidates.length; index += 1) {
+      if (result.response.status !== 401 && result.response.status !== 403) break;
+      const nextCandidate = otpAppIdCandidates[index];
+      console.warn("[Deriv OTP API] OAuth OTP rejected for app id; retrying next app id candidate", {
+        requestedAccountId: accountId,
+        authenticatedUserId: authenticatedUserId ?? null,
+        authMode,
+        tokenSourceLabel: sourceLabel,
+        previousAppIdSource: result.appIdCandidate.source,
+        previousStatus: result.response.status,
+        nextAppIdSource: nextCandidate.source,
+      });
+      result = await requestOtp(token, sourceLabel, nextCandidate);
+      attemptedAppIds.push({
+        appId: result.appIdCandidate.value,
+        appIdSource: result.appIdCandidate.source,
+        status: result.response.status,
+      });
     }
     return { ...result, attemptedAppIds };
   };
@@ -468,18 +490,36 @@ async function requestOAuthOtp({
   }
 
   if (otpResponse.status === 401 || otpResponse.status === 403) {
-    const tokenAccountVerification = await verifyOAuthTokenAccount({
-      accessToken: currentOtpToken,
-      appId: appIdCandidateUsed.value,
-      accountId,
-    }).catch((error: unknown) => ({
-      ok: false,
-      status: null,
-      responseWasJson: false,
-      responseBody: error instanceof Error ? error.message : "Account verification failed",
-      accountIds: [],
-      containsRequestedAccount: false,
-    }));
+    const tokenAccountVerificationByAppId = await Promise.all(
+      otpAppIdCandidates.map(async (candidate) => {
+        const verification = await verifyOAuthTokenAccount({
+          accessToken: currentOtpToken,
+          appId: candidate.value,
+          accountId,
+        }).catch((error: unknown) => ({
+          ok: false,
+          status: null,
+          responseWasJson: false,
+          responseBody: error instanceof Error ? error.message : "Account verification failed",
+          accountIds: [],
+          containsRequestedAccount: false,
+        }));
+        return {
+          appId: candidate.value,
+          appIdSource: candidate.source,
+          ...verification,
+        };
+      }),
+    );
+    const tokenRejectedByAllAppIds =
+      tokenAccountVerificationByAppId.length > 0 &&
+      tokenAccountVerificationByAppId.every(
+        (verification) => verification.status === 401 || verification.status === 403,
+      );
+    const tokenAccountVerification =
+      tokenAccountVerificationByAppId.find(
+        (verification) => verification.appId === appIdCandidateUsed.value,
+      ) ?? tokenAccountVerificationByAppId[0];
     console.warn("[Deriv OTP API] OAuth token/account verification after OTP auth failure", {
       requestedAccountId: accountId,
       authenticatedUserId: authenticatedUserId ?? null,
@@ -487,7 +527,42 @@ async function requestOAuthOtp({
       appIdSource: appIdCandidateUsed.source,
       attemptedAppIds,
       tokenAccountVerification,
+      tokenAccountVerificationByAppId,
     });
+    if (tokenRejectedByAllAppIds) {
+      const sessionDeactivated =
+        authMode === "supabase-session" && authenticatedUserId
+          ? await deactivateSessionRows(
+              supabaseClient ?? null,
+              authenticatedUserId,
+              accountId,
+            )
+          : false;
+      console.warn("[Deriv OTP API] OAuth token rejected by all app id candidates; session treated as expired", {
+        requestedAccountId: accountId,
+        authenticatedUserId: authenticatedUserId ?? null,
+        tokenSourceLabel: sourceLabel,
+        attemptedAppIds,
+        otpStatus: otpResponse.status,
+        responseBody: redactedOtpBody(parsed),
+        tokenAccountVerificationByAppId,
+        sessionDeactivated,
+      });
+      return sessionExpired({
+        requestedAccountId: accountId,
+        authenticatedUserId: authenticatedUserId ?? null,
+        authMode,
+        selectedAccountType,
+        tokenSourceLabel: sourceLabel,
+        appIdSource: appIdCandidateUsed.source,
+        attemptedAppIds,
+        otpStatus: otpResponse.status,
+        responseWasJson: parsed.isJson,
+        responseBody: redactedOtpBody(parsed),
+        tokenAccountVerificationByAppId,
+        sessionDeactivated,
+      });
+    }
     return errorResponse(
       "DERIV_OTP_AUTH_FAILED",
       "Trading authorization failed for this account. Please switch account or reconnect if it continues.",
@@ -504,6 +579,7 @@ async function requestOAuthOtp({
         responseWasJson: parsed.isJson,
         responseBody: redactedOtpBody(parsed),
         tokenAccountVerification,
+        tokenAccountVerificationByAppId,
         sessionDeactivated: false,
       },
     );
@@ -631,6 +707,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
                 accountId,
                 authMode: "oauth-token-only",
                 authenticatedUserId: null,
+                supabaseClient: null,
                 appIdHints,
                 selectedAccountType: "unknown",
                 storedToken: bodyAccessToken!,
@@ -670,6 +747,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
                 accountId,
                 authMode: "oauth-token-only",
                 authenticatedUserId: null,
+                supabaseClient: null,
                 appIdHints,
                 selectedAccountType: "unknown",
                 storedToken: bodyAccessToken!,
@@ -785,6 +863,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               accountId,
               authMode: "oauth-token-only",
               authenticatedUserId: userId,
+              supabaseClient: supabase,
               appIdHints,
               selectedAccountType,
               storedToken: bodyAccessToken!,
@@ -806,6 +885,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               accountId,
               authMode: "oauth-token-only",
               authenticatedUserId: userId,
+              supabaseClient: supabase,
               appIdHints,
               selectedAccountType,
               storedToken: bodyAccessToken,
@@ -863,6 +943,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             accountId,
             authMode: "supabase-session",
             authenticatedUserId: userId,
+            supabaseClient: supabase,
             appIdHints,
             selectedAccountType,
             alternateToken:

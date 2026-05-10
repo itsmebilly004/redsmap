@@ -119,8 +119,6 @@ type DerivAccountsApiResponse = {
   detail?: string;
 };
 
-const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
 function tokenSourceFromText(value: unknown): DerivTokenSource | null {
   const text = String(value ?? "").trim();
   if (text === "oauth_access_token" || text === "legacy_authorize_token") return text;
@@ -252,20 +250,7 @@ function effectiveAccountExpiresAt(
   account: Pick<DerivAccount, "deriv_token" | "expires_at" | "created_at" | "token_source">,
 ) {
   const storedExpiryMs = timestampValue(account.expires_at);
-  if (tokenSourceForAccount(account) !== "oauth_access_token") {
-    return storedExpiryMs ? new Date(storedExpiryMs).toISOString() : account.expires_at;
-  }
-  const createdAtMs = timestampValue(account.created_at);
-  const currentTimeMs = Date.now();
-  const platformExpiryMs = createdAtMs ? createdAtMs + DERIV_OAUTH_SESSION_TTL_MS : 0;
-  const shortProviderExpiryMs =
-    storedExpiryMs &&
-    storedExpiryMs >= currentTimeMs - DERIV_OAUTH_SESSION_TTL_MS &&
-    storedExpiryMs <= currentTimeMs + 24 * 60 * 60 * 1000
-      ? storedExpiryMs + DERIV_OAUTH_SESSION_TTL_MS
-      : 0;
-  const effectiveExpiryMs = Math.max(storedExpiryMs, platformExpiryMs, shortProviderExpiryMs);
-  return effectiveExpiryMs ? new Date(effectiveExpiryMs).toISOString() : account.expires_at;
+  return storedExpiryMs ? new Date(storedExpiryMs).toISOString() : account.expires_at;
 }
 
 function accountSessionExpired(
