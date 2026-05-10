@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  DERIV_APP_ID_VALUE,
   DERIV_CLIENT_ID_VALUE,
   DERIV_REDIRECT_URI_VALUE,
   adapterForTokenSource,
