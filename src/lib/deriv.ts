@@ -536,20 +536,45 @@ async function sha256(value: string) {
   return crypto.subtle.digest("SHA-256", data);
 }
 
-function assertNoLegacyOAuthUrl(url: string) {
+function legacyOAuthMarker(url: string) {
   const lower = url.toLowerCase();
-  const marker = LEGACY_OAUTH_MARKERS.find((item) => lower.includes(item));
-  if (!marker) {
-    console.info("[Deriv OAuth] Legacy URL blocked", false);
-    return;
+  return LEGACY_OAUTH_MARKERS.find((item) => lower.includes(item)) ?? null;
+}
+
+export function assertValidDerivOAuthRedirectUrl(url: string) {
+  const marker = legacyOAuthMarker(url);
+  if (marker) {
+    console.error("Blocked legacy Deriv OAuth URL", { marker, url });
+    throw new Error("Blocked legacy Deriv OAuth URL");
   }
-  console.error("[Deriv OAuth] Legacy URL blocked", {
-    marker,
-    url,
-  });
-  throw new Error(
-    "Blocked invalid Deriv OAuth URL. Please refresh and try again; the app must use the new OAuth2 PKCE login flow.",
-  );
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Invalid Deriv OAuth URL. Refusing to redirect.");
+  }
+
+  if (parsed.origin !== "https://auth.deriv.com" || parsed.pathname !== "/oauth2/auth") {
+    throw new Error("Invalid Deriv OAuth endpoint. Refusing to redirect to a non-OAuth URL.");
+  }
+  if (parsed.searchParams.has("redirect") || parsed.searchParams.has("brand")) {
+    console.error("Blocked legacy Deriv OAuth URL", {
+      marker: parsed.searchParams.has("redirect") ? "redirect" : "brand",
+      url,
+    });
+    throw new Error("Blocked legacy Deriv OAuth URL");
+  }
+  if (!parsed.searchParams.get("client_id")) {
+    throw new Error("Invalid Deriv OAuth URL. Authorization URL must include client_id.");
+  }
+  console.info("[Deriv OAuth] Legacy URL blocked", false);
+}
+
+export function redirectToDerivOAuth(url: string) {
+  assertValidDerivOAuthRedirectUrl(url);
+  console.info("[Deriv OAuth] Redirecting to authorization URL", url);
+  window.location.href = url;
 }
 
 function selectedOAuthAppIdMode(mode?: DerivOAuthAppIdMode): DerivOAuthAppIdMode {
@@ -622,7 +647,7 @@ export async function buildOAuthUrl(
     throw new Error(`Missing required OAuth parameter: ${missingParam}`);
   }
   const url = `${DERIV_OAUTH_ENDPOINT}?${params.toString()}`;
-  assertNoLegacyOAuthUrl(url);
+  assertValidDerivOAuthRedirectUrl(url);
   const parsed = new URL(url);
   if (parsed.origin !== "https://auth.deriv.com" || parsed.pathname !== "/oauth2/auth") {
     throw new Error("Invalid Deriv OAuth endpoint. Refusing to redirect to a non-OAuth URL.");

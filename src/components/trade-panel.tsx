@@ -22,7 +22,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { isDerivDemoAccount } from "@/hooks/use-deriv-balance";
-import { SYNTHETIC_MARKETS, buildOAuthUrl, getTradingSocketAccountId, setAuthenticatedAccount, type TradeCategory } from "@/lib/deriv";
+import { SYNTHETIC_MARKETS, buildOAuthUrl, getTradingSocketAccountId, redirectToDerivOAuth, setAuthenticatedAccount, type TradeCategory } from "@/lib/deriv";
 import { normalizeOpenContract, EMPTY_CONTRACT_STATE, type ActiveContractState } from "@/lib/contract-state";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import { isDigitTrade, tradeTypeConfig, TRADE_TYPE_CONFIGS, type TradeSide } from "@/lib/trade-types";
@@ -285,9 +285,16 @@ export function TradePanel({
   async function handleBuy(side: TradeSide) {
     if (buyInFlightRef.current || busy) return;
     if (!token) {
-      const url = await buildOAuthUrl({ returnTo: "/" });
-      console.log("Deriv OAuth URL:", url);
-      window.location.href = url;
+      try {
+        const url = await buildOAuthUrl({ returnTo: "/" });
+        console.log("Deriv OAuth URL:", url);
+        redirectToDerivOAuth(url);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not start Deriv OAuth.";
+        console.error("[Deriv OAuth] Trade connect failed", error);
+        setErrorMessage(message);
+        toast.error(message);
+      }
       return;
     }
     buyInFlightRef.current = true;

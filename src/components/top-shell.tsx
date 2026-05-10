@@ -2,8 +2,9 @@ import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
-import { buildOAuthUrl, disconnectAll } from "@/lib/deriv";
+import { buildOAuthUrl, disconnectAll, redirectToDerivOAuth } from "@/lib/deriv";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import {
   LayoutGrid,
   Bot,
@@ -111,9 +112,15 @@ export function TopShell({ children }: { children: ReactNode }) {
   }
 
   async function handleConnectDeriv() {
-    const url = await buildOAuthUrl({ returnTo: "/dashboard/settings" });
-    console.log("Deriv OAuth URL:", url);
-    window.location.href = url;
+    try {
+      const url = await buildOAuthUrl({ returnTo: "/dashboard/settings" });
+      console.log("Deriv OAuth URL:", url);
+      redirectToDerivOAuth(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not start Deriv OAuth.";
+      console.error("[Deriv OAuth] Shell connect failed", error);
+      toast.error(message);
+    }
   }
 
   return (

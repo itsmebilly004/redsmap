@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   DERIV_OAUTH_ENDPOINT_VALUE,
   buildOAuthUrl,
+  redirectToDerivOAuth,
   type DerivOAuthAppIdMode,
 } from "@/lib/deriv";
 import { ArrowRight, ShieldCheck } from "lucide-react";
@@ -50,7 +51,7 @@ function AuthPage() {
       if (showOAuthDebug) {
         setDebugUrl(url);
       } else {
-        window.location.href = url;
+        redirectToDerivOAuth(url);
       }
     } catch (error) {
       console.error("Could not build Deriv OAuth URL", error);
@@ -79,8 +80,15 @@ function AuthPage() {
 
   function continueToDeriv() {
     if (!debugUrl) return;
-    console.info("[Deriv OAuth Debug] Redirecting to exact URL", debugUrl);
-    window.location.href = debugUrl;
+    try {
+      console.info("[Deriv OAuth Debug] Redirecting to exact URL", debugUrl);
+      redirectToDerivOAuth(debugUrl);
+    } catch (error) {
+      console.error("Could not redirect to Deriv OAuth URL", error);
+      setErrorMessage(
+        error instanceof Error ? error.message : "Could not redirect to Deriv OAuth.",
+      );
+    }
   }
 
   return (

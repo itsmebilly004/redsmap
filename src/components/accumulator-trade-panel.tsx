@@ -17,6 +17,7 @@ import {
   buildOAuthUrl,
   getTradingSocketAccountId,
   onStatus,
+  redirectToDerivOAuth,
   setAuthenticatedAccount,
 } from "@/lib/deriv";
 import { SYNTHETIC_MARKETS } from "@/lib/deriv";
@@ -467,10 +468,17 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       <Button
         onClick={() => {
           if (!token) {
-            buildOAuthUrl({ returnTo: "/" }).then((url) => {
-              console.log("Deriv OAuth URL:", url);
-              window.location.href = url;
-            });
+            buildOAuthUrl({ returnTo: "/" })
+              .then((url) => {
+                console.log("Deriv OAuth URL:", url);
+                redirectToDerivOAuth(url);
+              })
+              .catch((error) => {
+                const message =
+                  error instanceof Error ? error.message : "Could not start Deriv OAuth.";
+                console.error("[Deriv OAuth] Accumulator connect failed", error);
+                toast.error(message);
+              });
             return;
           }
           if (state.status === "active") void handleSell();

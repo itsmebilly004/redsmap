@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { buildOAuthUrl } from "@/lib/deriv";
+import { buildOAuthUrl, redirectToDerivOAuth } from "@/lib/deriv";
 import { Plug, Trash2 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -79,9 +79,15 @@ function SettingsPage() {
   }
 
   async function connectDeriv() {
-    const url = await buildOAuthUrl({ returnTo: "/dashboard/settings" });
-    console.log("Deriv OAuth URL:", url);
-    window.location.href = url;
+    try {
+      const url = await buildOAuthUrl({ returnTo: "/dashboard/settings" });
+      console.log("Deriv OAuth URL:", url);
+      redirectToDerivOAuth(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not start Deriv OAuth.";
+      console.error("[Deriv OAuth] Settings connect failed", error);
+      toast.error(message);
+    }
   }
 
   async function deleteAccount() {

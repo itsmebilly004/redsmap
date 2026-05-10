@@ -14,9 +14,10 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { buildOAuthUrl, subscribeTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
+import { buildOAuthUrl, redirectToDerivOAuth, subscribeTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
 import { Link } from "@tanstack/react-router";
 import type { Tables } from "@/integrations/supabase/types";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/dashboard/")({
   component: DashboardHome,
@@ -101,9 +102,15 @@ function DashboardHome() {
   const losses = trades.filter((t) => t.status === "lost").length;
   const winRate = wins + losses ? Math.round((wins / (wins + losses)) * 100) : 0;
   const connectDeriv = async () => {
-    const url = await buildOAuthUrl({ returnTo: "/dashboard" });
-    console.log("Deriv OAuth URL:", url);
-    window.location.href = url;
+    try {
+      const url = await buildOAuthUrl({ returnTo: "/dashboard" });
+      console.log("Deriv OAuth URL:", url);
+      redirectToDerivOAuth(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not start Deriv OAuth.";
+      console.error("[Deriv OAuth] Dashboard connect failed", error);
+      toast.error(message);
+    }
   };
 
   return (
