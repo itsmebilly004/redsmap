@@ -33,22 +33,23 @@ const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
 const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function derivApiAppId(mode: DerivAccountOtpRequest["appIdMode"] = "oauth") {
-  const oauthAppId = process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID ?? "";
-  const legacyAppId = process.env.VITE_DERIV_LEGACY_APP_ID ?? "";
+  const oauthAppId = process.env.VITE_DERIV_CLIENT_ID ?? process.env.VITE_DERIV_APP_ID ?? "";
+  const legacyAppId = process.env.VITE_DERIV_LEGACY_APP_ID ?? process.env.VITE_DERIV_APP_ID ?? "";
   return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId;
 }
 
 function derivApiAppIdSource(mode: DerivAccountOtpRequest["appIdMode"] = "oauth") {
-  const hasOAuthAppId = Boolean(process.env.VITE_DERIV_APP_ID ?? process.env.VITE_DERIV_CLIENT_ID);
+  const hasOAuthAppId = Boolean(process.env.VITE_DERIV_CLIENT_ID ?? process.env.VITE_DERIV_APP_ID);
   const hasLegacyAppId = Boolean(process.env.VITE_DERIV_LEGACY_APP_ID);
   if (mode === "legacy") {
     if (hasLegacyAppId) return "VITE_DERIV_LEGACY_APP_ID";
-    return process.env.VITE_DERIV_APP_ID ? "VITE_DERIV_APP_ID" : "VITE_DERIV_CLIENT_ID";
+    if (process.env.VITE_DERIV_APP_ID) return "VITE_DERIV_APP_ID";
+    return process.env.VITE_DERIV_CLIENT_ID ? "VITE_DERIV_CLIENT_ID" : "missing:VITE_DERIV_LEGACY_APP_ID";
   }
   if (hasOAuthAppId) {
-    return process.env.VITE_DERIV_APP_ID ? "VITE_DERIV_APP_ID" : "VITE_DERIV_CLIENT_ID";
+    return process.env.VITE_DERIV_CLIENT_ID ? "VITE_DERIV_CLIENT_ID" : "VITE_DERIV_APP_ID";
   }
-  return "missing:VITE_DERIV_APP_ID_OR_VITE_DERIV_CLIENT_ID";
+  return "missing:VITE_DERIV_CLIENT_ID_OR_VITE_DERIV_APP_ID";
 }
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
