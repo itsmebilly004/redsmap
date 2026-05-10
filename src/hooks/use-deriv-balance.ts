@@ -82,15 +82,6 @@ type DerivAccountsApiResponse = {
 
 const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function isLikelyDerivOAuthToken(token: string | null | undefined) {
-  if (!token) return false;
-  return token.startsWith("ory_") || token.includes("ory_at_");
-}
-
-function fallbackTokenSource(token: string | null | undefined): DerivTokenSource {
-  return isLikelyDerivOAuthToken(token) ? "oauth_access_token" : "legacy_authorize_token";
-}
-
 function tokenSourceFromText(value: unknown): DerivTokenSource | null {
   const text = String(value ?? "").trim().toLowerCase();
   if (!text) return null;
@@ -101,21 +92,20 @@ function tokenSourceFromText(value: unknown): DerivTokenSource | null {
 
 function fallbackTokenSourceForRaw(
   account: Record<string, unknown>,
-  token: string | null | undefined,
-): DerivTokenSource {
+): DerivTokenSource | undefined {
   return (
     tokenSourceFromText(account.token_source) ??
     tokenSourceFromText(account.deriv_token_source) ??
     tokenSourceFromText(account.session_source) ??
     tokenSourceFromText(account.auth_type) ??
-    fallbackTokenSource(token)
+    undefined
   );
 }
 
 function tokenSourceForAccount(
   account: Pick<DerivAccount, "account_id" | "deriv_token" | "token_source">,
 ) {
-  return account.token_source ?? fallbackTokenSource(account.deriv_token);
+  return account.token_source ?? null;
 }
 
 function isLikelyLegacyToken(
@@ -134,14 +124,21 @@ function readTokenSource(
   userId: string,
   accountId: string,
   token: string | null | undefined,
-): DerivTokenSource {
+): DerivTokenSource | undefined {
   try {
     const saved = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
     if (saved === "oauth_access_token" || saved === "legacy_authorize_token") return saved;
   } catch {
     /* ignore localStorage access failures */
   }
-  return fallbackTokenSource(token);
+  console.warn("[Deriv Balance] token_source missing from persisted account metadata", {
+    userId,
+    accountId,
+    tokenExists: Boolean(token),
+    reason:
+      "Trading adapter selection no longer infers token source from token text. Reconnect if this account cannot trade.",
+  });
+  return undefined;
 }
 
 function timestampValue(value: string | null | undefined) {
@@ -225,7 +222,7 @@ function normalizeFreshAccount(
   if (!normalized?.deriv_token) return null;
   return {
     ...normalized,
-    token_source: fallbackTokenSource ?? fallbackTokenSourceForRaw(account, normalized.deriv_token),
+    token_source: fallbackTokenSource ?? fallbackTokenSourceForRaw(account),
   } as DerivAccount;
 }
 
@@ -520,7 +517,7 @@ export function useDerivBalance(): LiveBalance {
           const refreshed = mergeFreshAccounts(
             data.data ?? [],
             oauthSeed.deriv_token,
-            tokenSourceForAccount(oauthSeed),
+            tokenSourceForAccount(oauthSeed) ?? undefined,
           );
           console.info("[Deriv Balance] balance fetch completed", {
             source: "oauth",
@@ -555,7 +552,11 @@ export function useDerivBalance(): LiveBalance {
           if (!response.ok) {
             throw new Error(data.detail ?? data.error ?? "Could not refresh legacy Deriv balances");
           }
-          const refreshed = mergeFreshAccounts(data.data ?? []);
+          const refreshed = mergeFreshAccounts(
+            data.data ?? [],
+            undefined,
+            "legacy_authorize_token",
+          );
           const freshLegacyIds = new Set(refreshed.map((account) => account.account_id));
           const staleLegacyIds = legacyAccounts
             .map((account) => account.account_id)
@@ -657,12 +658,23 @@ export function useDerivBalance(): LiveBalance {
   // Subscribe to live balance for the active account.
   useEffect(() => {
     if (!isBrowser || !active || !user || !activeAccountKey) return;
+    const activeTokenSource = tokenSourceForAccount(active);
+    if (!activeTokenSource) {
+      console.warn("[Deriv Balance] Skipping live balance WebSocket because token_source is missing", {
+        account_id: active.account_id,
+        loginid: active.loginid,
+        normalizedType: active.normalizedType,
+        reason:
+          "Trading adapter selection requires persisted token_source. Reconnect this Deriv account if trading is unavailable.",
+      });
+      return;
+    }
     if (isOAuthTokenAccount(active)) {
       console.info("[Deriv Balance] Skipping OAuth live balance WebSocket subscription", {
         account_id: active.account_id,
         loginid: active.loginid,
         normalizedType: active.normalizedType,
-        token_source: tokenSourceForAccount(active),
+        token_source: activeTokenSource,
         reason:
           "OAuth accounts refresh balances through /api/deriv-accounts; live balance WS requires OTP and must not run immediately after login.",
       });
@@ -682,13 +694,13 @@ export function useDerivBalance(): LiveBalance {
             requestedAccountId,
             requestedAccountType: active.normalizedType,
             detected_prefix: active.detected_prefix,
-            token_source: tokenSourceForAccount(active),
+            token_source: activeTokenSource,
           });
           setAuthenticatedAccount(
             active.deriv_token,
             requestedAccountId,
             activeIsDemo,
-            tokenSourceForAccount(active),
+            activeTokenSource,
           );
           lastWebSocketAccountKeyRef.current = activeAccountKey;
           console.log("Deriv authenticated WebSocket initialized", {
@@ -697,7 +709,7 @@ export function useDerivBalance(): LiveBalance {
             normalizedType: active.normalizedType,
             detected_prefix: active.detected_prefix,
             is_virtual: activeIsDemo,
-            token_source: tokenSourceForAccount(active),
+            token_source: activeTokenSource,
           });
         } else {
           console.info("[Deriv Balance] Skipped Deriv WebSocket account initialization", {

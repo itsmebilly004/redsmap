@@ -10,6 +10,9 @@ type DerivAccountOtpRequest = {
   tokenSource?: "oauth_access_token" | "legacy_authorize_token";
 };
 
+type TokenSource = NonNullable<DerivAccountOtpRequest["tokenSource"]>;
+type AppIdMode = NonNullable<DerivAccountOtpRequest["appIdMode"]>;
+
 type SessionRow = {
   id?: string | null;
   account_id: string;
@@ -174,11 +177,6 @@ function compareSessionFreshness(left: SessionRow, right: SessionRow) {
   return timestampValue(right.created_at) - timestampValue(left.created_at);
 }
 
-function isLikelyDerivOAuthToken(token: string | null | undefined) {
-  if (!token) return false;
-  return token.startsWith("ory_") || token.includes("ory_at_");
-}
-
 function numericAppId(...ids: Array<string | undefined>) {
   return ids.map((id) => String(id ?? "").trim()).find((id) => /^\d+$/.test(id)) ?? "";
 }
@@ -190,6 +188,18 @@ function legacyWsUrl() {
     "1089",
   );
   return `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`;
+}
+
+function legacyDirectResponse(details: Record<string, unknown> = {}) {
+  return errorResponse(
+    "DERIV_LEGACY_DIRECT_WS_REQUIRED",
+    "Legacy accounts use direct Deriv WebSocket authorization instead of the OAuth OTP endpoint.",
+    409,
+    {
+      legacyWsUrl: legacyWsUrl(),
+      ...details,
+    },
+  );
 }
 
 function createRouteSupabase(jwt: string) {
@@ -230,19 +240,76 @@ async function requestBody(request: Request) {
   return (await request.json().catch(() => ({}))) as DerivAccountOtpRequest;
 }
 
+function redactedOtpBody(parsed: Awaited<ReturnType<typeof parseJsonResponse>>) {
+  if (!parsed.isJson) return parsed.text ? { text: parsed.text.slice(0, 500) } : null;
+  return parsed.data;
+}
+
+function accountsFromOptionsResponse(data: unknown) {
+  const payload =
+    data && typeof data === "object" && "data" in data
+      ? (data as { data?: unknown }).data
+      : data;
+  if (Array.isArray(payload)) return payload as Record<string, unknown>[];
+  if (payload && typeof payload === "object" && "accounts" in payload) {
+    const accounts = (payload as { accounts?: unknown }).accounts;
+    if (Array.isArray(accounts)) return accounts as Record<string, unknown>[];
+  }
+  return [];
+}
+
+async function verifyOAuthTokenAccount({
+  accessToken,
+  appId,
+  accountId,
+}: {
+  accessToken: string;
+  appId: string;
+  accountId: string;
+}) {
+  const response = await fetch("https://api.derivws.com/trading/v1/options/accounts", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Deriv-App-ID": appId,
+    },
+  });
+  const parsed = await parseJsonResponse(response);
+  const accounts = accountsFromOptionsResponse(parsed.data);
+  const accountIds = accounts
+    .map((account) => normalizeDerivAccount(account, { trustVirtualFlags: false }))
+    .filter((account): account is NonNullable<ReturnType<typeof normalizeDerivAccount>> =>
+      Boolean(account),
+    )
+    .map((account) => account.account_id);
+  return {
+    ok: response.ok,
+    status: response.status,
+    responseWasJson: parsed.isJson,
+    responseBody: response.ok ? null : redactedOtpBody(parsed),
+    accountIds,
+    containsRequestedAccount: accountIds.some((id) => sameAccountId(id, accountId)),
+  };
+}
+
 async function requestOAuthOtp({
   accountId,
+  alternateToken,
+  alternateTokenSourceLabel,
   authMode,
   authenticatedUserId,
   selectedAccountType,
   storedToken,
+  tokenSourceLabel = "primary-oauth-token",
   tokenExpiry,
 }: {
   accountId: string;
+  alternateToken?: string | null;
+  alternateTokenSourceLabel?: string | null;
   authMode: "supabase-session" | "oauth-token-only";
   authenticatedUserId?: string | null;
   selectedAccountType: string;
   storedToken: string;
+  tokenSourceLabel?: string;
   tokenExpiry?: string | null;
 }) {
   const appId = derivApiAppId("oauth");
@@ -250,53 +317,110 @@ async function requestOAuthOtp({
     return errorResponse("DERIV_APP_ID_MISSING", "Missing Deriv App ID.", 500);
   }
 
-  console.info("[Deriv OTP API] request started", {
-    endpoint: `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
-    requestedAccountId: accountId,
-    authenticatedUserId: authenticatedUserId ?? null,
-    authMode,
-    sessionFound: authMode === "supabase-session",
-    deriv_token_exists: true,
-    tokenExpiry: tokenExpiry ?? null,
-    selectedAccountType,
-    appId,
-    appIdMode: "oauth",
-    appIdSource: derivApiAppIdSource("oauth"),
-  });
-  const otpResponse = await fetch(
-    `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
-    {
+  const endpoint = `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`;
+  const requestOtp = async (token: string, sourceLabel: string) => {
+    console.info("[Deriv OTP API] request started", {
+      endpoint,
+      requestedAccountId: accountId,
+      authenticatedUserId: authenticatedUserId ?? null,
+      authMode,
+      sessionFound: authMode === "supabase-session",
+      deriv_token_exists: Boolean(token),
+      token: tokenLogValue(token),
+      tokenSourceLabel: sourceLabel,
+      tokenExpiry: tokenExpiry ?? null,
+      selectedAccountType,
+      appId,
+      appIdMode: "oauth",
+      appIdSource: derivApiAppIdSource("oauth"),
+    });
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${storedToken}`,
+        Authorization: `Bearer ${token}`,
         "Deriv-App-ID": appId,
       },
-    },
-  );
-  const parsed = await parseJsonResponse(otpResponse);
+    });
+    const parsed = await parseJsonResponse(response);
 
-  console.info("[Deriv OTP API] endpoint response", {
-    requestedAccountId: accountId,
-    authenticatedUserId: authenticatedUserId ?? null,
-    authMode,
-    status: otpResponse.status,
-    ok: otpResponse.ok,
-    responseWasJson: parsed.isJson,
-    selectedAccountType,
-  });
+    console.info("[Deriv OTP API] endpoint response", {
+      requestedAccountId: accountId,
+      authenticatedUserId: authenticatedUserId ?? null,
+      authMode,
+      tokenSourceLabel: sourceLabel,
+      status: response.status,
+      ok: response.ok,
+      responseWasJson: parsed.isJson,
+      responseBody: response.ok ? null : redactedOtpBody(parsed),
+      selectedAccountType,
+    });
+
+    return { response, parsed, sourceLabel };
+  };
+
+  let currentOtpToken = storedToken;
+  let { response: otpResponse, parsed, sourceLabel } = await requestOtp(
+    storedToken,
+    tokenSourceLabel,
+  );
+
+  if (
+    (otpResponse.status === 401 || otpResponse.status === 403) &&
+    alternateToken &&
+    alternateToken !== storedToken
+  ) {
+    console.warn("[Deriv OTP API] primary OAuth token rejected; retrying alternate token once", {
+      requestedAccountId: accountId,
+      authenticatedUserId: authenticatedUserId ?? null,
+      primaryTokenSourceLabel: sourceLabel,
+      alternateTokenSourceLabel: alternateTokenSourceLabel ?? "alternate-oauth-token",
+      primaryStatus: otpResponse.status,
+      primaryResponseWasJson: parsed.isJson,
+      primaryResponseBody: redactedOtpBody(parsed),
+    });
+    const retry = await requestOtp(
+      alternateToken,
+      alternateTokenSourceLabel ?? "alternate-oauth-token",
+    );
+    currentOtpToken = alternateToken;
+    otpResponse = retry.response;
+    parsed = retry.parsed;
+    sourceLabel = retry.sourceLabel;
+  }
 
   if (otpResponse.status === 401 || otpResponse.status === 403) {
+    const tokenAccountVerification = await verifyOAuthTokenAccount({
+      accessToken: currentOtpToken,
+      appId,
+      accountId,
+    }).catch((error: unknown) => ({
+      ok: false,
+      status: null,
+      responseWasJson: false,
+      responseBody: error instanceof Error ? error.message : "Account verification failed",
+      accountIds: [],
+      containsRequestedAccount: false,
+    }));
+    console.warn("[Deriv OTP API] OAuth token/account verification after OTP auth failure", {
+      requestedAccountId: accountId,
+      authenticatedUserId: authenticatedUserId ?? null,
+      tokenSourceLabel: sourceLabel,
+      tokenAccountVerification,
+    });
     return errorResponse(
       "DERIV_OTP_AUTH_FAILED",
-      "Deriv rejected the trading WebSocket authorization. Your Deriv account remains connected; reconnect only if this continues.",
+      "Trading authorization failed for this account. Please switch account or reconnect if it continues.",
       409,
       {
         requestedAccountId: accountId,
         authenticatedUserId: authenticatedUserId ?? null,
         authMode,
         selectedAccountType,
+        tokenSourceLabel: sourceLabel,
         otpStatus: otpResponse.status,
         responseWasJson: parsed.isJson,
+        responseBody: redactedOtpBody(parsed),
+        tokenAccountVerification,
         sessionDeactivated: false,
       },
     );
@@ -370,10 +494,17 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               { hasAccessToken: Boolean(bodyAccessToken) },
             );
           }
-          const requestTokenSource: DerivAccountOtpRequest["tokenSource"] | null =
-            tokenSource ?? (appIdMode === "oauth" ? "oauth_access_token" : null);
+          const incomingAppIdMode = appIdMode;
+          const requestTokenSource: TokenSource =
+            tokenSource ?? (incomingAppIdMode === "legacy"
+              ? "legacy_authorize_token"
+              : "oauth_access_token");
+          const finalAppIdMode: AppIdMode =
+            requestTokenSource === "legacy_authorize_token" ? "legacy" : "oauth";
           const canUseOAuthTokenOnly =
-            requestTokenSource === "oauth_access_token" && Boolean(bodyAccessToken);
+            finalAppIdMode === "oauth" &&
+            requestTokenSource === "oauth_access_token" &&
+            Boolean(bodyAccessToken);
 
           const authHeader = request.headers.get("authorization") ?? "";
           const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
@@ -383,9 +514,20 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               requestedAccountId: accountId,
               hasAuthorizationHeader: Boolean(authHeader),
               hasSupabaseClient: Boolean(supabase),
-              tokenSource: requestTokenSource,
+              incomingAppIdMode,
+              finalAppIdMode,
+              incomingTokenSource: tokenSource ?? null,
+              finalTokenSource: requestTokenSource,
               canUseOAuthTokenOnly,
             });
+            if (requestTokenSource === "legacy_authorize_token") {
+              return legacyDirectResponse({
+                requestedAccountId: accountId,
+                selectedAccountType: "unknown",
+                tokenSource: requestTokenSource,
+                authMode: "no-supabase-session",
+              });
+            }
             if (canUseOAuthTokenOnly) {
               return requestOAuthOtp({
                 accountId,
@@ -393,6 +535,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
                 authenticatedUserId: null,
                 selectedAccountType: "unknown",
                 storedToken: bodyAccessToken!,
+                tokenSourceLabel: "request-body-oauth-token",
                 tokenExpiry: null,
               });
             }
@@ -409,9 +552,20 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             console.warn("[Deriv OTP API] Supabase user validation failed", {
               requestedAccountId: accountId,
               error: userError?.message ?? null,
-              tokenSource: requestTokenSource,
+              incomingAppIdMode,
+              finalAppIdMode,
+              incomingTokenSource: tokenSource ?? null,
+              finalTokenSource: requestTokenSource,
               canUseOAuthTokenOnly,
             });
+            if (requestTokenSource === "legacy_authorize_token") {
+              return legacyDirectResponse({
+                requestedAccountId: accountId,
+                selectedAccountType: "unknown",
+                tokenSource: requestTokenSource,
+                authMode: "invalid-supabase-user",
+              });
+            }
             if (canUseOAuthTokenOnly) {
               return requestOAuthOtp({
                 accountId,
@@ -419,6 +573,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
                 authenticatedUserId: null,
                 selectedAccountType: "unknown",
                 storedToken: bodyAccessToken!,
+                tokenSourceLabel: "request-body-oauth-token",
                 tokenExpiry: null,
               });
             }
@@ -465,13 +620,9 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             : null;
           const storedToken = stringFrom(selectedSession?.deriv_token);
           const selectedAccountType = normalized?.normalizedType ?? "unknown";
-          const requestedTokenSource: DerivAccountOtpRequest["tokenSource"] =
-            requestTokenSource ??
-            (appIdMode === "oauth" || isLikelyDerivOAuthToken(storedToken)
-              ? "oauth_access_token"
-              : "legacy_authorize_token");
+          const requestedTokenSource = requestTokenSource;
           const shouldUseOAuthOtp =
-            appIdMode === "oauth" || requestedTokenSource === "oauth_access_token";
+            finalAppIdMode === "oauth" && requestedTokenSource === "oauth_access_token";
           const tokenForOtp =
             shouldUseOAuthOtp && bodyAccessToken ? bodyAccessToken : storedToken;
           const tokenForOtpSource =
@@ -501,9 +652,18 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             expiresWithinClockSkew: expiry.expiresWithinClockSkew,
             invalidExpiry: expiry.invalidExpiry,
             selectedAccountType,
+            selectedAccountPrefix: normalized?.detected_prefix ?? null,
             createdAt: selectedSession?.created_at ?? null,
-            appIdMode,
-            tokenSource: requestedTokenSource,
+            incomingAppIdMode,
+            finalAppIdMode,
+            incomingTokenSource: tokenSource ?? null,
+            finalTokenSource: requestedTokenSource,
+            storedSessionAccountId: selectedSession?.account_id ?? null,
+            storedLoginid: selectedSession?.loginid ?? null,
+            storedTokenSource:
+              "not_persisted_in_sessions_table__using_request_token_source",
+            derivAppIdHeaderSource: derivApiAppIdSource(finalAppIdMode),
+            derivAppIdHeaderValue: derivApiAppId(finalAppIdMode),
             bodyToken: tokenLogValue(bodyAccessToken),
             storedToken: tokenLogValue(storedToken),
             tokenForOtp: tokenLogValue(tokenForOtp),
@@ -527,6 +687,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               authenticatedUserId: userId,
               selectedAccountType,
               storedToken: bodyAccessToken!,
+              tokenSourceLabel: "request-body-oauth-token",
               tokenExpiry: null,
             });
           }
@@ -546,6 +707,9 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               authenticatedUserId: userId,
               selectedAccountType,
               storedToken: bodyAccessToken,
+              alternateToken: storedToken || null,
+              alternateTokenSourceLabel: "supabase-session-token",
+              tokenSourceLabel: "request-body-oauth-token",
               tokenExpiry: expiry.expiresAt,
             });
           }
@@ -578,7 +742,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             );
           }
 
-          if (!shouldUseOAuthOtp && !isLikelyDerivOAuthToken(storedToken)) {
+          if (!shouldUseOAuthOtp) {
             console.info("[Deriv OTP API] legacy token requires direct WebSocket authorization", {
               requestedAccountId: accountId,
               authenticatedUserId: userId,
@@ -586,16 +750,11 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               tokenSource: requestedTokenSource,
               wsUrl: legacyWsUrl(),
             });
-            return errorResponse(
-              "DERIV_LEGACY_DIRECT_WS_REQUIRED",
-              "Legacy accounts use direct Deriv WebSocket authorization instead of the OAuth OTP endpoint.",
-              409,
-              {
-                requestedAccountId: accountId,
-                selectedAccountType,
-                legacyWsUrl: legacyWsUrl(),
-              },
-            );
+            return legacyDirectResponse({
+              requestedAccountId: accountId,
+              selectedAccountType,
+              tokenSource: requestedTokenSource,
+            });
           }
 
           return requestOAuthOtp({
@@ -603,7 +762,20 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             authMode: "supabase-session",
             authenticatedUserId: userId,
             selectedAccountType,
+            alternateToken:
+              bodyAccessToken && bodyAccessToken !== tokenForOtp
+                ? bodyAccessToken
+                : storedToken && storedToken !== tokenForOtp
+                  ? storedToken
+                  : null,
+            alternateTokenSourceLabel:
+              bodyAccessToken && bodyAccessToken !== tokenForOtp
+                ? "request-body-oauth-token"
+                : storedToken && storedToken !== tokenForOtp
+                  ? "supabase-session-token"
+                  : null,
             storedToken: tokenForOtp,
+            tokenSourceLabel: tokenForOtpSource,
             tokenExpiry: expiry.expiresAt,
           });
         } catch (error: unknown) {

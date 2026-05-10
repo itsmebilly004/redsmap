@@ -199,7 +199,7 @@ export function setAuthenticatedAccount(
   accessToken: string,
   accountId: string,
   isDemo?: boolean | null,
-  tokenSource: DerivTokenSource = tokenSourceFor(accessToken),
+  tokenSource: DerivTokenSource,
 ) {
   const accountIdentity = { account_id: accountId, loginid: accountId };
   const normalizedType = getDerivAccountType(accountIdentity);
@@ -275,8 +275,8 @@ export async function prepareDerivTradingSession(
     );
   }
   const selectedAccountToken = textFrom(selectedAccount.deriv_token);
-  const selectedAccountTokenSource = selectedAccountToken
-    ? tokenSourceForAccount(selectedAccount, selectedAccountToken)
+  const selectedAccountExplicitTokenSource = selectedAccountToken
+    ? explicitTokenSourceForAccount(selectedAccount)
     : null;
   const normalizedType = normalizedSelected.normalizedType;
   if (normalizedType !== "real" && normalizedType !== "demo") {
@@ -291,11 +291,11 @@ export async function prepareDerivTradingSession(
   const { data: authData, error: authError } = await supabase.auth.getSession();
   const userId = authData.session?.user?.id ?? null;
   if (authError || !userId) {
-    if (selectedAccountToken && selectedAccountTokenSource === "oauth_access_token") {
+    if (selectedAccountToken && selectedAccountExplicitTokenSource === "oauth_access_token") {
       const expiry = effectiveTokenExpiryState(
         textFrom(selectedAccount.expires_at) || null,
         textFrom(selectedAccount.created_at) || null,
-        selectedAccountTokenSource,
+        selectedAccountExplicitTokenSource,
       );
       console.warn("[Deriv Trading] Supabase session unavailable; using selected OAuth account token", {
         context: options.context ?? "trade",
@@ -308,23 +308,23 @@ export async function prepareDerivTradingSession(
         shortProviderTokenExpiry: expiry.shortProviderExpiresAt,
         expiryPolicy: expiry.expiryPolicy,
         tokenExpired: expiry.expired,
-        tokenSource: selectedAccountTokenSource,
-        adapter: adapterForTokenSource(selectedAccountTokenSource),
+        tokenSource: selectedAccountExplicitTokenSource,
+        adapter: adapterForTokenSource(selectedAccountExplicitTokenSource),
       });
       if (!expiry.expired) {
         setAuthenticatedAccount(
           selectedAccountToken,
           selectedAccountId,
           normalizedType === "demo",
-          selectedAccountTokenSource,
+          selectedAccountExplicitTokenSource,
         );
         return {
           sessionId: null,
           accountId: selectedAccountId,
           loginid: normalizedSelected.loginid,
           token: selectedAccountToken,
-          tokenSource: selectedAccountTokenSource,
-          adapter: adapterForTokenSource(selectedAccountTokenSource),
+          tokenSource: selectedAccountExplicitTokenSource,
+          adapter: adapterForTokenSource(selectedAccountExplicitTokenSource),
           expiresAt: expiry.expiresAt,
           createdAt: textFrom(selectedAccount.created_at) || null,
           sessionAccountId: selectedAccountId,
@@ -375,6 +375,9 @@ export async function prepareDerivTradingSession(
     .sort(compareSessionFreshness);
   const selectedSession = matchingSessions[0] ?? null;
   const storedToken = textFrom(selectedSession?.deriv_token);
+  const selectedAccountPersistedTokenSource = readStoredTokenSource(userId, selectedAccountId);
+  const selectedAccountResolvedTokenSource =
+    selectedAccountExplicitTokenSource ?? selectedAccountPersistedTokenSource;
   const selectedAccountExpiresAt = textFrom(selectedAccount.expires_at);
   const selectedAccountCreatedAt = textFrom(selectedAccount.created_at);
   const selectedAccountTokenFreshness = tokenFreshnessScore(
@@ -388,23 +391,21 @@ export async function prepareDerivTradingSession(
   const useSelectedAccountOAuthFallback =
     !storedToken &&
     selectedAccountToken &&
-    selectedAccountTokenSource === "oauth_access_token";
+    selectedAccountResolvedTokenSource === "oauth_access_token";
   const useSelectedAccountOAuthToken =
     Boolean(selectedAccountToken) &&
-    selectedAccountTokenSource === "oauth_access_token" &&
+    selectedAccountResolvedTokenSource === "oauth_access_token" &&
     (!storedToken ||
       selectedAccountToken === storedToken ||
       selectedAccountTokenFreshness >= storedTokenFreshness);
   const resolvedToken = useSelectedAccountOAuthToken
     ? selectedAccountToken
     : storedToken || (useSelectedAccountOAuthFallback ? selectedAccountToken : "");
-  const storedTokenSource = storedToken
-    ? readStoredTokenSource(userId, selectedAccountId)
-    : null;
+  const storedTokenSource = storedToken ? selectedAccountPersistedTokenSource : null;
   const tokenSource = resolvedToken
     ? useSelectedAccountOAuthToken
-      ? selectedAccountTokenSource
-      : storedTokenSource ?? tokenSourceForAccount(selectedAccount, resolvedToken)
+      ? selectedAccountResolvedTokenSource
+      : storedTokenSource ?? selectedAccountExplicitTokenSource
     : null;
   const resolvedExpiresAt = useSelectedAccountOAuthToken
     ? selectedAccountExpiresAt || selectedSession?.expires_at || null
@@ -454,6 +455,8 @@ export async function prepareDerivTradingSession(
       expiresWithinClockSkew: expiry.expiresWithinClockSkew,
       invalidExpiry: expiry.invalidExpiry,
       storedTokenSource,
+      selectedAccountExplicitTokenSource,
+      selectedAccountPersistedTokenSource,
       tokenSource,
       adapter,
       createdAt: resolvedCreatedAt,
@@ -464,6 +467,15 @@ export async function prepareDerivTradingSession(
         textFrom(selectedAccount.deriv_token) === storedToken,
     ),
   });
+
+  if (resolvedToken && !tokenSource) {
+    throw createDerivSocketError(
+      "Could not determine the Deriv trading adapter for this account. Please reconnect this account once.",
+      "DERIV_TOKEN_SOURCE_MISSING",
+      undefined,
+      false,
+    );
+  }
 
   if ((!selectedSession && !useSelectedAccountOAuthFallback) || !resolvedToken || expiry.expired) {
     throw createDerivSocketError(
@@ -494,11 +506,6 @@ function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticated
   if (account.isDemo === true) return "demo";
   if (account.isDemo === false) return "real";
   return "unknown";
-}
-
-function isLikelyDerivOAuthToken(token: string | null | undefined) {
-  if (!token) return false;
-  return token.startsWith("ory_") || token.includes("ory_at_");
 }
 
 function tokenSourceFromText(value: unknown): DerivTokenSource | null {
@@ -700,7 +707,7 @@ function derivMessageError(error: DerivError | undefined) {
           "OAuth sessions are kept active until their stored expiry or manual logout to avoid false immediate disconnects after reconnect.",
       });
       return createDerivSocketError(
-        "Deriv rejected OAuth trading authorization for this account. Please refresh balances and try again.",
+        "Trading authorization failed for this account. Please switch account or reconnect if it continues.",
         "DERIV_OAUTH_TRADING_AUTH_FAILED",
         401,
         false,
@@ -749,27 +756,13 @@ async function deactivateInvalidDerivSession(reason: string) {
   }
 }
 
-function tokenSourceFor(token: string): DerivTokenSource {
-  return isLikelyDerivOAuthToken(token)
-    ? "oauth_access_token"
-    : "legacy_authorize_token";
-}
-
-function adapterForToken(token: string): TradingAdapter {
-  return adapterForTokenSource(tokenSourceFor(token));
-}
-
-function tokenSourceForAccount(
-  account: DerivAccountLike,
-  fallbackToken: string,
-): DerivTokenSource {
+function explicitTokenSourceForAccount(account: DerivAccountLike): DerivTokenSource | null {
   return (
     tokenSourceFromText(account.token_source) ??
     tokenSourceFromText(account.deriv_token_source) ??
     tokenSourceFromText(account.session_source) ??
     tokenSourceFromText(account.auth_type) ??
-    tokenSourceFromText(account.tokenSource) ??
-    tokenSourceFor(fallbackToken)
+    tokenSourceFromText(account.tokenSource)
   );
 }
 
@@ -1641,7 +1634,7 @@ export async function buildOAuthUrl(
 export async function getAuthenticatedWsUrl(
   accessToken: string,
   accountId: string,
-  tokenSource: DerivTokenSource = tokenSourceFor(accessToken),
+  tokenSource: DerivTokenSource,
 ): Promise<string> {
   const appIdMode: DerivAppIdMode =
     tokenSource === "oauth_access_token" ? "oauth" : "legacy";
@@ -1688,6 +1681,20 @@ export async function getAuthenticatedWsUrl(
     );
   }
 
+  console.info("[Deriv WS] requesting OAuth OTP trading WebSocket", {
+    selectedAccount: {
+      account_id: accountId,
+      loginid: accountId,
+      normalizedType: getDerivAccountType({ account_id: accountId }),
+      detected_prefix: getDerivAccountPrefix({ account_id: accountId }),
+    },
+    adapter: adapterForTokenSource(tokenSource),
+    appIdMode,
+    tokenSource,
+    tokenExists: Boolean(accessToken),
+    supabaseJwtExists: Boolean(supabaseAccessToken),
+  });
+
   const response = await fetch("/api/deriv-account-otp", {
     method: "POST",
     headers,
@@ -1711,6 +1718,7 @@ export async function getAuthenticatedWsUrl(
       responseWasJson,
       code,
       message,
+      details: otpData,
     });
     throw createDerivSocketError(
       code === DERIV_SESSION_EXPIRED_CODE ? DERIV_RECONNECT_MESSAGE : message,
