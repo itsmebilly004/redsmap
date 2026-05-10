@@ -32,7 +32,6 @@ const DERIV_RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
 export const DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE =
   "Account connected. Trading authorization not ready yet.";
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
-const DERIV_OAUTH_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TRADING_AUTHORIZATION_FRESH_MS = 10 * 60 * 1000;
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
@@ -1375,7 +1374,7 @@ function tokenExpiryState(expiresAt: string | null | undefined) {
 
 function effectiveTokenExpiryState(
   expiresAt: string | null | undefined,
-  createdAt: string | null | undefined,
+  _createdAt: string | null | undefined,
   tokenSource: DerivTokenSource | null,
 ) {
   if (tokenSource !== "oauth_access_token") {
@@ -1387,29 +1386,12 @@ function effectiveTokenExpiryState(
     };
   }
 
-  const storedExpiryMs = timestampValue(expiresAt);
-  const createdAtMs = timestampValue(createdAt);
-  const currentTimeMs = Date.now();
-  const platformExpiryMs = createdAtMs ? createdAtMs + DERIV_OAUTH_SESSION_TTL_MS : 0;
-  const shortProviderExpiryMs =
-    storedExpiryMs &&
-    storedExpiryMs >= currentTimeMs - DERIV_OAUTH_SESSION_TTL_MS &&
-    storedExpiryMs <= currentTimeMs + 24 * 60 * 60 * 1000
-      ? storedExpiryMs + DERIV_OAUTH_SESSION_TTL_MS
-      : 0;
-  const effectiveExpiryMs = Math.max(storedExpiryMs, platformExpiryMs, shortProviderExpiryMs);
-  const effectiveExpiresAt = effectiveExpiryMs
-    ? new Date(effectiveExpiryMs).toISOString()
-    : expiresAt;
-
   return {
-    ...tokenExpiryState(effectiveExpiresAt),
+    ...tokenExpiryState(expiresAt),
     storedExpiresAt: expiresAt ?? null,
-    platformExpiresAt: platformExpiryMs ? new Date(platformExpiryMs).toISOString() : null,
-    shortProviderExpiresAt: shortProviderExpiryMs
-      ? new Date(shortProviderExpiryMs).toISOString()
-      : null,
-    expiryPolicy: "oauth-platform-week",
+    platformExpiresAt: null,
+    shortProviderExpiresAt: null,
+    expiryPolicy: "oauth-provider-expires_in",
   };
 }
 

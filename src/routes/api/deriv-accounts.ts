@@ -57,6 +57,11 @@ type DerivWebSocketSnapshot = {
   balance: DerivRpcMessage;
 };
 
+function isLegacyNumericAppId(value: unknown) {
+  const text = String(value ?? "").trim();
+  return Boolean(text) && /^\d+$/.test(text);
+}
+
 function addAppIdCandidate(
   candidates: AppIdCandidate[],
   value: unknown,
@@ -72,9 +77,13 @@ function oauthAppIdCandidates(
 ) {
   const candidates: AppIdCandidate[] = [];
   addAppIdCandidate(candidates, requestHints?.oauthClientId, "request.oauthClientId");
-  addAppIdCandidate(candidates, requestHints?.oauthAppId, "request.oauthAppId");
+  if (requestHints?.oauthAppId && !isLegacyNumericAppId(requestHints.oauthAppId)) {
+    addAppIdCandidate(candidates, requestHints.oauthAppId, "request.oauthAppId");
+  }
   addAppIdCandidate(candidates, process.env.VITE_DERIV_CLIENT_ID, "VITE_DERIV_CLIENT_ID");
-  addAppIdCandidate(candidates, process.env.VITE_DERIV_APP_ID, "VITE_DERIV_APP_ID");
+  if (process.env.VITE_DERIV_APP_ID && !isLegacyNumericAppId(process.env.VITE_DERIV_APP_ID)) {
+    addAppIdCandidate(candidates, process.env.VITE_DERIV_APP_ID, "VITE_DERIV_APP_ID");
+  }
   return candidates;
 }
 

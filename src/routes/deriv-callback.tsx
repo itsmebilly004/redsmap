@@ -203,7 +203,7 @@ function tokenLogValue(token: string | null | undefined) {
 
 function derivTokenExpiresAt(expiresIn: number) {
   const providerTtlMs = Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn * 1000 : 0;
-  const ttlMs = Math.max(providerTtlMs, DEFAULT_DERIV_TOKEN_TTL_MS);
+  const ttlMs = providerTtlMs || DEFAULT_DERIV_TOKEN_TTL_MS;
   return new Date(Date.now() + ttlMs).toISOString();
 }
 
