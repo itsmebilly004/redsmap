@@ -106,17 +106,36 @@ export function TopShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (account) {
       const type = getDerivAccountType(account);
-      if (type === "demo" || type === "real") setActiveAccountTab(type);
+      if (type === "demo" || type === "real") {
+        setActiveAccountTab((currentTab) => (currentTab === type ? currentTab : type));
+      }
     }
   }, [account]);
 
   useEffect(() => {
     if (!account || !visibleAccounts.length) return;
-    if (visibleAccounts.some((visibleAccount) => visibleAccount.account_id === account.account_id)) {
+    const currentAccountInSelectedTab = visibleAccounts.some(
+      (visibleAccount) => visibleAccount.account_id === account.account_id,
+    );
+    if (currentAccountInSelectedTab) {
+      console.info("[Deriv Accounts] selected account already belongs to tab", {
+        activeAccountTab,
+        previousSelectedAccountId: account.account_id,
+        nextSelectedAccountId: account.account_id,
+        skipped: true,
+      });
       return;
     }
-    switchAccount(visibleAccounts[0].account_id);
-  }, [account, switchAccount, visibleAccounts]);
+    const nextAccountId = visibleAccounts[0].account_id;
+    if (nextAccountId === account.account_id) return;
+    console.info("[Deriv Accounts] selected account changed for active tab", {
+      activeAccountTab,
+      previousSelectedAccountId: account.account_id,
+      nextSelectedAccountId: nextAccountId,
+      skipped: false,
+    });
+    switchAccount(nextAccountId);
+  }, [account?.account_id, activeAccountTab, switchAccount, visibleAccounts]);
 
   useEffect(() => {
     console.info("[Deriv Accounts] dropdown all normalized accounts", accounts);

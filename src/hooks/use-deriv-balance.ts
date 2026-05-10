@@ -1,5 +1,5 @@
 // src/hooks/use-deriv-balance.ts
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { setAuthenticatedAccount, subscribeBalance } from "@/lib/deriv";
@@ -43,6 +43,7 @@ export function useDerivBalance(): LiveBalance {
   const [balance, setBalance] = useState<number | null>(null);
   const [currency, setCurrency] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const lastWebSocketAccountKeyRef = useRef<string | null>(null);
 
   const isBrowser = typeof window !== "undefined";
 
@@ -70,7 +71,7 @@ export function useDerivBalance(): LiveBalance {
       const rawAccounts = (data ?? []) as DerivAccount[];
       console.info("[Deriv Accounts] raw session accounts before normalization", rawAccounts);
       const normalized = rawAccounts
-        .map((account) => normalizeDerivAccount(account))
+        .map((account) => normalizeDerivAccount(account, { trustVirtualFlags: false }))
         .filter((account): account is DerivAccount => Boolean(account?.deriv_token));
       console.info("[Deriv Accounts] normalized session accounts", normalized.map((account) => ({
         account_id: account.account_id,
@@ -85,7 +86,11 @@ export function useDerivBalance(): LiveBalance {
         if (isUnknownAccount(account)) continue;
         const raw = rawAccounts.find((item) => item.account_id === account.account_id || item.loginid === account.loginid);
         if (!raw) continue;
-        if (raw.is_demo !== account.is_demo || raw.is_virtual !== account.is_virtual) {
+        if (
+          raw.is_demo !== account.is_demo ||
+          raw.is_virtual !== account.is_virtual ||
+          raw.loginid !== account.loginid
+        ) {
           console.warn("[Deriv Accounts] correcting stale Supabase account flags", {
             account_id: account.account_id,
             loginid: account.loginid,
@@ -140,26 +145,44 @@ export function useDerivBalance(): LiveBalance {
     };
   }, [user, isBrowser]);
 
-  const active = accounts.find((a) => a.account_id === activeId) ?? null;
+  const active = useMemo(
+    () => accounts.find((account) => account.account_id === activeId) ?? null,
+    [accounts, activeId],
+  );
+  const activeAccountKey = active
+    ? `${active.deriv_token}:${active.account_id}:${isDemoAccount(active) ? "demo" : "real"}`
+    : null;
 
   // Subscribe to live balance for the active account.
   useEffect(() => {
-    if (!isBrowser || !active || !user) return;
+    if (!isBrowser || !active || !user || !activeAccountKey) return;
     let unsub: (() => void) | undefined;
     let cancelled = false;
+    const activeIsDemo = isDemoAccount(active);
+    const requestedAccountId = active.account_id;
+    const previousAccountKey = lastWebSocketAccountKeyRef.current;
 
     (async () => {
       try {
-        setAuthenticatedAccount(
-          active.deriv_token,
-          active.account_id,
-          isDemoAccount(active),
-        );
-        console.log("Deriv authenticated WebSocket initialized", {
-          account_id: active.account_id,
-          loginid: active.loginid,
-          is_virtual: isDemoAccount(active),
-        });
+        if (previousAccountKey !== activeAccountKey) {
+          console.info("[Deriv Balance] Initializing Deriv WebSocket account", {
+            previousSelectedAccountKey: previousAccountKey,
+            requestedAccountId,
+            requestedAccountType: activeIsDemo ? "demo" : "real",
+          });
+          setAuthenticatedAccount(active.deriv_token, requestedAccountId, activeIsDemo);
+          lastWebSocketAccountKeyRef.current = activeAccountKey;
+          console.log("Deriv authenticated WebSocket initialized", {
+            account_id: requestedAccountId,
+            loginid: active.loginid,
+            is_virtual: activeIsDemo,
+          });
+        } else {
+          console.info("[Deriv Balance] Skipped Deriv WebSocket account initialization", {
+            requestedAccountId,
+            requestedAccountType: activeIsDemo ? "demo" : "real",
+          });
+        }
         const nextUnsub = await subscribeBalance(active.deriv_token, async (b) => {
           if (cancelled) return;
           setBalance(b.balance);
@@ -171,7 +194,7 @@ export function useDerivBalance(): LiveBalance {
             .update({ balance: b.balance, currency: b.currency })
             .eq("user_id", user.id);
           if (active.id) await updateQuery.eq("id", active.id);
-          else await updateQuery.eq("account_id", active.account_id);
+          else await updateQuery.eq("account_id", requestedAccountId);
         });
         if (cancelled) {
           nextUnsub();
@@ -192,17 +215,41 @@ export function useDerivBalance(): LiveBalance {
       cancelled = true;
       if (unsub) unsub();
     };
-  }, [active, user, isBrowser]);
+  }, [
+    activeAccountKey,
+    active?.account_id,
+    active?.deriv_token,
+    active?.id,
+    active?.loginid,
+    isBrowser,
+    user,
+  ]);
 
-  function switchAccount(accountId: string) {
-    setActiveId(accountId);
-    if (user) localStorage.setItem(accountStorageKey(user.id), accountId);
-    const target = accounts.find((a) => a.account_id === accountId);
-    if (target) {
-      setBalance(target.balance != null ? Number(target.balance) : null);
-      setCurrency(target.currency ?? "");
-    }
-  }
+  const switchAccount = useCallback(
+    (accountId: string) => {
+      setActiveId((currentId) => {
+        if (currentId === accountId) {
+          console.info("[Deriv Balance] switchAccount skipped", {
+            previousSelectedAccountId: currentId,
+            nextSelectedAccountId: accountId,
+          });
+          return currentId;
+        }
+        console.info("[Deriv Balance] switchAccount applied", {
+          previousSelectedAccountId: currentId,
+          nextSelectedAccountId: accountId,
+        });
+        return accountId;
+      });
+      if (user) localStorage.setItem(accountStorageKey(user.id), accountId);
+      const target = accounts.find((account) => account.account_id === accountId);
+      if (target) {
+        setBalance(target.balance != null ? Number(target.balance) : null);
+        setCurrency(target.currency ?? "");
+      }
+    },
+    [accounts, user],
+  );
 
   return {
     account: active,

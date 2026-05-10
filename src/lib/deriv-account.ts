@@ -22,6 +22,10 @@ export type DerivAccountClassification = {
   reason: string;
 };
 
+export type DerivAccountNormalizeOptions = {
+  trustVirtualFlags?: boolean;
+};
+
 export type NormalizedDerivAccount = {
   account_id: string;
   loginid: string;
@@ -93,11 +97,11 @@ function accountIdentityIds(account: DerivAccountLike) {
 }
 
 function isDemoAccountId(id: string) {
-  return /^(VRTC|VRT|VR|DOT)/.test(id) || id.includes("VRTC") || id.includes("VIRTUAL");
+  return /^(VRTC|VRT|VR)/.test(id) || id.includes("VRTC") || id.includes("VIRTUAL");
 }
 
 function isRealAccountId(id: string) {
-  return /^(CR|ROT|MF|MX)/.test(id);
+  return /^(CR|DOT|ROT|MF|MX)/.test(id);
 }
 
 function isTokenAccountId(id: string) {
@@ -123,7 +127,10 @@ function allAccountIdentityText(account: DerivAccountLike) {
     .filter(Boolean);
 }
 
-export function classifyDerivAccount(account: DerivAccountLike): DerivAccountClassification {
+export function classifyDerivAccount(
+  account: DerivAccountLike,
+  options: DerivAccountNormalizeOptions = {},
+): DerivAccountClassification {
   const accountIds = accountIdentityIds(account);
   const identityParts = allAccountIdentityText(account);
   const identityText = identityParts.join(" ");
@@ -139,7 +146,7 @@ export function classifyDerivAccount(account: DerivAccountLike): DerivAccountCla
       reason: `demo account id ${demoPrefixId}`,
     };
   }
-  if (isVirtual === true || isDemo === true) {
+  if (options.trustVirtualFlags && (isVirtual === true || isDemo === true)) {
     return { type: "demo", reason: "is_virtual/is_demo metadata true" };
   }
   if (identityText.includes("VIRTUAL") || identityText.includes("DEMO") || identityText.includes("PRACTICE")) {
@@ -163,27 +170,45 @@ export function classifyDerivAccount(account: DerivAccountLike): DerivAccountCla
   return { type: "unknown", reason: "no reliable account id prefix or account type metadata" };
 }
 
-export function getDerivAccountType(account: DerivAccountLike) {
-  return classifyDerivAccount(account).type;
+export function getDerivAccountType(
+  account: DerivAccountLike,
+  options: DerivAccountNormalizeOptions = {},
+) {
+  return classifyDerivAccount(account, options).type;
 }
 
-export function isDemoAccount(account: DerivAccountLike) {
-  return getDerivAccountType(account) === "demo";
+export function isDemoAccount(
+  account: DerivAccountLike,
+  options: DerivAccountNormalizeOptions = {},
+) {
+  return getDerivAccountType(account, options) === "demo";
 }
 
-export function isRealAccount(account: DerivAccountLike) {
-  return getDerivAccountType(account) === "real";
+export function isRealAccount(
+  account: DerivAccountLike,
+  options: DerivAccountNormalizeOptions = {},
+) {
+  return getDerivAccountType(account, options) === "real";
 }
 
-export function isUnknownAccount(account: DerivAccountLike) {
-  return getDerivAccountType(account) === "unknown";
+export function isUnknownAccount(
+  account: DerivAccountLike,
+  options: DerivAccountNormalizeOptions = {},
+) {
+  return getDerivAccountType(account, options) === "unknown";
 }
 
-export function normalizeDerivAccount(account: DerivAccountLike) {
+export function normalizeDerivAccount(
+  account: DerivAccountLike,
+  options: DerivAccountNormalizeOptions = {},
+) {
   const accountId = accountLoginId(account);
   if (!accountId) return null;
 
-  const classification = classifyDerivAccount({ ...account, account_id: accountId, loginid: accountId });
+  const classification = classifyDerivAccount(
+    { ...account, account_id: accountId, loginid: accountId },
+    options,
+  );
   const demo = classification.type === "demo";
   return {
     ...account,

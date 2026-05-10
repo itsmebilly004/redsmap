@@ -60,7 +60,7 @@ function accountShape(accounts: DerivAccount[]) {
 }
 
 function normalizeAccount(account: DerivAccount) {
-  const normalized = normalizeDerivAccount(account);
+  const normalized = normalizeDerivAccount(account, { trustVirtualFlags: true });
   if (!normalized) return null;
   const accountId = accountLoginId(normalized);
   return {

@@ -200,7 +200,7 @@ function DerivCallback() {
 
         console.info("[Deriv Accounts] callback raw accounts before normalization", accountsData?.data ?? []);
         const normalizedAccounts = (accountsData?.data ?? [])
-          .map((account) => normalizeDerivAccount(account))
+          .map((account) => normalizeDerivAccount(account, { trustVirtualFlags: true }))
           .filter((account): account is NonNullable<ReturnType<typeof normalizeDerivAccount>> =>
             Boolean(account),
           );
