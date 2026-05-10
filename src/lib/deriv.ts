@@ -2520,12 +2520,21 @@ export async function getAuthenticatedWsUrl(
     tokenSource,
     tokenExists: Boolean(accessToken),
     supabaseJwtExists: Boolean(supabaseAccessToken),
+    oauthClientIdHint: DERIV_CLIENT_ID ? `${DERIV_CLIENT_ID.slice(0, 4)}...` : null,
+    oauthAppIdHint: DERIV_APP_ID ? `${DERIV_APP_ID.slice(0, 4)}...` : null,
   });
 
   const response = await fetch("/api/deriv-account-otp", {
     method: "POST",
     headers,
-    body: JSON.stringify({ accessToken, accountId, appIdMode, tokenSource }),
+    body: JSON.stringify({
+      accessToken,
+      accountId,
+      appIdMode,
+      tokenSource,
+      oauthClientId: DERIV_CLIENT_ID ?? "",
+      oauthAppId: DERIV_APP_ID ?? "",
+    }),
   });
   const contentType = response.headers.get("content-type") ?? "";
   const responseWasJson = contentType.toLowerCase().includes("application/json");

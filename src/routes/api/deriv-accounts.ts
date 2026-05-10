@@ -12,7 +12,10 @@ type DerivAccountsRequest = {
   accessToken?: string;
   appIdMode?: "oauth" | "legacy";
   legacyAccounts?: LegacyDerivAccountInput[];
+  oauthClientId?: string;
+  oauthAppId?: string;
 };
+type AppIdCandidate = { value: string; source: string };
 
 type DerivAccount = DerivAccountLike & {
   account_id?: string;
@@ -54,14 +57,41 @@ type DerivWebSocketSnapshot = {
   balance: DerivRpcMessage;
 };
 
-function derivApiAppId(mode: DerivAccountsRequest["appIdMode"] = "oauth") {
-  const oauthAppId = process.env.VITE_DERIV_CLIENT_ID ?? process.env.VITE_DERIV_APP_ID ?? "";
+function addAppIdCandidate(
+  candidates: AppIdCandidate[],
+  value: unknown,
+  source: string,
+) {
+  const text = String(value ?? "").trim();
+  if (!text || candidates.some((candidate) => candidate.value === text)) return;
+  candidates.push({ value: text, source });
+}
+
+function oauthAppIdCandidates(
+  requestHints?: Pick<DerivAccountsRequest, "oauthClientId" | "oauthAppId">,
+) {
+  const candidates: AppIdCandidate[] = [];
+  addAppIdCandidate(candidates, requestHints?.oauthClientId, "request.oauthClientId");
+  addAppIdCandidate(candidates, requestHints?.oauthAppId, "request.oauthAppId");
+  addAppIdCandidate(candidates, process.env.VITE_DERIV_CLIENT_ID, "VITE_DERIV_CLIENT_ID");
+  addAppIdCandidate(candidates, process.env.VITE_DERIV_APP_ID, "VITE_DERIV_APP_ID");
+  return candidates;
+}
+
+function derivApiAppId(
+  mode: DerivAccountsRequest["appIdMode"] = "oauth",
+  requestHints?: Pick<DerivAccountsRequest, "oauthClientId" | "oauthAppId">,
+) {
+  const oauthAppId = oauthAppIdCandidates(requestHints)[0]?.value ?? "";
   const legacyAppId = process.env.VITE_DERIV_LEGACY_APP_ID ?? process.env.VITE_DERIV_APP_ID ?? "";
   return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId;
 }
 
-function derivApiAppIdSource(mode: DerivAccountsRequest["appIdMode"] = "oauth") {
-  const hasOAuthAppId = Boolean(process.env.VITE_DERIV_CLIENT_ID ?? process.env.VITE_DERIV_APP_ID);
+function derivApiAppIdSource(
+  mode: DerivAccountsRequest["appIdMode"] = "oauth",
+  requestHints?: Pick<DerivAccountsRequest, "oauthClientId" | "oauthAppId">,
+) {
+  const hasOAuthAppId = oauthAppIdCandidates(requestHints).length > 0;
   const hasLegacyAppId = Boolean(process.env.VITE_DERIV_LEGACY_APP_ID);
   if (mode === "legacy") {
     if (hasLegacyAppId) return "VITE_DERIV_LEGACY_APP_ID";
@@ -69,7 +99,7 @@ function derivApiAppIdSource(mode: DerivAccountsRequest["appIdMode"] = "oauth") 
     return process.env.VITE_DERIV_CLIENT_ID ? "VITE_DERIV_CLIENT_ID" : "missing:VITE_DERIV_LEGACY_APP_ID";
   }
   if (hasOAuthAppId) {
-    return process.env.VITE_DERIV_CLIENT_ID ? "VITE_DERIV_CLIENT_ID" : "VITE_DERIV_APP_ID";
+    return oauthAppIdCandidates(requestHints)[0]?.source ?? "unknown";
   }
   return "missing:VITE_DERIV_CLIENT_ID_OR_VITE_DERIV_APP_ID";
 }
@@ -508,33 +538,101 @@ async function fetchLegacyAccounts(legacyAccounts: LegacyDerivAccountInput[], ap
   return rawAccounts;
 }
 
-async function fetchOptionsAccounts(accessToken: string, appId: string) {
-  const response = await fetch("https://api.derivws.com/trading/v1/options/accounts", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Deriv-App-ID": appId,
-    },
-  });
-  const data = (await response.json().catch(() => ({
-    errors: [{ message: "Deriv accounts endpoint returned a non-JSON response" }],
-  }))) as DerivAccountsResponse;
-  return { response, data };
+async function fetchOptionsAccounts(
+  accessToken: string,
+  appIdCandidates: AppIdCandidate[],
+) {
+  if (!appIdCandidates.length) {
+    throw new Error("Missing OAuth Deriv App ID candidates for accounts fetch.");
+  }
+  const attemptedAppIds: Array<{ appId: string; appIdSource: string; status: number }> = [];
+  const requestWithCandidate = async (candidate: AppIdCandidate) => {
+    const response = await fetch("https://api.derivws.com/trading/v1/options/accounts", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Deriv-App-ID": candidate.value,
+      },
+    });
+    const data = (await response.json().catch(() => ({
+      errors: [{ message: "Deriv accounts endpoint returned a non-JSON response" }],
+    }))) as DerivAccountsResponse;
+    attemptedAppIds.push({
+      appId: candidate.value,
+      appIdSource: candidate.source,
+      status: response.status,
+    });
+    return { response, data, appIdCandidate: candidate };
+  };
+
+  let result = await requestWithCandidate(appIdCandidates[0]);
+  if (
+    (result.response.status === 401 || result.response.status === 403) &&
+    appIdCandidates.length > 1
+  ) {
+    const alternate = appIdCandidates.find(
+      (candidate) => candidate.value !== result.appIdCandidate.value,
+    );
+    if (alternate) {
+      console.warn("[Deriv Accounts API] OAuth accounts fetch rejected for primary app id; retrying alternate app id once", {
+        primaryAppIdSource: result.appIdCandidate.source,
+        primaryStatus: result.response.status,
+        alternateAppIdSource: alternate.source,
+      });
+      result = await requestWithCandidate(alternate);
+    }
+  }
+
+  return { ...result, attemptedAppIds };
 }
 
-async function createDemoOptionsAccount(accessToken: string, appId: string) {
-  const response = await fetch("https://api.derivws.com/trading/v1/options/accounts", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      "Deriv-App-ID": appId,
-    },
-    body: JSON.stringify({ currency: "USD", group: "row", account_type: "demo" }),
-  });
-  const data = (await response.json().catch(() => ({
-    errors: [{ message: "Deriv account creation endpoint returned a non-JSON response" }],
-  }))) as DerivAccountsResponse;
-  return { response, data };
+async function createDemoOptionsAccount(
+  accessToken: string,
+  appIdCandidates: AppIdCandidate[],
+) {
+  if (!appIdCandidates.length) {
+    throw new Error("Missing OAuth Deriv App ID candidates for demo account creation.");
+  }
+  const attemptedAppIds: Array<{ appId: string; appIdSource: string; status: number }> = [];
+  const requestWithCandidate = async (candidate: AppIdCandidate) => {
+    const response = await fetch("https://api.derivws.com/trading/v1/options/accounts", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "Deriv-App-ID": candidate.value,
+      },
+      body: JSON.stringify({ currency: "USD", group: "row", account_type: "demo" }),
+    });
+    const data = (await response.json().catch(() => ({
+      errors: [{ message: "Deriv account creation endpoint returned a non-JSON response" }],
+    }))) as DerivAccountsResponse;
+    attemptedAppIds.push({
+      appId: candidate.value,
+      appIdSource: candidate.source,
+      status: response.status,
+    });
+    return { response, data, appIdCandidate: candidate };
+  };
+
+  let result = await requestWithCandidate(appIdCandidates[0]);
+  if (
+    (result.response.status === 401 || result.response.status === 403) &&
+    appIdCandidates.length > 1
+  ) {
+    const alternate = appIdCandidates.find(
+      (candidate) => candidate.value !== result.appIdCandidate.value,
+    );
+    if (alternate) {
+      console.warn("[Deriv Accounts API] OAuth demo account create rejected for primary app id; retrying alternate app id once", {
+        primaryAppIdSource: result.appIdCandidate.source,
+        primaryStatus: result.response.status,
+        alternateAppIdSource: alternate.source,
+      });
+      result = await requestWithCandidate(alternate);
+    }
+  }
+
+  return { ...result, attemptedAppIds };
 }
 
 export const Route = createFileRoute("/api/deriv-accounts")({
@@ -546,17 +644,29 @@ export const Route = createFileRoute("/api/deriv-accounts")({
             accessToken,
             appIdMode = "oauth",
             legacyAccounts = [],
+            oauthClientId,
+            oauthAppId,
           } = (await request.json()) as DerivAccountsRequest;
+          const appIdHints = {
+            oauthClientId,
+            oauthAppId,
+          } satisfies Pick<DerivAccountsRequest, "oauthClientId" | "oauthAppId">;
           console.log("[Deriv Accounts API] request received", {
             hasAccessToken: Boolean(accessToken),
             appIdMode,
             legacyAccountCount: legacyAccounts.length,
+            oauthClientIdHint: oauthClientId ? `${oauthClientId.slice(0, 4)}...` : null,
+            oauthAppIdHint: oauthAppId ? `${oauthAppId.slice(0, 4)}...` : null,
           });
           if (!accessToken && !legacyAccounts.length) {
             return Response.json({ error: "Missing Deriv access token" }, { status: 400 });
           }
 
-          const appId = derivApiAppId(appIdMode);
+          const oauthCandidates = oauthAppIdCandidates(appIdHints);
+          const appId =
+            appIdMode === "legacy"
+              ? derivApiAppId("legacy", appIdHints)
+              : oauthCandidates[0]?.value ?? "";
           if (!appId) {
             console.error("[Deriv Accounts API] missing Deriv App ID");
             return Response.json({ error: "Missing Deriv App ID" }, { status: 400 });
@@ -630,11 +740,17 @@ export const Route = createFileRoute("/api/deriv-accounts")({
             hasAccessToken: Boolean(accessToken),
             appId,
             appIdMode,
-            appIdSource: derivApiAppIdSource(appIdMode),
+            appIdSource: derivApiAppIdSource(appIdMode, appIdHints),
+            oauthAppIdCandidates: oauthCandidates.map((candidate) => candidate.source),
           });
-          const { response: accountsResponse, data: accountsData } = await fetchOptionsAccounts(
+          const {
+            response: accountsResponse,
+            data: accountsData,
+            appIdCandidate: accountsAppIdCandidate,
+            attemptedAppIds: accountsAttemptedAppIds,
+          } = await fetchOptionsAccounts(
             accessToken,
-            appId,
+            oauthCandidates,
           );
 
           console.log("Deriv accounts server response", {
@@ -644,6 +760,8 @@ export const Route = createFileRoute("/api/deriv-accounts")({
             dataShape: Array.isArray(accountsData.data) ? "array" : typeof accountsData.data,
             sampleKeys: accountShape(accountsFromResponse(accountsData)),
             error: errorMessage(accountsData),
+            appIdSource: accountsAppIdCandidate.source,
+            attemptedAppIds: accountsAttemptedAppIds,
           });
 
           if (accountsResponse.status === 429) {
@@ -695,9 +813,14 @@ export const Route = createFileRoute("/api/deriv-accounts")({
 
           if (!accounts.length) {
             console.warn("No eligible Options accounts returned. Attempting demo account creation.");
-            const { response: createResponse, data: createData } = await createDemoOptionsAccount(
+            const {
+              response: createResponse,
+              data: createData,
+              appIdCandidate: createAppIdCandidate,
+              attemptedAppIds: createAttemptedAppIds,
+            } = await createDemoOptionsAccount(
               accessToken,
-              appId,
+              oauthCandidates,
             );
             console.log("Deriv demo Options account creation response", {
               ok: createResponse.ok,
@@ -706,6 +829,8 @@ export const Route = createFileRoute("/api/deriv-accounts")({
               dataShape: Array.isArray(createData.data) ? "array" : typeof createData.data,
               sampleKeys: accountShape(accountsFromResponse(createData)),
               error: errorMessage(createData),
+              appIdSource: createAppIdCandidate.source,
+              attemptedAppIds: createAttemptedAppIds,
             });
 
             if (createResponse.status === 429) {

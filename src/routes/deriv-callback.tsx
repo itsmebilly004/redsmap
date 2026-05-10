@@ -480,7 +480,12 @@ function DerivCallback() {
           const accountsResponse = await fetch("/api/deriv-accounts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ accessToken, appIdMode: "oauth" }),
+            body: JSON.stringify({
+              accessToken,
+              appIdMode: "oauth",
+              oauthClientId: DERIV_CLIENT_ID_VALUE ?? "",
+              oauthAppId: DERIV_APP_ID_VALUE ?? "",
+            }),
           });
           const accountsData = await responseJson<DerivAccountsResponse>(accountsResponse, {
             error: "Deriv accounts endpoint returned a non-JSON response",
