@@ -40,9 +40,23 @@ export function useDerivBalance(): LiveBalance {
   const [balance, setBalance] = useState<number | null>(null);
   const [currency, setCurrency] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const lastWebSocketAccountKeyRef = useRef<string | null>(null);
 
   const isBrowser = typeof window !== "undefined";
+
+  useEffect(() => {
+    if (!isBrowser) return;
+    const refreshSessions = (event: Event) => {
+      console.info("[Deriv Balance] session context refresh requested", {
+        detail: event instanceof CustomEvent ? event.detail : null,
+      });
+      setLoading(true);
+      setReloadNonce((value) => value + 1);
+    };
+    window.addEventListener("deriv:sessions-updated", refreshSessions);
+    return () => window.removeEventListener("deriv:sessions-updated", refreshSessions);
+  }, [isBrowser]);
 
   // Load all sessions for this user.
   useEffect(() => {
@@ -151,7 +165,7 @@ export function useDerivBalance(): LiveBalance {
     return () => {
       cancelled = true;
     };
-  }, [user, isBrowser]);
+  }, [user, isBrowser, reloadNonce]);
 
   const active = useMemo(
     () => accounts.find((account) => account.account_id === activeId) ?? null,

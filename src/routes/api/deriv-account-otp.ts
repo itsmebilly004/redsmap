@@ -5,6 +5,15 @@ type DerivAccountOtpRequest = {
   accountId?: string;
 };
 
+function derivApiAppId() {
+  return (
+    process.env.VITE_DERIV_LEGACY_APP_ID ??
+    process.env.VITE_DERIV_APP_ID ??
+    process.env.VITE_DERIV_CLIENT_ID ??
+    ""
+  );
+}
+
 export const Route = createFileRoute("/api/deriv-account-otp")({
   server: {
     handlers: {
@@ -15,11 +24,22 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             return Response.json({ error: "Missing Deriv access token or account ID" }, { status: 400 });
           }
 
-          const appId = process.env.VITE_DERIV_APP_ID ?? "";
+          const appId = derivApiAppId();
           if (!appId) {
             return Response.json({ error: "Missing Deriv App ID" }, { status: 400 });
           }
 
+          console.log("[Deriv OTP API] request started", {
+            endpoint: `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
+            hasAccessToken: Boolean(accessToken),
+            accountId,
+            appId,
+            appIdSource: process.env.VITE_DERIV_LEGACY_APP_ID
+              ? "VITE_DERIV_LEGACY_APP_ID"
+              : process.env.VITE_DERIV_APP_ID
+                ? "VITE_DERIV_APP_ID"
+                : "VITE_DERIV_CLIENT_ID",
+          });
           const otpResponse = await fetch(
             `https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`,
             {

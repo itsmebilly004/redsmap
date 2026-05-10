@@ -33,6 +33,15 @@ type DerivAccountsResponse = {
   errors?: { message?: string; code?: string; status?: number }[];
 };
 
+function derivApiAppId() {
+  return (
+    process.env.VITE_DERIV_LEGACY_APP_ID ??
+    process.env.VITE_DERIV_APP_ID ??
+    process.env.VITE_DERIV_CLIENT_ID ??
+    ""
+  );
+}
+
 function errorMessage(data: DerivAccountsResponse) {
   if (typeof data.error === "string") return data.error;
   return (
@@ -115,15 +124,30 @@ export const Route = createFileRoute("/api/deriv-accounts")({
       POST: async ({ request }) => {
         try {
           const { accessToken } = (await request.json()) as DerivAccountsRequest;
+          console.log("[Deriv Accounts API] request received", {
+            hasAccessToken: Boolean(accessToken),
+          });
           if (!accessToken) {
             return Response.json({ error: "Missing Deriv access token" }, { status: 400 });
           }
 
-          const appId = process.env.VITE_DERIV_APP_ID ?? "";
+          const appId = derivApiAppId();
           if (!appId) {
+            console.error("[Deriv Accounts API] missing Deriv App ID");
             return Response.json({ error: "Missing Deriv App ID" }, { status: 400 });
           }
 
+          console.log("[Deriv Accounts API] accounts fetch started", {
+            endpoint: "https://api.derivws.com/trading/v1/options/accounts",
+            method: "GET",
+            hasAccessToken: Boolean(accessToken),
+            appId,
+            appIdSource: process.env.VITE_DERIV_LEGACY_APP_ID
+              ? "VITE_DERIV_LEGACY_APP_ID"
+              : process.env.VITE_DERIV_APP_ID
+                ? "VITE_DERIV_APP_ID"
+                : "VITE_DERIV_CLIENT_ID",
+          });
           const { response: accountsResponse, data: accountsData } = await fetchOptionsAccounts(
             accessToken,
             appId,

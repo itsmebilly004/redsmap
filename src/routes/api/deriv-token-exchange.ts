@@ -14,6 +14,10 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
       POST: async ({ request }) => {
         try {
           const { code, codeVerifier } = (await request.json()) as TokenExchangeRequest;
+          console.log("[Deriv Token Exchange] request received", {
+            hasCode: Boolean(code),
+            hasCodeVerifier: Boolean(codeVerifier),
+          });
           if (!code || !codeVerifier) {
             return Response.json({ error: "Missing code or codeVerifier" }, { status: 400 });
           }
@@ -26,9 +30,11 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
               ? rawClientSecret
               : undefined;
           if (!clientId) {
+            console.error("[Deriv Token Exchange] missing client_id");
             return Response.json({ error: "Missing Deriv OAuth client_id" }, { status: 400 });
           }
           if (!DERIV_REDIRECT_URI) {
+            console.error("[Deriv Token Exchange] missing redirect_uri");
             return Response.json({ error: "Missing Deriv OAuth redirect_uri" }, { status: 400 });
           }
 
@@ -42,6 +48,7 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
           if (clientSecret) body.set("client_secret", clientSecret);
           console.log("Deriv token exchange request", {
             endpoint: "https://auth.deriv.com/oauth2/token",
+            method: "POST",
             grant_type: "authorization_code",
             client_id: clientId,
             redirect_uri: DERIV_REDIRECT_URI,
@@ -69,11 +76,12 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
           });
 
           if (!tokenResponse.ok) {
-            return Response.json(tokenData, { status: 400 });
+            return Response.json(tokenData, { status: tokenResponse.status || 400 });
           }
 
           return Response.json(tokenData);
         } catch (error: unknown) {
+          console.error("[Deriv Token Exchange] request failed", error);
           return Response.json(
             { error: error instanceof Error ? error.message : "Token exchange failed" },
             { status: 400 },
