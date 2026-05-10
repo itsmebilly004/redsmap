@@ -62,13 +62,46 @@ export function numberFrom(value: unknown) {
 }
 
 export function accountLoginId(account: DerivAccountLike) {
-  return stringFrom(
+  const ids = accountIdentityIds(account);
+  const demoId = ids.find(isDemoAccountId);
+  const realId = ids.find(isRealAccountId);
+  const tokenId = ids.find(isTokenAccountId);
+  return (
+    demoId ??
+    realId ??
+    tokenId ??
+    stringFrom(
+      account.loginid,
+      account.account_id,
+      account.login_id,
+      account.accountId,
+      account.id,
+    )
+  );
+}
+
+function accountIdentityIds(account: DerivAccountLike) {
+  return [
     account.loginid,
     account.account_id,
     account.login_id,
     account.accountId,
     account.id,
-  );
+  ]
+    .map((value) => String(value ?? "").trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function isDemoAccountId(id: string) {
+  return /^(VRTC|VRT|VR)/.test(id) || id.includes("VRTC") || id.includes("VIRTUAL");
+}
+
+function isRealAccountId(id: string) {
+  return /^(CR|DOT|MF|MX)/.test(id);
+}
+
+function isTokenAccountId(id: string) {
+  return /^(USDT|TRC20|BTC|ETH|LTC|USDC|UST)/.test(id);
 }
 
 function allAccountIdentityText(account: DerivAccountLike) {
@@ -91,27 +124,19 @@ function allAccountIdentityText(account: DerivAccountLike) {
 }
 
 export function classifyDerivAccount(account: DerivAccountLike): DerivAccountClassification {
-  const accountIds = [
-    account.loginid,
-    account.account_id,
-    account.login_id,
-    account.accountId,
-    account.id,
-  ]
-    .map((value) => String(value ?? "").trim().toUpperCase())
-    .filter(Boolean);
+  const accountIds = accountIdentityIds(account);
   const identityParts = allAccountIdentityText(account);
   const identityText = identityParts.join(" ");
   const isVirtual = booleanFrom(account.is_virtual);
   const isDemo = booleanFrom(account.is_demo);
-  const demoPrefixId = accountIds.find((id) => /^(VRTC|VRT|VR)/.test(id));
-  const realPrefixId = accountIds.find((id) => /^(CR|DOT|MF|MX)/.test(id));
-  const tokenPrefixId = accountIds.find((id) => /^(USDT|TRC20|BTC|ETH|LTC|USDC|UST)/.test(id));
+  const demoPrefixId = accountIds.find(isDemoAccountId);
+  const realPrefixId = accountIds.find(isRealAccountId);
+  const tokenPrefixId = accountIds.find(isTokenAccountId);
 
   if (demoPrefixId) {
     return {
       type: "demo",
-      reason: `demo account id prefix ${demoPrefixId.match(/^(VRTC|VRT|VR)/)?.[0]}`,
+      reason: `demo account id ${demoPrefixId}`,
     };
   }
   if (identityText.includes("VIRTUAL") || identityText.includes("DEMO") || identityText.includes("PRACTICE")) {
@@ -120,7 +145,7 @@ export function classifyDerivAccount(account: DerivAccountLike): DerivAccountCla
   if (realPrefixId) {
     return {
       type: "real",
-      reason: `real account id prefix ${realPrefixId.match(/^(CR|DOT|MF|MX)/)?.[0]}`,
+      reason: `real account id ${realPrefixId}`,
     };
   }
   if (tokenPrefixId) {

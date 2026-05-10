@@ -12,6 +12,7 @@ import {
 } from "@/lib/deriv-account";
 
 export type DerivAccount = NormalizedDerivAccount & {
+  id?: string;
   account_id: string;
   deriv_token: string;
   is_demo: boolean;
@@ -55,7 +56,7 @@ export function useDerivBalance(): LiveBalance {
     (async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance")
+        .select("id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance")
         .eq("user_id", user.id)
         .eq("is_active", true)
         .order("is_demo", { ascending: true });
@@ -81,6 +82,7 @@ export function useDerivBalance(): LiveBalance {
       })));
 
       for (const account of normalized) {
+        if (isUnknownAccount(account)) continue;
         const raw = rawAccounts.find((item) => item.account_id === account.account_id || item.loginid === account.loginid);
         if (!raw) continue;
         if (raw.is_demo !== account.is_demo || raw.is_virtual !== account.is_virtual) {
@@ -93,11 +95,17 @@ export function useDerivBalance(): LiveBalance {
             normalized_is_virtual: account.is_virtual,
             reason: account.classification_reason,
           });
-          void supabase
-            .from("sessions")
-            .update({ is_demo: account.is_demo, is_virtual: account.is_virtual })
-            .eq("user_id", user.id)
-            .eq("account_id", account.account_id);
+          if (raw.id) {
+            void supabase
+              .from("sessions")
+              .update({
+                is_demo: account.is_demo,
+                is_virtual: account.is_virtual,
+                loginid: account.loginid,
+              })
+              .eq("user_id", user.id)
+              .eq("id", raw.id);
+          }
         }
       }
 
@@ -158,11 +166,12 @@ export function useDerivBalance(): LiveBalance {
           if (b.currency) setCurrency(b.currency);
 
           // Background update to DB
-          await supabase
+          const updateQuery = supabase
             .from("sessions")
             .update({ balance: b.balance, currency: b.currency })
-            .eq("user_id", user.id)
-            .eq("account_id", active.account_id);
+            .eq("user_id", user.id);
+          if (active.id) await updateQuery.eq("id", active.id);
+          else await updateQuery.eq("account_id", active.account_id);
         });
         if (cancelled) {
           nextUnsub();
