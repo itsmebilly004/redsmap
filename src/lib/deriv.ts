@@ -3,6 +3,7 @@ import { getDerivAccountPrefix, getDerivAccountType } from "@/lib/deriv-account"
 
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
 const DERIV_CLIENT_ID = import.meta.env.VITE_DERIV_CLIENT_ID;
+const DERIV_LEGACY_APP_ID = String(import.meta.env.VITE_DERIV_LEGACY_APP_ID ?? "").trim();
 const DERIV_REDIRECT_URI =
   import.meta.env.VITE_DERIV_REDIRECT_URI ?? "https://www.arktradershub.com/deriv-callback";
 const DERIV_OAUTH_ENDPOINT = "https://auth.deriv.com/oauth2/auth";
@@ -19,6 +20,7 @@ export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
+export const DERIV_LEGACY_APP_ID_VALUE = DERIV_LEGACY_APP_ID;
 export const DERIV_REDIRECT_URI_VALUE = DERIV_REDIRECT_URI;
 export const DERIV_OAUTH_ENDPOINT_VALUE = DERIV_OAUTH_ENDPOINT;
 export type DerivOAuthDiagnostics = {
@@ -34,6 +36,8 @@ export type DerivOAuthDiagnostics = {
   codeChallengeMethod: string;
   hasAppId: boolean;
   appIdMatchesClientId: boolean;
+  appIdIsLegacyNumeric: boolean;
+  appIdLooksLikeClientId: boolean;
   forbiddenMarkers: string[];
   clientIdIsConfigured: boolean;
   clientIdLooksDefined: boolean;
@@ -631,6 +635,10 @@ function forbiddenOAuthMarkers(url: string) {
   return markers;
 }
 
+function isNumericLegacyAppId(appId: string | null | undefined) {
+  return !appId || /^\d+$/.test(appId);
+}
+
 export function getDerivOAuthRedirectFailure(url: string | null | undefined) {
   if (!url) return null;
   const parsed = safeParseUrl(url);
@@ -678,6 +686,8 @@ export function getDerivOAuthRedirectFailure(url: string | null | undefined) {
 export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
   const parsed = new URL(url);
   const decodedRedirectUri = parsed.searchParams.get("redirect_uri") ?? "";
+  const clientId = parsed.searchParams.get("client_id") ?? "";
+  const appId = parsed.searchParams.get("app_id");
   const forbiddenMarkers = forbiddenOAuthMarkers(url);
   const requiredParams = [
     "response_type",
@@ -697,17 +707,17 @@ export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
     finalUrl: url,
     endpoint: `${parsed.origin}${parsed.pathname}`,
     decodedRedirectUri,
-    clientId: parsed.searchParams.get("client_id") ?? "",
-    appId: parsed.searchParams.get("app_id"),
+    clientId,
+    appId,
     scopes: parsed.searchParams.get("scope") ?? "",
     responseType: parsed.searchParams.get("response_type") ?? "",
     state: parsed.searchParams.get("state") ?? "",
     codeChallenge: parsed.searchParams.get("code_challenge") ?? "",
     codeChallengeMethod: parsed.searchParams.get("code_challenge_method") ?? "",
     hasAppId: parsed.searchParams.has("app_id"),
-    appIdMatchesClientId:
-      parsed.searchParams.has("app_id") &&
-      parsed.searchParams.get("app_id") === parsed.searchParams.get("client_id"),
+    appIdMatchesClientId: Boolean(appId && appId === clientId),
+    appIdIsLegacyNumeric: isNumericLegacyAppId(appId),
+    appIdLooksLikeClientId: Boolean(appId && appId === clientId),
     forbiddenMarkers,
     clientIdIsConfigured: Boolean(DERIV_CLIENT_ID),
     clientIdLooksDefined: !["", "undefined", "null"].includes(
@@ -758,7 +768,13 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
     throw new Error("Blocked legacy Deriv OAuth URL");
   }
   if (parsed.searchParams.has("app_id")) {
-    throw new Error("Invalid Deriv OAuth URL. OAuth login must use client_id only.");
+    const appId = parsed.searchParams.get("app_id");
+    if (!isNumericLegacyAppId(appId)) {
+      throw new Error("Invalid Deriv OAuth URL. app_id must be the numeric legacy V1 app ID.");
+    }
+    if (appId === parsed.searchParams.get("client_id")) {
+      throw new Error("Invalid Deriv OAuth URL. app_id must not be the OAuth client_id.");
+    }
   }
   if (!parsed.searchParams.get("client_id")) {
     throw new Error("Invalid Deriv OAuth URL. Authorization URL must include client_id.");
@@ -792,8 +808,11 @@ export function redirectToDerivOAuth(url: string) {
   logOAuthDebug("[Deriv OAuth Debug] Final URL diagnostics before redirect", diagnostics);
   console.info("[Deriv OAuth] Redirecting to authorization endpoint", {
     endpoint: diagnostics.endpoint,
+    client_id: diagnostics.clientId,
+    legacy_app_id: diagnostics.appId ?? "(not configured)",
     redirect_uri: diagnostics.decodedRedirectUri,
     scope: diagnostics.scopes,
+    finalOAuthUrl: url,
     forbiddenMarkers: diagnostics.forbiddenMarkers,
   });
   sessionStorage.setItem("deriv_oauth_last_authorization_url", url);
@@ -846,6 +865,15 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
+  if (DERIV_LEGACY_APP_ID) {
+    if (!isNumericLegacyAppId(DERIV_LEGACY_APP_ID)) {
+      throw new Error("Invalid VITE_DERIV_LEGACY_APP_ID. It must be a numeric legacy V1 app ID.");
+    }
+    if (DERIV_LEGACY_APP_ID === DERIV_CLIENT_ID) {
+      throw new Error("Invalid VITE_DERIV_LEGACY_APP_ID. It must not equal VITE_DERIV_CLIENT_ID.");
+    }
+    params.set("app_id", DERIV_LEGACY_APP_ID);
+  }
   // The provider handles the login and consent screens. `prompt` is only
   // documented for signup, where it must be `registration`.
   const prompt = options.mode === "signup" ? "registration" : undefined;
@@ -876,19 +904,19 @@ export async function buildOAuthUrl(
   if (!parsed.searchParams.get("client_id")) {
     throw new Error("Invalid Deriv OAuth URL. Authorization URL must include client_id.");
   }
-  if (parsed.searchParams.has("app_id")) {
-    throw new Error("Invalid Deriv OAuth URL. OAuth login must use client_id only.");
-  }
   const diagnostics = getDerivOAuthDiagnostics(url);
+  if (diagnostics.hasAppId && (!diagnostics.appIdIsLegacyNumeric || diagnostics.appIdLooksLikeClientId)) {
+    throw new Error("Invalid Deriv OAuth URL. app_id must be the numeric legacy V1 app ID.");
+  }
   logOAuthDebug("[Deriv OAuth Debug] Exact final authorization URL", url);
   logOAuthDebug("[Deriv OAuth Debug] Authorization diagnostics", {
     attemptId,
     finalOAuthUrl: url,
     endpoint: DERIV_OAUTH_ENDPOINT,
     client_id: DERIV_CLIENT_ID,
-    app_id: "not-used-for-oauth",
+    legacy_app_id: DERIV_LEGACY_APP_ID || "(not configured)",
     clientIdExists: Boolean(DERIV_CLIENT_ID),
-    appIdExists: "not-used-for-oauth",
+    legacyAppIdExists: Boolean(DERIV_LEGACY_APP_ID),
     redirect_uri: DERIV_REDIRECT_URI,
     scopes: DERIV_SCOPE,
     prompt: prompt ?? "standard-login",
@@ -901,9 +929,12 @@ export async function buildOAuthUrl(
   console.info("[Deriv OAuth] Authorization URL prepared", {
     attemptId,
     endpoint: diagnostics.endpoint,
+    client_id: diagnostics.clientId,
+    legacy_app_id: diagnostics.appId ?? "(not configured)",
     redirect_uri: diagnostics.decodedRedirectUri,
     scope: diagnostics.scopes,
     prompt: prompt ?? "standard-login",
+    finalOAuthUrl: url,
     forbiddenMarkers: diagnostics.forbiddenMarkers,
   });
   return url;

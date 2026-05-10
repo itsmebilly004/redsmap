@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
+  DERIV_LEGACY_APP_ID_VALUE,
   DERIV_OAUTH_ENDPOINT_VALUE,
   buildOAuthUrl,
   getDerivOAuthRedirectFailure,
@@ -162,7 +163,13 @@ function AuthPage() {
                   Expected endpoint:{" "}
                   <span className="font-mono text-foreground">{DERIV_OAUTH_ENDPOINT_VALUE}</span>
                 </div>
-                <div>OAuth mode: client_id only</div>
+                <div>OAuth mode: client_id + optional legacy app_id</div>
+                <div>
+                  Legacy app_id:{" "}
+                  <span className="font-mono text-foreground">
+                    {DERIV_LEGACY_APP_ID_VALUE || "(not configured)"}
+                  </span>
+                </div>
                 <div>Legacy fallback enabled: no</div>
               </div>
               {debugUrl && (
@@ -235,6 +242,7 @@ function AuthPage() {
                 <div className="mb-1 font-semibold text-foreground">Production env snapshot</div>
                 <div className="space-y-1 break-all font-mono text-[11px] text-muted-foreground">
                   <div>OAuth app_id query param included: {oauthDiagnostics.hasAppId ? "yes" : "no"}</div>
+                  <div>legacy app_id: {oauthDiagnostics.appId ?? "(not configured)"}</div>
                 </div>
               </div>
 
@@ -331,6 +339,16 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
       expected: "Configured OAuth app Client ID from Deriv Partners, not undefined/null",
       ok: diagnostics.clientIdIsConfigured && diagnostics.clientIdLooksDefined,
       warning: diagnostics.clientIdIsConfigured && diagnostics.clientIdLooksDefined,
+    },
+    {
+      label: "legacy app_id",
+      actual: diagnostics.appId ?? "(not configured)",
+      expected: "numeric V1 legacy app ID when configured; must not equal client_id",
+      ok:
+        diagnostics.hasAppId &&
+        diagnostics.appIdIsLegacyNumeric &&
+        !diagnostics.appIdLooksLikeClientId,
+      warning: !diagnostics.hasAppId,
     },
     {
       label: "redirect_uri",
