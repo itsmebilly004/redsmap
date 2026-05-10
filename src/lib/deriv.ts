@@ -1,6 +1,12 @@
 // src/lib/deriv.ts
 import { supabase } from "@/integrations/supabase/client";
-import { getDerivAccountPrefix, getDerivAccountType } from "@/lib/deriv-account";
+import {
+  accountLoginId,
+  getDerivAccountPrefix,
+  getDerivAccountType,
+  normalizeDerivAccount,
+  type DerivAccountLike,
+} from "@/lib/deriv-account";
 
 const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
 const DERIV_CLIENT_ID = import.meta.env.VITE_DERIV_CLIENT_ID;
@@ -80,6 +86,7 @@ export type DerivMessage = DerivRecord & {
   proposal?: DerivRecord;
   buy?: DerivRecord;
   sell?: DerivRecord;
+  authorize?: DerivRecord;
   proposal_open_contract?: DerivRecord & { is_sold?: boolean };
   candles?: Array<{
     epoch?: string | number;
@@ -104,10 +111,22 @@ export type DerivMessage = DerivRecord & {
 export type DerivBalance = { balance: number; currency: string; loginid: string };
 export type ActiveSymbol = { symbol: string; display_name: string; market: string };
 type DerivAppIdMode = "oauth" | "legacy";
+type TradingAdapter = "newOAuthTradingAdapter" | "legacyTradingAdapter";
 type DerivSocketError = Error & {
   code?: string;
   status?: number;
   retryable?: boolean;
+};
+export type DerivTradingSession = {
+  accountId: string;
+  loginid: string;
+  token: string;
+  tokenSource: "oauth_access_token" | "legacy_authorize_token";
+  adapter: TradingAdapter;
+  expiresAt: string | null;
+  sessionAccountId: string;
+  sessionLoginid: string | null;
+  normalizedType: "real" | "demo" | "unknown";
 };
 
 type Listener = (msg: DerivMessage) => void;
@@ -207,6 +226,146 @@ export function setAuthenticatedAccount(
   connecting = null;
 }
 
+export function getDerivTradingErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    const socketError = error as DerivSocketError;
+    if (
+      socketError.code === DERIV_SESSION_EXPIRED_CODE ||
+      isInvalidDerivTokenMessage(error.message, socketError.code)
+    ) {
+      return "Your Deriv session expired. Please reconnect your Deriv account.";
+    }
+    return error.message;
+  }
+  return "Trade failed.";
+}
+
+export async function prepareDerivTradingSession(
+  selectedAccount: DerivAccountLike,
+  options: { context?: string } = {},
+): Promise<DerivTradingSession> {
+  if (!isBrowser) {
+    throw createDerivSocketError(
+      "Deriv trading is only available in the browser.",
+      "DERIV_BROWSER_REQUIRED",
+      undefined,
+      false,
+    );
+  }
+
+  const normalizedSelected = normalizeDerivAccount(selectedAccount, { trustVirtualFlags: false });
+  const selectedAccountId = normalizedSelected?.account_id ?? accountLoginId(selectedAccount);
+  if (!normalizedSelected || !selectedAccountId) {
+    throw createDerivSocketError(
+      "Selected Deriv account could not be verified.",
+      "DERIV_ACCOUNT_INVALID",
+      undefined,
+      false,
+    );
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.getSession();
+  const userId = authData.session?.user?.id ?? null;
+  if (authError || !userId) {
+    throw createDerivSocketError(
+      "Your Deriv session expired. Please reconnect your Deriv account.",
+      DERIV_SESSION_EXPIRED_CODE,
+      401,
+      false,
+    );
+  }
+
+  const { data: sessionRows, error: sessionsError } = await supabase
+    .from("sessions")
+    .select("account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at, is_active")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  if (sessionsError) {
+    console.error("[Deriv Trading] Supabase session lookup failed", {
+      context: options.context ?? "trade",
+      selectedAccountId,
+      userId,
+      message: sessionsError.message,
+      code: sessionsError.code,
+      details: sessionsError.details,
+    });
+    throw createDerivSocketError(
+      "Could not verify your Deriv trading session.",
+      "DERIV_SESSION_LOOKUP_FAILED",
+      undefined,
+      false,
+    );
+  }
+
+  const selectedSession = (sessionRows ?? []).find((session) =>
+    sameDerivId(textFrom(session.account_id), selectedAccountId) ||
+    sameDerivId(textFrom(session.loginid), selectedAccountId),
+  );
+  const storedToken = textFrom(selectedSession?.deriv_token);
+  const tokenExpired = isExpired(selectedSession?.expires_at);
+  const adapter = storedToken ? adapterForToken(storedToken) : null;
+  const tokenSource = storedToken ? tokenSourceFor(storedToken) : null;
+
+  console.info("[Deriv Trading] pre-trade session validation", {
+    context: options.context ?? "trade",
+    selectedAccount: {
+      account_id: selectedAccountId,
+      loginid: normalizedSelected.loginid,
+      normalizedType: normalizedSelected.normalizedType,
+      detected_prefix: normalizedSelected.detected_prefix,
+      final_tab_placement: normalizedSelected.final_tab_placement,
+    },
+    session: {
+      found: Boolean(selectedSession),
+      account_id: selectedSession?.account_id ?? null,
+      loginid: selectedSession?.loginid ?? null,
+      tokenExists: Boolean(storedToken),
+      tokenExpiry: selectedSession?.expires_at ?? null,
+      tokenExpired,
+      tokenSource,
+      adapter,
+    },
+    selectedReactTokenMatchesSession: Boolean(
+      textFrom(selectedAccount.deriv_token) &&
+        storedToken &&
+        textFrom(selectedAccount.deriv_token) === storedToken,
+    ),
+  });
+
+  if (!selectedSession || !storedToken || tokenExpired) {
+    throw createDerivSocketError(
+      "Your Deriv session expired. Please reconnect your Deriv account.",
+      DERIV_SESSION_EXPIRED_CODE,
+      401,
+      false,
+    );
+  }
+
+  const normalizedType = normalizedSelected.normalizedType;
+  if (normalizedType !== "real" && normalizedType !== "demo") {
+    throw createDerivSocketError(
+      "Selected Deriv account type could not be verified from its prefix.",
+      "DERIV_ACCOUNT_TYPE_INVALID",
+      undefined,
+      false,
+    );
+  }
+
+  setAuthenticatedAccount(storedToken, selectedAccountId, normalizedType === "demo");
+  return {
+    accountId: selectedAccountId,
+    loginid: normalizedSelected.loginid,
+    token: storedToken,
+    tokenSource: tokenSourceFor(storedToken),
+    adapter: adapterForToken(storedToken),
+    expiresAt: selectedSession.expires_at ?? null,
+    sessionAccountId: selectedSession.account_id,
+    sessionLoginid: selectedSession.loginid ?? null,
+    normalizedType,
+  };
+}
+
 function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticatedAccount>) {
   if (account.isDemo === true) return "demo";
   if (account.isDemo === false) return "real";
@@ -262,6 +421,50 @@ function textFrom(...values: unknown[]) {
     if (text) return text;
   }
   return "";
+}
+
+function sameDerivId(left: string | null | undefined, right: string | null | undefined) {
+  return Boolean(left && right && left.trim().toUpperCase() === right.trim().toUpperCase());
+}
+
+function isExpired(expiresAt: string | null | undefined) {
+  if (!expiresAt) return false;
+  const expiry = new Date(expiresAt).getTime();
+  return Number.isFinite(expiry) && expiry <= Date.now();
+}
+
+function isInvalidDerivTokenMessage(message: string | undefined, code?: string) {
+  const lower = `${message ?? ""} ${code ?? ""}`.toLowerCase();
+  return (
+    lower.includes("token is invalid") ||
+    lower.includes("invalid token") ||
+    lower.includes("token invalid") ||
+    lower.includes("authorization required") ||
+    lower.includes("authorize") && lower.includes("token")
+  );
+}
+
+function derivMessageError(error: DerivError | undefined) {
+  const message = textFrom(error?.message, "Deriv request failed.");
+  if (isInvalidDerivTokenMessage(message)) {
+    return createDerivSocketError(
+      "Your Deriv session expired. Please reconnect your Deriv account.",
+      DERIV_SESSION_EXPIRED_CODE,
+      401,
+      false,
+    );
+  }
+  return createDerivSocketError(message, "DERIV_REQUEST_FAILED", undefined, true);
+}
+
+function tokenSourceFor(token: string) {
+  return isLikelyDerivOAuthToken(token)
+    ? ("oauth_access_token" as const)
+    : ("legacy_authorize_token" as const);
+}
+
+function adapterForToken(token: string): TradingAdapter {
+  return isLikelyDerivOAuthToken(token) ? "newOAuthTradingAdapter" : "legacyTradingAdapter";
 }
 
 function startKeepalive() {
@@ -535,9 +738,28 @@ function openAuthenticatedSocket(
           ) {
             if (data.error) {
               void fail(
+                isInvalidDerivTokenMessage(data.error.message)
+                  ? createDerivSocketError(
+                      "Your Deriv session expired. Please reconnect your Deriv account.",
+                      DERIV_SESSION_EXPIRED_CODE,
+                      401,
+                      false,
+                    )
+                  : createDerivSocketError(
+                      data.error.message ?? DERIV_RECONNECT_MESSAGE,
+                      "DERIV_AUTHORIZE_FAILED",
+                      401,
+                      false,
+                    ),
+              );
+              return;
+            }
+            const authorizedLoginid = textFrom(data.authorize?.loginid, data.authorize?.account_id);
+            if (authorizedLoginid && !sameDerivId(authorizedLoginid, account.accountId)) {
+              void fail(
                 createDerivSocketError(
-                  data.error.message ?? DERIV_RECONNECT_MESSAGE,
-                  "DERIV_AUTHORIZE_FAILED",
+                  "Your Deriv session expired. Please reconnect your Deriv account.",
+                  "DERIV_TOKEN_ACCOUNT_MISMATCH",
                   401,
                   false,
                 ),
@@ -546,6 +768,7 @@ function openAuthenticatedSocket(
             }
             console.info("[Deriv WS] legacy authorize success", {
               accountId: account.accountId,
+              authorizedLoginid: authorizedLoginid || null,
               req_id: legacyAuthorizeReqId,
               msg_type: data.msg_type,
             });
@@ -593,7 +816,7 @@ export async function send(payload: DerivRecord): Promise<DerivMessage> {
       if (msg.req_id === id) {
         clearTimeout(timeoutId);
         off();
-        if (msg.error) reject(new Error(msg.error.message));
+        if (msg.error) reject(derivMessageError(msg.error));
         else resolve(msg);
       }
     });
@@ -1196,7 +1419,7 @@ async function publicSend(payload: DerivRecord): Promise<DerivMessage> {
           } catch {
             /* ignore */
           }
-          if (msg.error) reject(new Error(msg.error.message));
+          if (msg.error) reject(derivMessageError(msg.error));
           else resolve(msg);
         }
       } catch {

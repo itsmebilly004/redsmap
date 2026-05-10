@@ -22,7 +22,15 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { isDemoAccount } from "@/lib/deriv-account";
-import { SYNTHETIC_MARKETS, buildOAuthUrl, getTradingSocketAccountId, redirectToDerivOAuth, setAuthenticatedAccount, type TradeCategory } from "@/lib/deriv";
+import {
+  SYNTHETIC_MARKETS,
+  buildOAuthUrl,
+  getDerivTradingErrorMessage,
+  getTradingSocketAccountId,
+  prepareDerivTradingSession,
+  redirectToDerivOAuth,
+  type TradeCategory,
+} from "@/lib/deriv";
 import { normalizeOpenContract, EMPTY_CONTRACT_STATE, type ActiveContractState } from "@/lib/contract-state";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import { isDigitTrade, tradeTypeConfig, TRADE_TYPE_CONFIGS, type TradeSide } from "@/lib/trade-types";
@@ -149,34 +157,56 @@ export function TradePanel({
       setQuotes({});
       return;
     }
-    setAuthenticatedAccount(token, account.account_id, isDemoAccount(account));
     let cancelled = false;
     const timeout = setTimeout(async () => {
       setQuotesLoading(true);
       const next: Record<string, ProposalQuote> = {};
-      await Promise.all(
-        config.sides.map(async (side) => {
-          try {
-            const payload = buildPayload(side.value, payoutMode);
-            const response = await requestProposal(payload);
-            const proposal = response.proposal ?? {};
-            const payout = numberFrom(proposal.payout);
-            const askPrice = numberFrom(proposal.ask_price) ?? stake;
-            next[side.value] = {
-              askPrice,
-              error: null,
-              id: String(proposal.id ?? ""),
-              payout,
-              pct: payout != null && askPrice > 0 ? ((payout - askPrice) / askPrice) * 100 : null,
-            };
-          } catch (error) {
-            next[side.value] = {
-              ...EMPTY_QUOTE,
-              error: error instanceof Error ? error.message : "Proposal unavailable",
-            };
-          }
-        }),
-      );
+      try {
+        const tradingSession = await prepareDerivTradingSession(account, {
+          context: "proposal-quotes",
+        });
+        console.info("[Deriv Trade] Proposal trading session prepared", {
+          selectedAccountId: account.account_id,
+          selectedLoginId: account.loginid,
+          normalizedType: account.normalizedType,
+          sessionAccountId: tradingSession.sessionAccountId,
+          tokenExists: Boolean(tradingSession.token),
+          tokenExpiry: tradingSession.expiresAt,
+          tokenSource: tradingSession.tokenSource,
+          adapter: tradingSession.adapter,
+        });
+        await Promise.all(
+          config.sides.map(async (side) => {
+            try {
+              const payload = buildPayload(side.value, payoutMode);
+              const response = await requestProposal(payload);
+              const proposal = response.proposal ?? {};
+              const payout = numberFrom(proposal.payout);
+              const askPrice = numberFrom(proposal.ask_price) ?? stake;
+              next[side.value] = {
+                askPrice,
+                error: null,
+                id: String(proposal.id ?? ""),
+                payout,
+                pct: payout != null && askPrice > 0 ? ((payout - askPrice) / askPrice) * 100 : null,
+              };
+            } catch (error) {
+              next[side.value] = {
+                ...EMPTY_QUOTE,
+                error: getDerivTradingErrorMessage(error) || "Proposal unavailable",
+              };
+            }
+          }),
+        );
+      } catch (error) {
+        const message = getDerivTradingErrorMessage(error);
+        for (const side of config.sides) {
+          next[side.value] = {
+            ...EMPTY_QUOTE,
+            error: message || "Proposal unavailable",
+          };
+        }
+      }
       if (!cancelled) {
         setQuotes(next);
         setQuotesLoading(false);
@@ -316,7 +346,19 @@ export function TradePanel({
     try {
       validateAccount();
       if (!account || !token || !user) throw new Error("Connect and select your Deriv account first.");
-      setAuthenticatedAccount(token, account.account_id, isDemoAccount(account));
+      const tradingSession = await prepareDerivTradingSession(account, {
+        context: "standard-buy",
+      });
+      console.info("[Deriv Trade] Trading session prepared", {
+        selectedAccountId: account.account_id,
+        selectedLoginId: account.loginid,
+        normalizedType: account.normalizedType,
+        sessionAccountId: tradingSession.sessionAccountId,
+        tokenExists: Boolean(tradingSession.token),
+        tokenExpiry: tradingSession.expiresAt,
+        tokenSource: tradingSession.tokenSource,
+        adapter: tradingSession.adapter,
+      });
       await cleanupSubscription();
 
       const quote = quotes[side.value];
@@ -383,7 +425,7 @@ export function TradePanel({
       });
       toast.success(`Bought ${side.label}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Trade failed.";
+      const message = getDerivTradingErrorMessage(error);
       console.error("[Deriv Trade] Buy failed", error);
       setErrorMessage(message);
       setActiveContract((current) => ({ ...current, error: message, status: "error" }));
@@ -401,6 +443,9 @@ export function TradePanel({
     }
     setBusy(true);
     try {
+      if (account) {
+        await prepareDerivTradingSession(account, { context: "standard-sell" });
+      }
       const response = await sellContract(activeContract.contractId, activeContract.sellPrice);
       const sold = response.sell ?? {};
       const profit = numberFrom(sold.profit) ?? activeContract.currentProfit ?? 0;
@@ -418,7 +463,7 @@ export function TradePanel({
         `Closed ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${tradeCurrency}`,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not close contract.";
+      const message = getDerivTradingErrorMessage(error);
       setErrorMessage(message);
       toast.error(message);
     } finally {

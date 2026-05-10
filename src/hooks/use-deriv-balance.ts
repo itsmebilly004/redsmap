@@ -18,6 +18,7 @@ export type DerivAccount = NormalizedDerivAccount & {
   loginid?: string | null;
   currency: string | null;
   balance: number | null;
+  expires_at?: string | null;
 };
 
 export type LiveBalance = {
@@ -127,7 +128,7 @@ export function useDerivBalance(): LiveBalance {
     (async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance")
+        .select("id, account_id, loginid, deriv_token, is_demo, is_virtual, currency, balance, expires_at")
         .eq("user_id", user.id)
         .eq("is_active", true)
         .order("is_demo", { ascending: true });

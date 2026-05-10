@@ -15,10 +15,11 @@ import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { isDemoAccount } from "@/lib/deriv-account";
 import {
   buildOAuthUrl,
+  getDerivTradingErrorMessage,
   getTradingSocketAccountId,
   onStatus,
+  prepareDerivTradingSession,
   redirectToDerivOAuth,
-  setAuthenticatedAccount,
 } from "@/lib/deriv";
 import { SYNTHETIC_MARKETS } from "@/lib/deriv";
 import { supabase } from "@/integrations/supabase/client";
@@ -180,7 +181,19 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     try {
       validateAccount();
       if (!account || !token) throw new Error("Connect and select your Deriv account first.");
-      setAuthenticatedAccount(token, account.account_id, isDemoAccount(account));
+      const tradingSession = await prepareDerivTradingSession(account, {
+        context: "accumulator-buy",
+      });
+      console.info("[Accumulator] Trading session prepared", {
+        selectedAccountId: account.account_id,
+        selectedLoginId: account.loginid,
+        normalizedType: account.normalizedType,
+        sessionAccountId: tradingSession.sessionAccountId,
+        tokenExists: Boolean(tradingSession.token),
+        tokenExpiry: tradingSession.expiresAt,
+        tokenSource: tradingSession.tokenSource,
+        adapter: tradingSession.adapter,
+      });
       await cleanupSubscription();
 
       const payload = buildAccumulatorProposalPayload({
@@ -257,7 +270,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       });
       toast.success(`Bought accumulator ${contractId}`);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Accumulator trade failed.";
+      const message = getDerivTradingErrorMessage(error);
       console.error("[Accumulator] Trade failed", error);
       setState((current) => ({ ...current, status: "error", error: message }));
       toast.error(message);
@@ -279,6 +292,9 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     }
     setBusy(true);
     try {
+      if (account) {
+        await prepareDerivTradingSession(account, { context: "accumulator-sell" });
+      }
       const response = await sellContract(state.contractId, state.sellPrice);
       const sold = response.sell ?? {};
       const profit = Number(sold.profit ?? state.currentProfit ?? 0);
@@ -296,7 +312,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         `Accumulator sold ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${tradeCurrency}`,
       );
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Could not sell accumulator.";
+      const message = getDerivTradingErrorMessage(error);
       setState((current) => ({ ...current, status: "error", error: message }));
       console.error("[Accumulator] Sell failed", error);
       toast.error(message);

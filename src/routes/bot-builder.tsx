@@ -17,9 +17,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
   send,
-  setAuthenticatedAccount,
+  getDerivTradingErrorMessage,
   getTradingSocketAccountId,
   contractTypeFor,
+  prepareDerivTradingSession,
   type TradeCategory,
 } from "@/lib/deriv";
 import { supabase } from "@/integrations/supabase/client";
@@ -607,11 +608,9 @@ function BotBuilder() {
         if (sellAtProfit > 0) proposal.limit_order.take_profit = sellAtProfit;
         if (sellAtLoss > 0) proposal.limit_order.stop_loss = sellAtLoss;
       }
-      setAuthenticatedAccount(
-        token,
-        derivAccount.account_id,
-        isDemoAccount(derivAccount),
-      );
+      const tradingSession = await prepareDerivTradingSession(derivAccount, {
+        context: "bot-builder-trade",
+      });
       console.info("[Deriv Bot] Placing trade", {
         selectedAccountId: derivAccount.account_id,
         selectedLoginId: derivAccount.loginid,
@@ -620,6 +619,11 @@ function BotBuilder() {
         final_tab_placement: derivAccount.final_tab_placement,
         is_demo: isDemoAccount(derivAccount),
         is_virtual: isDemoAccount(derivAccount),
+        sessionAccountId: tradingSession.sessionAccountId,
+        tokenExists: Boolean(tradingSession.token),
+        tokenExpiry: tradingSession.expiresAt,
+        tokenSource: tradingSession.tokenSource,
+        adapter: tradingSession.adapter,
         wsAccountId: getTradingSocketAccountId(),
         finalProposalPayload: proposal,
       });
@@ -665,7 +669,7 @@ function BotBuilder() {
         if (runningRef.current) setTimeout(runCycle, 750);
       }, 1000);
     } catch (error: unknown) {
-      logJournal(error instanceof Error ? error.message : "Bot execution failed", "error");
+      logJournal(getDerivTradingErrorMessage(error), "error");
       setRunning(false);
       runningRef.current = false;
     }
