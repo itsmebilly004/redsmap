@@ -26,11 +26,54 @@ export type LiveBalance = {
   balance: number | null;
   currency: string;
   loading: boolean;
+  refreshing: boolean;
+  refreshBalances: (reason?: string, selectedAccountId?: string) => Promise<void>;
   switchAccount: (accountId: string) => void;
 };
 
 function accountStorageKey(userId: string) {
   return `deriv_active_account:${userId}`;
+}
+
+type DerivAccountsApiResponse = {
+  data?: Array<Record<string, unknown>>;
+  error?: string;
+  detail?: string;
+};
+
+function isLikelyDerivOAuthToken(token: string | null | undefined) {
+  if (!token) return false;
+  return token.startsWith("ory_") || token.includes("ory_at_");
+}
+
+function isLikelyLegacyToken(token: string | null | undefined) {
+  return Boolean(token && !isLikelyDerivOAuthToken(token));
+}
+
+function accountSummary(account: Pick<DerivAccount, "account_id" | "loginid" | "currency" | "balance" | "normalizedType" | "detected_prefix">) {
+  return {
+    account_id: account.account_id,
+    loginid: account.loginid,
+    currency: account.currency,
+    balance: account.balance,
+    normalizedType: account.normalizedType,
+    detected_prefix: account.detected_prefix,
+  };
+}
+
+function normalizeFreshAccount(
+  account: Record<string, unknown>,
+  fallbackToken?: string | null,
+) {
+  const normalized = normalizeDerivAccount(
+    {
+      ...account,
+      deriv_token: account.deriv_token ?? fallbackToken,
+    },
+    { trustVirtualFlags: false },
+  );
+  if (!normalized?.deriv_token) return null;
+  return normalized as DerivAccount;
 }
 
 export function useDerivBalance(): LiveBalance {
@@ -40,8 +83,10 @@ export function useDerivBalance(): LiveBalance {
   const [balance, setBalance] = useState<number | null>(null);
   const [currency, setCurrency] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const lastWebSocketAccountKeyRef = useRef<string | null>(null);
+  const legacyAutoRefreshKeysRef = useRef<Set<string>>(new Set());
 
   const isBrowser = typeof window !== "undefined";
 
@@ -189,6 +234,193 @@ export function useDerivBalance(): LiveBalance {
     ? `${active.deriv_token}:${active.account_id}:${active.normalizedType}`
     : null;
 
+  const refreshBalances = useCallback(
+    async (reason = "manual", selectedAccountId = activeId ?? undefined) => {
+      if (!isBrowser || !user || !accounts.length) return;
+      setRefreshing(true);
+      console.info("[Deriv Balance] balance fetch started", {
+        reason,
+        userId: user.id,
+        selectedAccountId,
+        accountCount: accounts.length,
+        accounts: accounts.map(accountSummary),
+      });
+
+      const freshAccountsById = new Map<string, DerivAccount>();
+      const mergeFreshAccounts = (items: Record<string, unknown>[], fallbackToken?: string | null) => {
+        const normalized = items
+          .map((item) => normalizeFreshAccount(item, fallbackToken))
+          .filter((item): item is DerivAccount => Boolean(item));
+        for (const account of normalized) {
+          const existing = accounts.find((item) => item.account_id === account.account_id);
+          freshAccountsById.set(account.account_id, {
+            ...existing,
+            ...account,
+            id: existing?.id ?? account.id,
+            deriv_token: account.deriv_token ?? existing?.deriv_token ?? "",
+          });
+        }
+        return normalized;
+      };
+
+      try {
+        const oauthSeed = accounts.find((account) => isLikelyDerivOAuthToken(account.deriv_token));
+        if (oauthSeed) {
+          const response = await fetch("/api/deriv-accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accessToken: oauthSeed.deriv_token, appIdMode: "oauth" }),
+          });
+          const data = (await response.json().catch(() => ({
+            error: "Deriv accounts endpoint returned a non-JSON response",
+          }))) as DerivAccountsApiResponse;
+          if (!response.ok) {
+            throw new Error(data.detail ?? data.error ?? "Could not refresh OAuth Deriv balances");
+          }
+          const refreshed = mergeFreshAccounts(data.data ?? [], oauthSeed.deriv_token);
+          console.info("[Deriv Balance] balance fetch completed", {
+            source: "oauth",
+            status: response.status,
+            accountCount: refreshed.length,
+            accounts: refreshed.map(accountSummary),
+          });
+        }
+
+        const legacyAccounts = accounts.filter((account) => isLikelyLegacyToken(account.deriv_token));
+        if (legacyAccounts.length) {
+          const response = await fetch("/api/deriv-accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              appIdMode: "legacy",
+              legacyAccounts: legacyAccounts.map((account) => ({
+                account_id: account.account_id,
+                loginid: account.loginid ?? account.account_id,
+                deriv_token: account.deriv_token,
+                currency: account.currency,
+                balance: account.balance,
+                is_demo: account.is_demo,
+                is_virtual: account.is_virtual,
+                account_type: account.account_type,
+              })),
+            }),
+          });
+          const data = (await response.json().catch(() => ({
+            error: "Deriv legacy accounts endpoint returned a non-JSON response",
+          }))) as DerivAccountsApiResponse;
+          if (!response.ok) {
+            throw new Error(data.detail ?? data.error ?? "Could not refresh legacy Deriv balances");
+          }
+          const refreshed = mergeFreshAccounts(data.data ?? []);
+          const freshLegacyIds = new Set(refreshed.map((account) => account.account_id));
+          const staleLegacyIds = legacyAccounts
+            .map((account) => account.account_id)
+            .filter((accountId) => !freshLegacyIds.has(accountId));
+
+          if (staleLegacyIds.length) {
+            console.warn("[Deriv Balance] invalidating stale legacy Supabase rows", {
+              staleLegacyIds,
+              freshLegacyIds: Array.from(freshLegacyIds),
+            });
+            await supabase
+              .from("sessions")
+              .update({ is_active: false })
+              .eq("user_id", user.id)
+              .in("account_id", staleLegacyIds);
+          }
+
+          console.info("[Deriv Balance] balance fetch completed", {
+            source: "legacy",
+            status: response.status,
+            accountCount: refreshed.length,
+            accounts: refreshed.map(accountSummary),
+            staleLegacyIds,
+          });
+        }
+
+        if (!freshAccountsById.size) return;
+
+        for (const account of freshAccountsById.values()) {
+          const { error } = await supabase
+            .from("sessions")
+            .update({
+              balance: Number(account.balance ?? 0),
+              currency: account.currency ?? "",
+              deriv_token: account.deriv_token,
+              is_demo: account.normalizedType === "demo",
+              is_virtual: account.normalizedType === "demo",
+              loginid: account.loginid ?? account.account_id,
+            })
+            .eq("user_id", user.id)
+            .eq("account_id", account.account_id);
+          if (error) {
+            console.warn("[Deriv Balance] Supabase balance refresh update failed", {
+              account_id: account.account_id,
+              message: error.message,
+              code: error.code,
+              details: error.details,
+            });
+          }
+        }
+
+        setAccounts((previous) => {
+          const legacyFreshIds = new Set(
+            Array.from(freshAccountsById.values())
+              .filter((account) => isLikelyLegacyToken(account.deriv_token))
+              .map((account) => account.account_id),
+          );
+          const previousLegacyIds = new Set(
+            previous
+              .filter((account) => isLikelyLegacyToken(account.deriv_token))
+              .map((account) => account.account_id),
+          );
+          const next = previous
+            .filter((account) => {
+              if (!isLikelyLegacyToken(account.deriv_token)) return true;
+              return !legacyFreshIds.size || legacyFreshIds.has(account.account_id);
+            })
+            .map((account) => freshAccountsById.get(account.account_id) ?? account);
+
+          for (const account of freshAccountsById.values()) {
+            if (!next.some((item) => item.account_id === account.account_id)) next.push(account);
+          }
+
+          console.info("[Deriv Balance] React account state refreshed", {
+            reason,
+            previousLegacyIds: Array.from(previousLegacyIds),
+            freshAccountIds: Array.from(freshAccountsById.keys()),
+            nextAccounts: next.map(accountSummary),
+          });
+          return next;
+        });
+
+        const selectedFresh =
+          (selectedAccountId ? freshAccountsById.get(selectedAccountId) : null) ??
+          freshAccountsById.get(activeId ?? "");
+        if (selectedFresh) {
+          setBalance(Number(selectedFresh.balance ?? 0));
+          setCurrency(selectedFresh.currency ?? "");
+        }
+
+        console.info("[Deriv Balance] balance fetch completed", {
+          reason,
+          selectedAccountId,
+          refreshedAccountIds: Array.from(freshAccountsById.keys()),
+        });
+      } catch (error) {
+        console.warn("[Deriv Balance] balance fetch failed", {
+          reason,
+          selectedAccountId,
+          error,
+        });
+        throw error;
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [accounts, activeId, isBrowser, user],
+  );
+
   // Subscribe to live balance for the active account.
   useEffect(() => {
     if (!isBrowser || !active || !user || !activeAccountKey) return;
@@ -225,8 +457,34 @@ export function useDerivBalance(): LiveBalance {
         }
         const nextUnsub = await subscribeBalance(active.deriv_token, async (b) => {
           if (cancelled) return;
+          if (b.loginid && b.loginid !== requestedAccountId) {
+            console.warn("[Deriv Balance] ignored balance for a different Deriv account", {
+              requestedAccountId,
+              receivedLoginid: b.loginid,
+              receivedCurrency: b.currency,
+              receivedBalance: b.balance,
+            });
+            return;
+          }
+          console.info("[Deriv Balance] live balance received", {
+            requestedAccountId,
+            loginid: b.loginid,
+            currency: b.currency,
+            balance: b.balance,
+          });
           setBalance(b.balance);
           if (b.currency) setCurrency(b.currency);
+          setAccounts((previous) =>
+            previous.map((account) =>
+              account.account_id === requestedAccountId
+                ? {
+                    ...account,
+                    balance: b.balance,
+                    currency: b.currency || account.currency,
+                  }
+                : account,
+            ),
+          );
 
           // Background update to DB
           const updateQuery = supabase
@@ -265,6 +523,21 @@ export function useDerivBalance(): LiveBalance {
     user,
   ]);
 
+  useEffect(() => {
+    if (!isBrowser || !user || loading || !accounts.length) return;
+    const legacyAccounts = accounts.filter((account) => isLikelyLegacyToken(account.deriv_token));
+    if (!legacyAccounts.length) return;
+    const refreshKey = `${user.id}:${legacyAccounts
+      .map((account) => `${account.account_id}:${account.deriv_token.slice(-6)}`)
+      .sort()
+      .join("|")}`;
+    if (legacyAutoRefreshKeysRef.current.has(refreshKey)) return;
+    legacyAutoRefreshKeysRef.current.add(refreshKey);
+    void refreshBalances("initial-legacy-load").catch((error) => {
+      console.warn("[Deriv Balance] initial legacy balance refresh failed", error);
+    });
+  }, [accounts, isBrowser, loading, refreshBalances, user]);
+
   const switchAccount = useCallback(
     (accountId: string) => {
       setActiveId((currentId) => {
@@ -286,9 +559,15 @@ export function useDerivBalance(): LiveBalance {
       if (target) {
         setBalance(target.balance != null ? Number(target.balance) : null);
         setCurrency(target.currency ?? "");
+        void refreshBalances("account-switch", accountId).catch((error) => {
+          console.warn("[Deriv Balance] account switch balance refresh failed", {
+            accountId,
+            error,
+          });
+        });
       }
     },
-    [accounts, user],
+    [accounts, refreshBalances, user],
   );
 
   return {
@@ -297,6 +576,8 @@ export function useDerivBalance(): LiveBalance {
     balance,
     currency,
     loading,
+    refreshing,
+    refreshBalances,
     switchAccount,
   };
 }

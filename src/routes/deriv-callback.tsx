@@ -337,8 +337,10 @@ function DerivCallback() {
         let accessToken = "";
         let expiresIn = 0;
         let rawAccounts: DerivAccount[] = [];
+        let accountFetchMode: "oauth" | "legacy" = "oauth";
 
         if (code) {
+          accountFetchMode = "oauth";
           markStage("new OAuth callback selected", {
             appIdMode: "oauth",
             hasLegacyCallbackAccounts: Boolean(legacyCallbackAccounts.length),
@@ -462,6 +464,7 @@ function DerivCallback() {
           markStage("accounts fetch success", accountsLog);
           rawAccounts = accountsData.data ?? [];
         } else if (legacyCallbackAccounts.length) {
+          accountFetchMode = "legacy";
           sessionStorage.removeItem("deriv_oauth_state");
           sessionStorage.removeItem("deriv_code_verifier");
           accessToken = legacyCallbackAccounts[0]?.deriv_token ?? "";
@@ -475,11 +478,48 @@ function DerivCallback() {
           markStage("token exchange skipped", {
             reason: "Deriv returned legacy account tokens for this old account.",
           });
-          markStage("accounts fetch success", {
-            source: "legacy callback query parameters",
+          markStage("accounts fetch started", {
+            localRoute: "/api/deriv-accounts",
+            browserDirectToDeriv: false,
+            appIdMode: "legacy",
+            source: "legacy callback tokens",
             accountCount: legacyCallbackAccounts.length,
+            accountIds: legacyCallbackAccounts.map((account) => account.account_id),
           });
-          rawAccounts = legacyCallbackAccounts;
+          const accountsResponse = await fetch("/api/deriv-accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              appIdMode: "legacy",
+              legacyAccounts: legacyCallbackAccounts,
+            }),
+          });
+          const accountsData = await responseJson<DerivAccountsResponse>(accountsResponse, {
+            error: "Deriv legacy accounts endpoint returned a non-JSON response",
+          });
+          const accountsLog = {
+            ok: accountsResponse.ok,
+            status: accountsResponse.status,
+            accountCount: accountsData.data?.length ?? 0,
+            error: accountsData.error,
+            detail: accountsData.detail,
+          };
+          if (!accountsResponse.ok) {
+            markStage("accounts fetch failure", accountsLog);
+            if (accountsResponse.status === 403) {
+              throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
+            }
+            throw new Error(
+              accountsData.detail ??
+                accountsData.error ??
+                "Could not load fresh Deriv accounts for this legacy login",
+            );
+          }
+          markStage("accounts fetch success", {
+            ...accountsLog,
+            source: "legacy live Deriv WebSocket snapshot",
+          });
+          rawAccounts = accountsData.data ?? [];
         } else {
           throw new Error("Missing authorization code");
         }
@@ -535,6 +575,55 @@ function DerivCallback() {
           throw new Error("Supabase session was created but is not active. Please sign in again.");
         }
         const expiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+
+        if (accountFetchMode === "legacy") {
+          const freshAccountIds = new Set(
+            accounts.map((account) => String(account.loginid ?? account.account_id).toUpperCase()),
+          );
+          const { data: existingSessions, error: existingSessionsError } = await supabase
+            .from("sessions")
+            .select("id, account_id, loginid")
+            .eq("user_id", sessionUser.id)
+            .eq("is_active", true);
+
+          if (existingSessionsError) {
+            markStage("stale Supabase session lookup failure", {
+              message: existingSessionsError.message,
+              code: existingSessionsError.code,
+              details: existingSessionsError.details,
+            });
+          } else {
+            const staleSessions = (existingSessions ?? []).filter((session) => {
+              const accountId = String(session.loginid ?? session.account_id ?? "").toUpperCase();
+              return accountId && !freshAccountIds.has(accountId);
+            });
+            if (staleSessions.length) {
+              markStage("stale Supabase rows invalidation started", {
+                staleAccountIds: staleSessions.map((session) => session.account_id),
+                freshAccountIds: Array.from(freshAccountIds),
+              });
+              const { error: staleUpdateError } = await supabase
+                .from("sessions")
+                .update({ is_active: false })
+                .eq("user_id", sessionUser.id)
+                .in(
+                  "id",
+                  staleSessions.map((session) => session.id),
+                );
+              if (staleUpdateError) {
+                markStage("stale Supabase rows invalidation failure", {
+                  message: staleUpdateError.message,
+                  code: staleUpdateError.code,
+                  details: staleUpdateError.details,
+                });
+              } else {
+                markStage("stale Supabase rows invalidated", {
+                  staleAccountIds: staleSessions.map((session) => session.account_id),
+                });
+              }
+            }
+          }
+        }
 
         markStage("Supabase upsert started", {
           table: "sessions",

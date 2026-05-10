@@ -20,6 +20,7 @@ import {
   ChevronDown,
   LogOut,
   ChevronUp,
+  RefreshCw,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -89,7 +90,8 @@ export function TopShell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { account, accounts, balance, currency, switchAccount } = useDerivBalanceContext();
+  const { account, accounts, balance, currency, refreshing, refreshBalances, switchAccount } =
+    useDerivBalanceContext();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeAccountTab, setActiveAccountTab] = useState<"real" | "demo">("real");
 
@@ -205,6 +207,17 @@ export function TopShell({ children }: { children: ReactNode }) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not start Deriv OAuth.";
       console.error("[Deriv OAuth] Shell connect failed", error);
+      toast.error(message);
+    }
+  }
+
+  async function handleRefreshBalances() {
+    try {
+      await refreshBalances("manual-dropdown");
+      toast.success("Deriv balances refreshed.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not refresh Deriv balances.";
+      console.error("[Deriv Balance] manual refresh failed", error);
       toast.error(message);
     }
   }
@@ -328,8 +341,11 @@ export function TopShell({ children }: { children: ReactNode }) {
                     <Button
                       variant="outline"
                       className="h-9 rounded-md border-[#999999] px-4 text-sm font-bold text-[#333333] hover:bg-[#f2f3f4]"
+                      onClick={handleRefreshBalances}
+                      disabled={refreshing}
                     >
-                      Manage accounts
+                      <RefreshCw className={cn("mr-2 size-4", refreshing && "animate-spin")} />
+                      Refresh balances
                     </Button>
                     <button
                       onClick={handleLogout}

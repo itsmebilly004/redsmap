@@ -100,6 +100,7 @@ export type DerivMessage = DerivRecord & {
 };
 export type DerivBalance = { balance: number; currency: string; loginid: string };
 export type ActiveSymbol = { symbol: string; display_name: string; market: string };
+type DerivAppIdMode = "oauth" | "legacy";
 
 type Listener = (msg: DerivMessage) => void;
 type StatusListener = (s: ConnectionStatus) => void;
@@ -202,6 +203,11 @@ function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticated
   if (account.isDemo === true) return "demo";
   if (account.isDemo === false) return "real";
   return "unknown";
+}
+
+function isLikelyDerivOAuthToken(token: string | null | undefined) {
+  if (!token) return false;
+  return token.startsWith("ory_") || token.includes("ory_at_");
 }
 
 function startKeepalive() {
@@ -479,6 +485,7 @@ export async function subscribeBalance(token: string, onBalance: (b: DerivBalanc
   if (!isBrowser) return () => {};
   const key = `balance:${token.slice(-6)}`;
   const sub = { send: { balance: 1, subscribe: 1 }, key };
+  const ws = await connect();
   activeSubs.set(key, sub);
   const off = onMessage((msg) => {
     if (msg.msg_type === "balance" && msg.balance) {
@@ -489,7 +496,7 @@ export async function subscribeBalance(token: string, onBalance: (b: DerivBalanc
       });
     }
   });
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(sub.send));
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(sub.send));
   return () => {
     off();
     activeSubs.delete(key);
@@ -941,10 +948,11 @@ export async function getAuthenticatedWsUrl(
   accessToken: string,
   accountId: string,
 ): Promise<string> {
+  const appIdMode: DerivAppIdMode = isLikelyDerivOAuthToken(accessToken) ? "oauth" : "legacy";
   const response = await fetch("/api/deriv-account-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ accessToken, accountId }),
+    body: JSON.stringify({ accessToken, accountId, appIdMode }),
   });
   const otpData = await response.json();
   if (!response.ok) {
