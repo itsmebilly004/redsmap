@@ -197,7 +197,7 @@ export function TradePanel({
           websocketMode:
             tradingSession.token_source === "legacy_authorize_token"
               ? "legacy-direct-authorize"
-              : "oauth-otp",
+              : "oauth-direct-authorize",
           connectionStatus: getStatus(),
           websocketAccountId: getTradingSocketAccountId(),
         });

@@ -538,9 +538,7 @@ export async function ensureDerivTradingConnection(
       expires_at: session.expires_at,
     },
     websocketMode:
-      session.token_source === "legacy_authorize_token"
-        ? "legacy-direct-authorize"
-        : "oauth-otp",
+      tradingWebSocketMode(session.token_source),
     connectionStatus: getStatus(),
     websocketAccountId: getTradingSocketAccountId(),
   });
@@ -811,10 +809,14 @@ function explicitTokenSourceForAccount(account: DerivAccountLike): DerivTokenSou
   );
 }
 
-function adapterForTokenSource(tokenSource: DerivTokenSource): TradingAdapter {
-  return tokenSource === "oauth_access_token"
-    ? "newOAuthTradingAdapter"
-    : "legacyTradingAdapter";
+function adapterForTokenSource(_tokenSource: DerivTokenSource): TradingAdapter {
+  return "legacyTradingAdapter";
+}
+
+function tradingWebSocketMode(tokenSource: DerivTokenSource) {
+  return tokenSource === "legacy_authorize_token"
+    ? "legacy-direct-authorize"
+    : "oauth-direct-authorize";
 }
 
 function startKeepalive() {
@@ -881,8 +883,8 @@ function openAuthenticatedSocket(
   return new Promise(async (resolve, reject) => {
     let ws: WebSocket | null = null;
     let settled = false;
-    let legacyAuthorizeReqId: number | null = null;
-    const useLegacyDirectWs = account.tokenSource === "legacy_authorize_token";
+    let authorizeReqId: number | null = null;
+    const websocketMode = tradingWebSocketMode(account.tokenSource);
 
     const completeOpen = () => {
       if (!ws) {
@@ -912,7 +914,7 @@ function openAuthenticatedSocket(
       console.info("[Deriv WS] authenticated socket ready", {
         accountId: account.accountId,
         accountType: authenticatedAccountTypeLabel(account),
-        mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
+        mode: websocketMode,
         readyState: ws.readyState,
       });
       startKeepalive();
@@ -940,7 +942,7 @@ function openAuthenticatedSocket(
         console.warn("[Deriv WS] Socket failed. Retrying once.", {
           accountId: account.accountId,
           accountType: authenticatedAccountTypeLabel(account),
-          mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
+          mode: websocketMode,
           error: error.message,
           code: (error as DerivSocketError).code ?? null,
           status: (error as DerivSocketError).status ?? null,
@@ -957,7 +959,7 @@ function openAuthenticatedSocket(
       console.warn("[Deriv WS] Socket failed without retry", {
         accountId: account.accountId,
         accountType: authenticatedAccountTypeLabel(account),
-        mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
+        mode: websocketMode,
         error: error.message,
         code: (error as DerivSocketError).code ?? null,
         status: (error as DerivSocketError).status ?? null,
@@ -981,9 +983,7 @@ function openAuthenticatedSocket(
         socketAccountId = null;
       }
 
-      const authenticatedWsUrl = useLegacyDirectWs
-        ? legacyTradingWsUrl()
-        : await getAuthenticatedWsUrl(account.accessToken, account.accountId, account.tokenSource);
+      const authenticatedWsUrl = legacyTradingWsUrl();
       if (!isCurrentAuthenticatedAccount(account)) {
         connecting = null;
         reject(new Error("Deriv account changed while opening WebSocket."));
@@ -992,7 +992,7 @@ function openAuthenticatedSocket(
       console.info("[Deriv WS] WebSocket URL prepared", {
         accountId: account.accountId,
         accountType: authenticatedAccountTypeLabel(account),
-        mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
+        mode: websocketMode,
         wsUrl: authenticatedWsUrl,
         retried,
       });
@@ -1018,34 +1018,31 @@ function openAuthenticatedSocket(
         }
         console.info("[Deriv WS] onopen", {
           accountId: account.accountId,
-          mode: useLegacyDirectWs ? "legacy-direct-authorize" : "oauth-otp",
+          mode: websocketMode,
           readyState: ws.readyState,
         });
 
-        if (useLegacyDirectWs) {
-          legacyAuthorizeReqId = reqId++;
-          console.info("[Deriv WS] legacy authorize started", {
-            accountId: account.accountId,
-            req_id: legacyAuthorizeReqId,
-          });
-          try {
-            ws.send(
-              JSON.stringify({
-                authorize: account.accessToken,
-                req_id: legacyAuthorizeReqId,
-              }),
-            );
-          } catch (error) {
-            void fail(
-              error instanceof Error
-                ? error
-                : new Error("Could not send Deriv legacy authorize request"),
-            );
-          }
-          return;
+        authorizeReqId = reqId++;
+        console.info("[Deriv WS] direct authorize started", {
+          accountId: account.accountId,
+          mode: websocketMode,
+          tokenSource: account.tokenSource,
+          req_id: authorizeReqId,
+        });
+        try {
+          ws.send(
+            JSON.stringify({
+              authorize: account.accessToken,
+              req_id: authorizeReqId,
+            }),
+          );
+        } catch (error) {
+          void fail(
+            error instanceof Error
+              ? error
+              : new Error("Could not send Deriv authorize request"),
+          );
         }
-
-        completeOpen();
       };
       ws.onerror = (event) => {
         console.error("[Deriv WS] onerror", {
@@ -1082,19 +1079,31 @@ function openAuthenticatedSocket(
         try {
           const data = JSON.parse(event.data) as DerivMessage;
           if (
-            useLegacyDirectWs &&
             !settled &&
-            (data.req_id === legacyAuthorizeReqId || data.msg_type === "authorize")
+            (data.req_id === authorizeReqId || data.msg_type === "authorize")
           ) {
             if (data.error) {
-              if (isInvalidDerivTokenMessage(data.error.message)) {
+              const invalidToken = isInvalidDerivTokenMessage(data.error.message);
+              if (invalidToken && account.tokenSource === "legacy_authorize_token") {
                 void deactivateInvalidDerivSession("legacy-authorize-invalid-token");
               }
+              if (invalidToken && account.tokenSource === "oauth_access_token") {
+                console.warn("[Deriv WS] OAuth direct authorize token rejected", {
+                  accountId: account.accountId,
+                  mode: websocketMode,
+                  message: data.error.message,
+                  code: data.error.code ?? null,
+                });
+              }
               void fail(
-                isInvalidDerivTokenMessage(data.error.message)
+                invalidToken
                   ? createDerivSocketError(
-                      "Your Deriv session expired. Please reconnect your Deriv account.",
-                      DERIV_SESSION_EXPIRED_CODE,
+                      account.tokenSource === "oauth_access_token"
+                        ? "Trading authorization failed for this account. Please switch account or reconnect if it continues."
+                        : "Your Deriv session expired. Please reconnect your Deriv account.",
+                      account.tokenSource === "oauth_access_token"
+                        ? "DERIV_OAUTH_TRADING_AUTH_FAILED"
+                        : DERIV_SESSION_EXPIRED_CODE,
                       401,
                       false,
                     )
@@ -1111,7 +1120,9 @@ function openAuthenticatedSocket(
             if (authorizedLoginid && !sameDerivId(authorizedLoginid, account.accountId)) {
               void fail(
                 createDerivSocketError(
-                  "Your Deriv session expired. Please reconnect your Deriv account.",
+                  account.tokenSource === "oauth_access_token"
+                    ? "Trading authorization account mismatch. Please switch account or reconnect if it continues."
+                    : "Your Deriv session expired. Please reconnect your Deriv account.",
                   "DERIV_TOKEN_ACCOUNT_MISMATCH",
                   401,
                   false,
@@ -1119,10 +1130,12 @@ function openAuthenticatedSocket(
               );
               return;
             }
-            console.info("[Deriv WS] legacy authorize success", {
+            console.info("[Deriv WS] direct authorize success", {
               accountId: account.accountId,
               authorizedLoginid: authorizedLoginid || null,
-              req_id: legacyAuthorizeReqId,
+              mode: websocketMode,
+              tokenSource: account.tokenSource,
+              req_id: authorizeReqId,
               msg_type: data.msg_type,
             });
             completeOpen();
