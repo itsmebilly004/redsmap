@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
+  DERIV_APP_ID_VALUE,
+  DERIV_CLIENT_ID_VALUE,
   DERIV_OAUTH_ENDPOINT_VALUE,
+  DERIV_REDIRECT_URI_VALUE,
   buildOAuthUrl,
   getDerivOAuthDiagnostics,
   redirectToDerivOAuth,
@@ -28,6 +31,7 @@ function AuthPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cacheStatus, setCacheStatus] = useState<string | null>(null);
   const [debugUrl, setDebugUrl] = useState<string | null>(null);
+  const [pendingOAuthUrl, setPendingOAuthUrl] = useState<string | null>(null);
   const [oauthDiagnostics, setOauthDiagnostics] = useState<DerivOAuthDiagnostics | null>(null);
   const [oauthAppIdMode, setOauthAppIdMode] = useState<DerivOAuthAppIdMode>(() => {
     if (typeof window === "undefined") return "client_id_app_id";
@@ -59,6 +63,7 @@ function AuthPage() {
     setBusy(true);
     setErrorMessage(null);
     setDebugUrl(null);
+    setPendingOAuthUrl(null);
     setOauthDiagnostics(null);
     try {
       if (showOAuthDebug) localStorage.setItem("deriv_oauth_app_id_mode", oauthAppIdMode);
@@ -73,10 +78,8 @@ function AuthPage() {
       console.info("[Deriv OAuth Debug] Visible OAuth diagnostics", diagnostics);
       if (showOAuthDebug) {
         setDebugUrl(url);
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, 900));
-        redirectToDerivOAuth(url);
       }
+      setPendingOAuthUrl(url);
     } catch (error) {
       console.error("Could not build Deriv OAuth URL", error);
       setErrorMessage(
@@ -103,10 +106,11 @@ function AuthPage() {
   }
 
   function continueToDeriv() {
-    if (!debugUrl) return;
+    const url = debugUrl ?? pendingOAuthUrl;
+    if (!url) return;
     try {
-      console.info("[Deriv OAuth Debug] Redirecting to exact URL", debugUrl);
-      redirectToDerivOAuth(debugUrl);
+      console.info("[Deriv OAuth Debug] Redirecting to exact URL", url);
+      redirectToDerivOAuth(url);
     } catch (error) {
       console.error("Could not redirect to Deriv OAuth URL", error);
       setErrorMessage(
@@ -147,9 +151,11 @@ function AuthPage() {
           >
             {busy
               ? "Connecting to Deriv..."
-              : isSignup
-                ? "Sign up with Deriv"
-                : "Sign in with Deriv"}
+              : pendingOAuthUrl
+                ? "Regenerate Deriv OAuth URL"
+                : isSignup
+                  ? "Sign up with Deriv"
+                  : "Sign in with Deriv"}
             <ArrowRight className="ml-1 size-4" />
           </Button>
 
@@ -201,7 +207,7 @@ function AuthPage() {
                     {debugUrl}
                   </div>
                   <Button onClick={continueToDeriv} className="h-10 w-full">
-                    Continue to Deriv
+                    Continue to Deriv authorization
                   </Button>
                 </div>
               )}
@@ -218,60 +224,81 @@ function AuthPage() {
 
           {oauthDiagnostics && (
             <div className="mt-4 rounded-xl border border-primary/20 bg-background/80 p-3 text-xs">
-              <div className="mb-2 font-semibold text-foreground">Deriv OAuth request</div>
-              <div className="space-y-1 text-muted-foreground">
-                <div>
-                  Endpoint:{" "}
-                  <span className="font-mono text-foreground">{oauthDiagnostics.endpoint}</span>
-                </div>
-                <div>
-                  client_id:{" "}
-                  <span className="font-mono text-foreground">{oauthDiagnostics.clientId}</span>
-                </div>
-                <div>
-                  redirect_uri:{" "}
-                  <span className="font-mono text-foreground">
-                    {oauthDiagnostics.decodedRedirectUri}
-                  </span>
-                </div>
-                <div>
-                  scopes:{" "}
-                  <span className="font-mono text-foreground">{oauthDiagnostics.scopes}</span>
-                </div>
-                <div>
-                  response_type:{" "}
-                  <span className="font-mono text-foreground">
-                    {oauthDiagnostics.responseType}
-                  </span>
-                </div>
-                <div>
-                  code_challenge_method:{" "}
-                  <span className="font-mono text-foreground">
-                    {oauthDiagnostics.codeChallengeMethod}
-                  </span>
-                </div>
-                <div>
-                  app_id included:{" "}
-                  <span className="font-mono text-foreground">
-                    {oauthDiagnostics.hasAppId ? "yes" : "no"}
-                  </span>
-                </div>
-                <div>
-                  redirect_uri exact match:{" "}
-                  <span className="font-mono text-foreground">
-                    {oauthDiagnostics.redirectUriMatchesRegisteredUrl ? "yes" : "no"}
-                  </span>
-                </div>
-                <div>
-                  double encoded redirect_uri:{" "}
-                  <span className="font-mono text-foreground">
-                    {oauthDiagnostics.hasDoubleEncodedRedirectUri ? "yes" : "no"}
-                  </span>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="font-semibold text-foreground">Deriv OAuth validation</div>
+                <span
+                  className={`rounded-full px-2 py-0.5 font-semibold ${
+                    oauthValidationPassed(oauthDiagnostics)
+                      ? "bg-success/15 text-success"
+                      : "bg-destructive/10 text-destructive"
+                  }`}
+                >
+                  {oauthValidationPassed(oauthDiagnostics) ? "Valid URL" : "Invalid URL"}
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                {oauthValidationRows(oauthDiagnostics).map((row) => (
+                  <div
+                    key={row.label}
+                    className="grid gap-1 rounded-md border border-border/70 bg-background/50 p-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-foreground">{row.label}</span>
+                      <span
+                        className={
+                          row.ok
+                            ? "font-semibold text-success"
+                            : row.warning
+                              ? "font-semibold text-amber-600"
+                              : "font-semibold text-destructive"
+                        }
+                      >
+                        {row.ok ? "PASS" : row.warning ? "CHECK" : "FAIL"}
+                      </span>
+                    </div>
+                    <div className="break-all font-mono text-[11px] text-muted-foreground">
+                      {row.actual}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Expected: {row.expected}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2">
+                <div className="mb-1 font-semibold text-foreground">Production env snapshot</div>
+                <div className="space-y-1 break-all font-mono text-[11px] text-muted-foreground">
+                  <div>VITE_DERIV_CLIENT_ID={DERIV_CLIENT_ID_VALUE || "(missing)"}</div>
+                  <div>VITE_DERIV_APP_ID={DERIV_APP_ID_VALUE || "(missing)"}</div>
+                  <div>VITE_DERIV_REDIRECT_URI={DERIV_REDIRECT_URI_VALUE}</div>
+                  <div>
+                    client_id/app_id same value:{" "}
+                    {DERIV_CLIENT_ID_VALUE && DERIV_CLIENT_ID_VALUE === DERIV_APP_ID_VALUE
+                      ? "yes"
+                      : "no"}
+                  </div>
                 </div>
               </div>
+
               <div className="mt-3 break-all rounded-md bg-muted p-2 font-mono text-[11px] text-foreground">
                 {oauthDiagnostics.finalUrl}
               </div>
+
+              <div className="mt-3 rounded-md border border-amber-300/50 bg-amber-50 p-2 text-[11px] text-amber-900">
+                If Deriv still sends this validated URL to home.deriv.com/dashboard/login, Deriv
+                rejected the OAuth request. Check that VITE_DERIV_CLIENT_ID is the OAuth app Client
+                ID in Deriv Partners and that this redirect URI is registered there exactly.
+              </div>
+
+              <Button
+                onClick={continueToDeriv}
+                disabled={!oauthValidationPassed(oauthDiagnostics)}
+                className="mt-3 h-10 w-full"
+              >
+                Continue to Deriv authorization
+              </Button>
             </div>
           )}
 
@@ -315,4 +342,68 @@ function AuthPage() {
       </div>
     </div>
   );
+}
+
+function oauthValidationPassed(diagnostics: DerivOAuthDiagnostics) {
+  return oauthValidationRows(diagnostics).every((row) => row.ok || row.warning);
+}
+
+function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
+  return [
+    {
+      label: "endpoint",
+      actual: diagnostics.endpoint,
+      expected: "https://auth.deriv.com/oauth2/auth",
+      ok: diagnostics.endpoint === "https://auth.deriv.com/oauth2/auth",
+    },
+    {
+      label: "response_type",
+      actual: diagnostics.responseType || "(missing)",
+      expected: "code",
+      ok: diagnostics.responseType === "code",
+    },
+    {
+      label: "client_id",
+      actual: diagnostics.clientId || "(missing)",
+      expected: "Configured OAuth app Client ID from Deriv Partners, not undefined/null",
+      ok: diagnostics.clientIdIsConfigured && diagnostics.clientIdLooksDefined,
+      warning: diagnostics.clientIdIsConfigured && diagnostics.clientIdLooksDefined,
+    },
+    {
+      label: "redirect_uri",
+      actual: diagnostics.decodedRedirectUri || "(missing)",
+      expected: "https://www.arktradershub.com/deriv-callback",
+      ok: diagnostics.redirectUriMatchesRegisteredUrl,
+    },
+    {
+      label: "scope",
+      actual: diagnostics.scopes || "(missing)",
+      expected: "trade account_manage",
+      ok: diagnostics.scopes === "trade account_manage",
+    },
+    {
+      label: "state",
+      actual: diagnostics.state ? `${diagnostics.state.slice(0, 8)}...` : "(missing)",
+      expected: "present",
+      ok: Boolean(diagnostics.state),
+    },
+    {
+      label: "code_challenge",
+      actual: diagnostics.codeChallenge ? `${diagnostics.codeChallenge.slice(0, 12)}...` : "(missing)",
+      expected: "present",
+      ok: Boolean(diagnostics.codeChallenge),
+    },
+    {
+      label: "code_challenge_method",
+      actual: diagnostics.codeChallengeMethod || "(missing)",
+      expected: "S256",
+      ok: diagnostics.codeChallengeMethod === "S256",
+    },
+    {
+      label: "redirect_uri encoding",
+      actual: diagnostics.hasDoubleEncodedRedirectUri ? "double-encoded" : "normal URLSearchParams encoding",
+      expected: "encoded once in the final URL",
+      ok: !diagnostics.hasDoubleEncodedRedirectUri,
+    },
+  ];
 }

@@ -24,11 +24,16 @@ export type DerivOAuthDiagnostics = {
   endpoint: string;
   decodedRedirectUri: string;
   clientId: string;
+  appId: string | null;
   scopes: string;
   responseType: string;
+  state: string;
+  codeChallenge: string;
   codeChallengeMethod: string;
   hasAppId: boolean;
   appIdMatchesClientId: boolean;
+  clientIdIsConfigured: boolean;
+  clientIdLooksDefined: boolean;
   hasDoubleEncodedRedirectUri: boolean;
   redirectUriMatchesRegisteredUrl: boolean;
   requiredParamsPresent: Record<string, boolean>;
@@ -577,13 +582,20 @@ export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
     endpoint: `${parsed.origin}${parsed.pathname}`,
     decodedRedirectUri,
     clientId: parsed.searchParams.get("client_id") ?? "",
+    appId: parsed.searchParams.get("app_id"),
     scopes: parsed.searchParams.get("scope") ?? "",
     responseType: parsed.searchParams.get("response_type") ?? "",
+    state: parsed.searchParams.get("state") ?? "",
+    codeChallenge: parsed.searchParams.get("code_challenge") ?? "",
     codeChallengeMethod: parsed.searchParams.get("code_challenge_method") ?? "",
     hasAppId: parsed.searchParams.has("app_id"),
     appIdMatchesClientId:
       parsed.searchParams.has("app_id") &&
       parsed.searchParams.get("app_id") === parsed.searchParams.get("client_id"),
+    clientIdIsConfigured: Boolean(DERIV_CLIENT_ID),
+    clientIdLooksDefined: !["", "undefined", "null"].includes(
+      (parsed.searchParams.get("client_id") ?? "").toLowerCase(),
+    ),
     hasDoubleEncodedRedirectUri: /%3a%2f%2f/i.test(decodedRedirectUri),
     redirectUriMatchesRegisteredUrl: decodedRedirectUri === DERIV_REDIRECT_URI,
     requiredParamsPresent,
