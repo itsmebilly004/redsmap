@@ -142,6 +142,25 @@ const BLOCK_MENU = [
 ];
 
 type JournalEntry = { time: string; message: string; type: "info" | "success" | "error" };
+type BotBuilderSnapshot = {
+  activeBlocks: string[];
+  barrierOffset: string;
+  botName: string;
+  duration: number;
+  durationUnit: string;
+  initialStake: number;
+  martingale: number;
+  maxRuns: number;
+  predictionDigit: number;
+  purchaseSide: string;
+  sellAtLoss: number;
+  sellAtProfit: number;
+  stopLoss: number;
+  symbol: string;
+  takeProfit: number;
+  tradeType: TradeCategory;
+  workspaceZoom: number;
+};
 type BotProposalPayload = Record<string, unknown> & {
   proposal: 1;
   amount: number;
@@ -188,8 +207,14 @@ function BotBuilder() {
 
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const lastSnapshotRef = useRef<string>("");
+  const applyingHistoryRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "idle">("saved");
   const [panelTab, setPanelTab] = useState("summary");
+  const [undoStack, setUndoStack] = useState<string[]>([]);
+  const [redoStack, setRedoStack] = useState<string[]>([]);
+  const [workspaceZoom, setWorkspaceZoom] = useState(1);
   const [stats, setStats] = useState({
     runs: 0,
     wins: 0,
@@ -198,9 +223,51 @@ function BotBuilder() {
     stake: 0,
     payout: 0,
   });
+  const statsRef = useRef(stats);
+  const currentStakeRef = useRef(currentStake);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
 
   const availableSides = SIDE_OPTIONS[tradeType];
+  const snapshot = useMemo<BotBuilderSnapshot>(
+    () => ({
+      activeBlocks,
+      barrierOffset,
+      botName,
+      duration,
+      durationUnit,
+      initialStake,
+      martingale,
+      maxRuns,
+      predictionDigit,
+      purchaseSide,
+      sellAtLoss,
+      sellAtProfit,
+      stopLoss,
+      symbol,
+      takeProfit,
+      tradeType,
+      workspaceZoom,
+    }),
+    [
+      activeBlocks,
+      barrierOffset,
+      botName,
+      duration,
+      durationUnit,
+      initialStake,
+      martingale,
+      maxRuns,
+      predictionDigit,
+      purchaseSide,
+      sellAtLoss,
+      sellAtProfit,
+      stopLoss,
+      symbol,
+      takeProfit,
+      tradeType,
+      workspaceZoom,
+    ],
+  );
   const filteredMenu = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     if (!query) return BLOCK_MENU;
@@ -219,6 +286,31 @@ function BotBuilder() {
   useEffect(() => {
     if (!running) setCurrentStake(initialStake);
   }, [initialStake, running]);
+
+  useEffect(() => {
+    statsRef.current = stats;
+  }, [stats]);
+
+  useEffect(() => {
+    currentStakeRef.current = currentStake;
+  }, [currentStake]);
+
+  useEffect(() => {
+    const serialized = JSON.stringify(snapshot);
+    if (!lastSnapshotRef.current) {
+      lastSnapshotRef.current = serialized;
+      return;
+    }
+    if (applyingHistoryRef.current) {
+      applyingHistoryRef.current = false;
+      lastSnapshotRef.current = serialized;
+      return;
+    }
+    if (serialized === lastSnapshotRef.current) return;
+    setUndoStack((items) => [...items, lastSnapshotRef.current].slice(-50));
+    setRedoStack([]);
+    lastSnapshotRef.current = serialized;
+  }, [snapshot]);
 
   useEffect(() => {
     if (!preset) return;
@@ -242,42 +334,7 @@ function BotBuilder() {
     if (!user) return;
     const timeoutId = setTimeout(async () => {
       setSaveStatus("saving");
-      const strategy = {
-        symbol,
-        tradeType,
-        purchaseSide,
-        initialStake,
-        martingale,
-        duration,
-        durationUnit,
-        predictionDigit,
-        barrierOffset,
-        takeProfit,
-        stopLoss,
-        maxRuns,
-        sellAtProfit,
-        sellAtLoss,
-        activeBlocks,
-      };
-
-      const { data, error } = await supabase
-        .from("bots")
-        .upsert({
-          id: botId || undefined,
-          user_id: user.id,
-          name: botName,
-          strategy,
-          status: running ? "running" : "stopped",
-        })
-        .select("id")
-        .single();
-
-      if (error) {
-        setSaveStatus("idle");
-        return;
-      }
-      setBotId(data.id);
-      setSaveStatus("saved");
+      await saveBotNow(false);
     }, 900);
     return () => clearTimeout(timeoutId);
   }, [
@@ -300,6 +357,7 @@ function BotBuilder() {
     takeProfit,
     tradeType,
     user,
+    workspaceZoom,
   ]);
 
   function addBlock(id: string) {
@@ -317,6 +375,151 @@ function BotBuilder() {
     setJournal([]);
     setCurrentStake(initialStake);
     toast.success("Workspace reset");
+  }
+
+  function applySnapshot(next: BotBuilderSnapshot) {
+    applyingHistoryRef.current = true;
+    setActiveBlocks(next.activeBlocks);
+    setBarrierOffset(next.barrierOffset);
+    setBotName(next.botName);
+    setDuration(next.duration);
+    setDurationUnit(next.durationUnit);
+    setInitialStake(next.initialStake);
+    setCurrentStake(next.initialStake);
+    setMartingale(next.martingale);
+    setMaxRuns(next.maxRuns);
+    setPredictionDigit(next.predictionDigit);
+    setPurchaseSide(next.purchaseSide);
+    setSellAtLoss(next.sellAtLoss);
+    setSellAtProfit(next.sellAtProfit);
+    setStopLoss(next.stopLoss);
+    setSymbol(next.symbol);
+    setTakeProfit(next.takeProfit);
+    setTradeType(next.tradeType);
+    setWorkspaceZoom(next.workspaceZoom);
+  }
+
+  function undo() {
+    const previous = undoStack.at(-1);
+    if (!previous) {
+      toast.message("Nothing to undo");
+      return;
+    }
+    setUndoStack((items) => items.slice(0, -1));
+    setRedoStack((items) => [...items, JSON.stringify(snapshot)].slice(-50));
+    applySnapshot(JSON.parse(previous) as BotBuilderSnapshot);
+  }
+
+  function redo() {
+    const next = redoStack.at(-1);
+    if (!next) {
+      toast.message("Nothing to redo");
+      return;
+    }
+    setRedoStack((items) => items.slice(0, -1));
+    setUndoStack((items) => [...items, JSON.stringify(snapshot)].slice(-50));
+    applySnapshot(JSON.parse(next) as BotBuilderSnapshot);
+  }
+
+  function quickStrategy() {
+    setActiveBlocks(["params", "purchase", "sell", "restart", "analysis"]);
+    setTradeType("over_under");
+    setPurchaseSide("under");
+    setSymbol("1HZ100V");
+    setInitialStake(1);
+    setCurrentStake(1);
+    setDuration(1);
+    setDurationUnit("t");
+    setPredictionDigit(5);
+    setMartingale(1.95);
+    setTakeProfit(20);
+    setStopLoss(10);
+    setMaxRuns(50);
+    setSellAtProfit(0);
+    setSellAtLoss(0);
+    logJournal("Quick strategy configured", "info");
+    toast.success("Quick strategy configured");
+  }
+
+  async function saveBotNow(showToast = true) {
+    if (!user) {
+      setSaveStatus("idle");
+      if (showToast) toast.error("Sign in to save bots.");
+      return;
+    }
+    setSaveStatus("saving");
+    const { workspaceZoom: _workspaceZoom, ...strategy } = snapshot;
+    const { data, error } = await supabase
+      .from("bots")
+      .upsert({
+        id: botId || undefined,
+        user_id: user.id,
+        name: botName,
+        strategy,
+        status: running ? "running" : "stopped",
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      setSaveStatus("idle");
+      if (showToast) toast.error(error.message);
+      return;
+    }
+    setBotId(data.id);
+    setSaveStatus("saved");
+    if (showToast) toast.success("Bot saved");
+  }
+
+  function exportBot() {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      name: botName,
+      type: "arktrader-bot-builder-config",
+      version: 1,
+      strategy: snapshot,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${botName.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "arktrader-bot"}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    logJournal("Bot configuration downloaded", "success");
+  }
+
+  async function importBotFile(file: File) {
+    const text = await file.text();
+    try {
+      const payload = JSON.parse(text) as { name?: string; strategy?: Partial<BotBuilderSnapshot> };
+      if (!payload.strategy) throw new Error("Missing strategy");
+      applySnapshot({
+        ...snapshot,
+        ...payload.strategy,
+        activeBlocks: payload.strategy.activeBlocks?.length
+          ? payload.strategy.activeBlocks
+          : snapshot.activeBlocks,
+        botName: payload.name ?? payload.strategy.botName ?? file.name.replace(/\.[^.]+$/, ""),
+        tradeType: (payload.strategy.tradeType ?? snapshot.tradeType) as TradeCategory,
+      });
+      logJournal(`Imported ${file.name}`, "success");
+      toast.success("Bot imported");
+    } catch {
+      setBotName(file.name.replace(/\.[^.]+$/, ""));
+      setActiveBlocks(["params", "purchase", "sell", "restart", "analysis"]);
+      logJournal(`Imported ${file.name} as a reference file`, "info");
+      toast.success("File loaded as bot reference");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (file) void importBotFile(file);
   }
 
   function loadPreset(id: string) {
@@ -367,9 +570,9 @@ function BotBuilder() {
       return;
     }
     if (
-      stats.runs >= maxRuns ||
-      stats.profit >= takeProfit ||
-      stats.profit <= -Math.abs(stopLoss)
+      statsRef.current.runs >= maxRuns ||
+      statsRef.current.profit >= takeProfit ||
+      statsRef.current.profit <= -Math.abs(stopLoss)
     ) {
       logJournal("Stop condition reached", "info");
       setRunning(false);
@@ -381,7 +584,7 @@ function BotBuilder() {
       const contractType = contractTypeFor(tradeType, purchaseSide);
       const proposal: BotProposalPayload = {
         proposal: 1,
-        amount: currentStake,
+        amount: currentStakeRef.current,
         basis: "stake",
         contract_type: contractType,
         currency: derivCurrency || "USD",
@@ -416,7 +619,8 @@ function BotBuilder() {
       const proposalId = quote.proposal?.id;
       if (!proposalId) throw new Error("No proposal returned");
 
-      const buy = await send({ buy: proposalId, price: currentStake });
+      const stakeForTrade = currentStakeRef.current;
+      const buy = await send({ buy: proposalId, price: stakeForTrade });
       const contractId = buy.buy?.contract_id;
       logJournal(`Purchased ${contractType} on ${symbol}`, "success");
 
@@ -437,10 +641,14 @@ function BotBuilder() {
           wins: current.wins + (won ? 1 : 0),
           losses: current.losses + (won ? 0 : 1),
           profit: current.profit + pnl,
-          stake: current.stake + currentStake,
+          stake: current.stake + stakeForTrade,
           payout: current.payout + Number(contract.payout ?? 0),
         }));
-        setCurrentStake(won ? initialStake : Number((currentStake * martingale).toFixed(2)));
+        const nextStake = won
+          ? initialStake
+          : Number((currentStakeRef.current * martingale).toFixed(2));
+        currentStakeRef.current = nextStake;
+        setCurrentStake(nextStake);
         logJournal(
           `${won ? "Win" : "Loss"} ${pnl.toFixed(2)} ${derivCurrency || ""}`,
           won ? "success" : "error",
@@ -459,7 +667,10 @@ function BotBuilder() {
       <div className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#f2f3f4] text-[#333333] lg:h-[calc(100dvh-104px)] lg:flex-row">
         <aside className="flex max-h-[45dvh] w-full shrink-0 flex-col border-b border-[#dedede] bg-white lg:max-h-none lg:w-[280px] lg:border-b-0 lg:border-r xl:w-[312px]">
           <div className="border-b border-[#e6e6e6] p-3">
-            <Button className="h-10 w-full rounded bg-[#ff444f] text-sm font-bold text-white hover:bg-[#eb3e48]">
+            <Button
+              onClick={quickStrategy}
+              className="h-10 w-full rounded bg-[#ff444f] text-sm font-bold text-white hover:bg-[#eb3e48]"
+            >
               Quick strategy
             </Button>
           </div>
@@ -548,28 +759,47 @@ function BotBuilder() {
 
         <main className="flex min-h-[520px] min-w-0 flex-1 flex-col border-b border-[#dedede] lg:min-h-0 lg:border-b-0 lg:border-r">
           <div className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[#dedede] bg-white px-2 py-2 sm:px-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,.xml"
+              className="hidden"
+              onChange={handleFileSelect}
+            />
             <div className="flex min-w-0 flex-wrap items-center gap-1">
               <ToolbarButton
                 icon={FolderOpen}
                 label="Import"
-                onClick={() => toast.message("Import XML is not wired yet")}
+                onClick={() => fileInputRef.current?.click()}
               />
               <ToolbarButton
                 icon={Upload}
                 label="Upload"
-                onClick={() => toast.message("Upload is not wired yet")}
+                onClick={() => fileInputRef.current?.click()}
               />
-              <ToolbarButton icon={Save} label="Save" onClick={() => toast.success("Bot saved")} />
+              <ToolbarButton
+                icon={Save}
+                label="Save"
+                onClick={() => void saveBotNow(true)}
+              />
               <ToolbarButton
                 icon={Download}
                 label="Download"
-                onClick={() => toast.message("Download XML is not wired yet")}
+                onClick={exportBot}
               />
               <div className="mx-1 hidden h-6 w-px bg-[#e1e1e1] sm:block" />
-              <ToolbarButton icon={Undo2} label="Undo" />
-              <ToolbarButton icon={Redo2} label="Redo" />
-              <ToolbarButton icon={ZoomIn} label="Zoom in" />
-              <ToolbarButton icon={ZoomOut} label="Zoom out" />
+              <ToolbarButton icon={Undo2} label="Undo" onClick={undo} disabled={!undoStack.length} />
+              <ToolbarButton icon={Redo2} label="Redo" onClick={redo} disabled={!redoStack.length} />
+              <ToolbarButton
+                icon={ZoomIn}
+                label="Zoom in"
+                onClick={() => setWorkspaceZoom((value) => Math.min(1.5, Number((value + 0.1).toFixed(2))))}
+              />
+              <ToolbarButton
+                icon={ZoomOut}
+                label="Zoom out"
+                onClick={() => setWorkspaceZoom((value) => Math.max(0.7, Number((value - 0.1).toFixed(2))))}
+              />
               <ToolbarButton icon={RotateCcw} label="Reset" onClick={resetWorkspace} />
             </div>
 
@@ -587,7 +817,10 @@ function BotBuilder() {
 
           <div className="relative min-h-0 flex-1 overflow-auto bg-[#f7f8f9]">
             <div className="absolute inset-0 opacity-60 [background-image:linear-gradient(#e8e8e8_1px,transparent_1px),linear-gradient(90deg,#e8e8e8_1px,transparent_1px)] [background-size:24px_24px]" />
-            <div className="relative flex min-h-full w-full min-w-0 flex-col items-start gap-4 p-3 pb-20 sm:p-5 lg:gap-5 lg:p-8 lg:pb-24">
+            <div
+              className="relative flex min-h-full w-full min-w-0 origin-top-left flex-col items-start gap-4 p-3 pb-20 transition-transform sm:p-5 lg:gap-5 lg:p-8 lg:pb-24"
+              style={{ transform: `scale(${workspaceZoom})`, width: `${100 / workspaceZoom}%` }}
+            >
               <div className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded border border-[#d9d9d9] bg-white px-3 py-2 shadow-sm sm:w-auto sm:gap-3 sm:px-4">
                 <Blocks className="size-4 text-[#ff444f]" />
                 <Input
@@ -755,9 +988,66 @@ function BotBuilder() {
                 </WorkspaceBlock>
               )}
 
-              <div className="absolute bottom-8 right-8 hidden size-24 items-center justify-center rounded border-2 border-dashed border-[#d0d0d0] bg-white/80 text-[#999999] lg:flex">
+              {activeBlocks.includes("analysis") && (
+                <WorkspaceBlock
+                  color="#2c6eaa"
+                  title="5. Analysis"
+                  onRemove={() => removeBlock("analysis")}
+                  width="560px"
+                >
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <Metric label="Win rate" value={`${stats.runs ? ((stats.wins / stats.runs) * 100).toFixed(1) : "0.0"}%`} />
+                    <Metric label="Total P/L" value={`${stats.profit >= 0 ? "+" : ""}${stats.profit.toFixed(2)}`} />
+                    <Metric label="Payout" value={stats.payout.toFixed(2)} />
+                  </div>
+                </WorkspaceBlock>
+              )}
+
+              {activeBlocks.includes("utility") && (
+                <WorkspaceBlock
+                  color="#5f6368"
+                  title="6. Utilities"
+                  onRemove={() => removeBlock("utility")}
+                  width="540px"
+                >
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(JSON.stringify(snapshot, null, 2));
+                        toast.success("Configuration copied");
+                      }}
+                      className="h-10 rounded border-[#d6d6d6] text-sm font-bold"
+                    >
+                      <Copy className="mr-2 size-4" />
+                      Copy config
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setJournal([]);
+                        toast.success("Journal cleared");
+                      }}
+                      className="h-10 rounded border-[#d6d6d6] text-sm font-bold"
+                    >
+                      <Trash2 className="mr-2 size-4" />
+                      Clear journal
+                    </Button>
+                  </div>
+                </WorkspaceBlock>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveBlocks([]);
+                  toast.success("Workspace cleared");
+                }}
+                className="absolute bottom-8 right-8 hidden size-24 items-center justify-center rounded border-2 border-dashed border-[#d0d0d0] bg-white/80 text-[#999999] transition hover:border-[#ff444f] hover:text-[#ff444f] lg:flex"
+                title="Clear workspace"
+              >
                 <Trash2 className="size-9" />
-              </div>
+              </button>
             </div>
           </div>
         </main>
@@ -937,18 +1227,21 @@ function WorkspaceBlock({
 }
 
 function ToolbarButton({
+  disabled,
   icon: Icon,
   label,
   onClick,
 }: {
+  disabled?: boolean;
   icon: LucideIcon;
   label: string;
   onClick?: () => void;
 }) {
   return (
     <button
+      disabled={disabled}
       onClick={onClick}
-      className="flex h-8 shrink-0 items-center gap-1 rounded px-2 text-xs font-bold text-[#646464] hover:bg-[#f2f3f4] hover:text-[#333333]"
+      className="flex h-8 shrink-0 items-center gap-1 rounded px-2 text-xs font-bold text-[#646464] hover:bg-[#f2f3f4] hover:text-[#333333] disabled:cursor-not-allowed disabled:opacity-40"
       title={label}
     >
       <Icon className="size-4" />
