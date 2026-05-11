@@ -27,7 +27,7 @@ const DERIV_OAUTH_PKCE_BACKUP_TTL_MS = 15 * 60 * 1000;
 const PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public";
 const FORBIDDEN_OAUTH_ROUTE_MARKERS = ["redirect=home", "brand=deriv"];
 export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
-  "Deriv redirected to dashboard instead of authorization. This account may not support the new OAuth app flow or the OAuth app configuration must be checked.";
+  "Deriv completed login on its dashboard instead of returning an OAuth code to ArkTrader. The OAuth callback was never reached; verify the exact redirect_uri registration and ask Deriv to enable this OAuth client for legacy-account routing.";
 const DERIV_FORBIDDEN_OAUTH_ROUTE_MESSAGE =
   "Blocked unsupported Deriv OAuth route. Use the OAuth2 PKCE authorization endpoint.";
 const DERIV_OAUTH_ONLY_RECONNECT_MESSAGE =

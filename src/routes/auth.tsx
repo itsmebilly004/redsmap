@@ -50,6 +50,11 @@ function AuthPage() {
         lastAuthorizationUrl: sessionStorage.getItem("deriv_oauth_last_authorization_url"),
         expectedCallback: sessionStorage.getItem("deriv_oauth_expected_callback"),
       });
+      const storedProviderFailure = sessionStorage.getItem("deriv_oauth_provider_redirect_failure");
+      if (storedProviderFailure) {
+        setErrorMessage(storedProviderFailure);
+        sessionStorage.removeItem("deriv_oauth_provider_redirect_failure");
+      }
       if (!attemptedAt) return;
       const failure =
         getDerivOAuthRedirectFailure(window.location.href) ??

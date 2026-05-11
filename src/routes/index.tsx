@@ -5,7 +5,11 @@ import { DerivChart } from "@/components/deriv-chart";
 import { SignalsPanel } from "@/components/signals-panel";
 import { TopShell } from "@/components/top-shell";
 import { TradePanel } from "@/components/trade-panel";
-import type { TradeCategory } from "@/lib/deriv";
+import {
+  DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE,
+  recordDerivOAuthTrace,
+  type TradeCategory,
+} from "@/lib/deriv";
 import { isDigitTrade } from "@/lib/trade-types";
 
 export const Route = createFileRoute("/")({
@@ -52,6 +56,24 @@ function Index() {
         referrer: document.referrer || null,
       });
       window.location.replace(`/deriv-callback${window.location.search}`);
+      return;
+    }
+    if (params.get("account")) {
+      recordDerivOAuthTrace("oauth-dashboard-style-return-on-root", {
+        currentHref: window.location.href,
+        searchKeys: Array.from(params.keys()),
+        accountParam: params.get("account"),
+        hasCode: Boolean(params.get("code")),
+        hasState: Boolean(params.get("state")),
+        referrer: document.referrer || null,
+        reason:
+          "Deriv returned a dashboard-style account query instead of OAuth code/state. Token exchange cannot run without the authorization code.",
+      });
+      sessionStorage.setItem(
+        "deriv_oauth_provider_redirect_failure",
+        DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE,
+      );
+      navigate({ to: "/auth", search: { mode: "signin" } });
       return;
     }
     if (params.get("error")) {
