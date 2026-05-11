@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
-import { TopShell } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
@@ -30,15 +34,27 @@ import { buyProposal, requestProposal } from "@/lib/deriv-trading-service";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
+  BarChart3,
   Blocks,
+  Bot,
+  BookOpen,
   ChevronDown,
   ChevronRight,
+  CircleDot,
   CloudCheck,
   Copy,
+  DollarSign,
   Download,
+  Expand,
+  FileJson,
   FolderOpen,
+  Gift,
   GripVertical,
   Info,
+  LayoutDashboard,
+  Maximize2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   Plus,
   Redo2,
@@ -47,10 +63,12 @@ import {
   Save,
   Search,
   Settings2,
+  Sparkles,
   Square,
   Trash2,
   Undo2,
   Upload,
+  Users,
   Wallet,
   ZoomIn,
   ZoomOut,
@@ -122,29 +140,41 @@ const SIDE_OPTIONS: Record<TradeCategory, { value: string; label: string }[]> = 
 };
 
 const BLOCK_MENU = [
-  {
-    id: "params",
-    title: "Set up your trade",
-    blocks: ["Trade parameters", "Trade options", "Market list"],
-  },
-  {
-    id: "purchase",
-    title: "Purchase contract",
-    blocks: ["Purchase conditions", "Purchase contract", "Prediction"],
-  },
-  {
-    id: "sell",
-    title: "Sell conditions",
-    blocks: ["Sell at profit", "Sell at loss", "Check contract"],
-  },
-  {
-    id: "restart",
-    title: "Trade again",
-    blocks: ["Restart trading conditions", "Stop limits", "Repeat trade"],
-  },
+  { id: "params", title: "Trade parameters", blocks: [] },
+  { id: "purchase", title: "Purchase conditions", blocks: [] },
+  { id: "sell", title: "Sell conditions", blocks: [] },
+  { id: "restart", title: "Restart trading conditions", blocks: [] },
   { id: "analysis", title: "Analysis", blocks: ["Last digit", "Total profit/loss", "Win rate"] },
-  { id: "utility", title: "Utility", blocks: ["Variables", "Math", "Logic", "Notifications"] },
+  { id: "utility", title: "Utility", blocks: ["Variables", "Logic", "Notifications"] },
 ];
+
+const NAV_TABS = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/bot-builder", label: "Bot Builder", icon: Bot, active: true },
+  { href: "/charts", label: "Charts", icon: BarChart3 },
+  { href: "/strategies", label: "Tutorials", icon: BookOpen },
+  { href: "/copy-trading", label: "Copy Trading", icon: Users },
+  { href: "/analysis", label: "DCircles", icon: CircleDot },
+  { href: "/trading-bots", label: "Free Bots", icon: Gift },
+];
+
+const INITIAL_BLOCK_POSITIONS: Record<string, { x: number; y: number }> = {
+  params: { x: 36, y: 40 },
+  purchase: { x: 560, y: 42 },
+  sell: { x: 560, y: 238 },
+  restart: { x: 36, y: 455 },
+  analysis: { x: 920, y: 42 },
+  utility: { x: 920, y: 270 },
+};
+
+const BLOCK_DIMENSIONS: Record<string, { height: number; width: number }> = {
+  params: { width: 470, height: 360 },
+  purchase: { width: 340, height: 145 },
+  sell: { width: 360, height: 180 },
+  restart: { width: 320, height: 135 },
+  analysis: { width: 360, height: 170 },
+  utility: { width: 360, height: 170 },
+};
 
 type JournalEntry = { time: string; message: string; type: "info" | "success" | "error" };
 type BotBuilderSnapshot = {
@@ -176,9 +206,21 @@ function BotBuilder() {
   const [botName, setBotName] = useState("ArkTrader Bot");
   const [searchTerm, setSearchTerm] = useState("");
   const [openMenu, setOpenMenu] = useState("params");
-  const [activeBlocks, setActiveBlocks] = useState<string[]>(["params", "purchase", "restart"]);
+  const [blocksMenuCollapsed, setBlocksMenuCollapsed] = useState(false);
+  const [activeBlocks, setActiveBlocks] = useState<string[]>([
+    "params",
+    "purchase",
+    "sell",
+    "restart",
+  ]);
+  const [blockPositions, setBlockPositions] =
+    useState<Record<string, { x: number; y: number }>>(INITIAL_BLOCK_POSITIONS);
+  const [draggingBlock, setDraggingBlock] = useState<string | null>(null);
+  const [trashActive, setTrashActive] = useState(false);
+  const [athenaEnabled, setAthenaEnabled] = useState(false);
+  const [utcNow, setUtcNow] = useState(() => new Date());
 
-  const [symbol, setSymbol] = useState("R_100");
+  const [symbol, setSymbol] = useState("1HZ100V");
   const [tradeType, setTradeType] = useState<TradeCategory>("rise_fall");
   const [purchaseSide, setPurchaseSide] = useState("up");
   const [initialStake, setInitialStake] = useState(1);
@@ -197,6 +239,13 @@ function BotBuilder() {
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const trashRef = useRef<HTMLButtonElement | null>(null);
+  const dragStateRef = useRef<{
+    id: string;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
   const lastSnapshotRef = useRef<string>("");
   const applyingHistoryRef = useRef(false);
   const saveBotNowRef = useRef<(showToast?: boolean) => Promise<void>>(async () => {});
@@ -266,6 +315,84 @@ function BotBuilder() {
       blocks: group.blocks.filter((block) => block.toLowerCase().includes(query)),
     })).filter((group) => group.title.toLowerCase().includes(query) || group.blocks.length > 0);
   }, [searchTerm]);
+  const workspaceSize = useMemo(() => {
+    return activeBlocks.reduce(
+      (size, id) => {
+        const position = blockPositions[id] ?? INITIAL_BLOCK_POSITIONS[id] ?? { x: 40, y: 40 };
+        const dimensions = BLOCK_DIMENSIONS[id] ?? { width: 360, height: 180 };
+        return {
+          height: Math.max(size.height, position.y + dimensions.height + 140),
+          width: Math.max(size.width, position.x + dimensions.width + 120),
+        };
+      },
+      { height: 760, width: 1160 },
+    );
+  }, [activeBlocks, blockPositions]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setUtcNow(new Date()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!draggingBlock) return;
+
+    function pointerToWorkspace(event: PointerEvent) {
+      const workspace = workspaceRef.current;
+      if (!workspace) return null;
+      const rect = workspace.getBoundingClientRect();
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      };
+    }
+
+    function pointerIsOverTrash(event: PointerEvent) {
+      const rect = trashRef.current?.getBoundingClientRect();
+      if (!rect) return false;
+      return (
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom
+      );
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      const dragState = dragStateRef.current;
+      const point = pointerToWorkspace(event);
+      if (!dragState || !point) return;
+      setBlockPositions((positions) => ({
+        ...positions,
+        [dragState.id]: {
+          x: Math.max(0, Math.round(point.x - dragState.offsetX)),
+          y: Math.max(0, Math.round(point.y - dragState.offsetY)),
+        },
+      }));
+      setTrashActive(pointerIsOverTrash(event));
+    }
+
+    function handlePointerUp(event: PointerEvent) {
+      const dragState = dragStateRef.current;
+      const shouldDelete = pointerIsOverTrash(event);
+      if (dragState && shouldDelete) {
+        removeBlock(dragState.id);
+        toast.success("Block removed");
+      }
+      dragStateRef.current = null;
+      setDraggingBlock(null);
+      setTrashActive(false);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [draggingBlock]);
 
   useEffect(() => {
     if (!availableSides.some((side) => side.value === purchaseSide)) {
@@ -369,7 +496,7 @@ function BotBuilder() {
     setStopLoss(config.sl);
     setMartingale(config.martingale);
     setPredictionDigit(5);
-    setActiveBlocks(["params", "purchase", "restart"]);
+    setActiveBlocks(["params", "purchase", "sell", "restart"]);
   }, [preset]);
 
   useEffect(() => {
@@ -584,7 +711,7 @@ function BotBuilder() {
     setTakeProfit(config.tp);
     setStopLoss(config.sl);
     setMartingale(config.martingale);
-    setActiveBlocks(["params", "purchase", "restart"]);
+    setActiveBlocks(["params", "purchase", "sell", "restart"]);
     toast.success(`${config.name} loaded`);
   }
 
@@ -749,570 +876,556 @@ function BotBuilder() {
     }
   }
 
+  function getBlockPosition(id: string) {
+    return blockPositions[id] ?? INITIAL_BLOCK_POSITIONS[id] ?? { x: 40, y: 40 };
+  }
+
+  function startBlockDrag(event: React.PointerEvent<HTMLDivElement>, id: string) {
+    if (event.button !== 0) return;
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const rect = workspace.getBoundingClientRect();
+    const position = getBlockPosition(id);
+    dragStateRef.current = {
+      id,
+      offsetX: event.clientX - rect.left - position.x,
+      offsetY: event.clientY - rect.top - position.y,
+    };
+    setDraggingBlock(id);
+    setTrashActive(false);
+    event.preventDefault();
+  }
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    void document.documentElement.requestFullscreen?.();
+  }
+
   return (
-    <TopShell>
-      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#f2f3f4] text-[#333333] lg:h-[calc(100dvh-104px)] lg:flex-row">
-        <aside className="flex max-h-[45dvh] w-full shrink-0 flex-col border-b border-[#dedede] bg-white lg:max-h-none lg:w-[280px] lg:border-b-0 lg:border-r xl:w-[312px]">
-          <div className="border-b border-[#e6e6e6] p-3">
-            <Button
-              onClick={quickStrategy}
-              className="h-10 w-full rounded bg-[#ff444f] text-sm font-bold text-white hover:bg-[#eb3e48]"
+    <div className="flex h-dvh min-w-0 flex-col overflow-hidden bg-[#f3f4f6] text-[#111827]">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-4 bg-[#1e3a8a] px-4 text-white shadow-sm">
+        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          {NAV_TABS.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <a
+                key={tab.label}
+                href={tab.href}
+                className={cn(
+                  "flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold text-white/90 transition hover:bg-white/10 hover:text-white",
+                  tab.active &&
+                    "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]",
+                )}
+              >
+                <Icon className="size-4" />
+                <span>{tab.label}</span>
+              </a>
+            );
+          })}
+        </nav>
+
+        <div className="flex shrink-0 items-center gap-3">
+          <Button
+            onClick={toggleBot}
+            className={cn(
+              "h-9 rounded-md px-4 text-sm font-bold text-white shadow-sm",
+              running ? "bg-[#dc2626] hover:bg-[#b91c1c]" : "bg-[#16a34a] hover:bg-[#15803d]",
+            )}
+          >
+            {running ? (
+              <Square className="mr-2 size-4 fill-current" />
+            ) : (
+              <Play className="mr-2 size-4 fill-current" />
+            )}
+            {running ? "Stop" : "Run"}
+          </Button>
+          <span className="rounded-full bg-white/12 px-3 py-1.5 text-xs font-semibold text-white/90 ring-1 ring-white/15">
+            {running ? "Bot is running" : "Bot is not running"}
+          </span>
+        </div>
+      </header>
+
+      <section className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-[#d6d8dc] bg-white px-4">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,.xml"
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+        <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+          <Button
+            onClick={quickStrategy}
+            className="h-8 shrink-0 rounded-full bg-[#0ea5e9] px-4 text-xs font-bold text-white shadow-sm hover:bg-[#0284c7]"
+          >
+            Quick strategy
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]">
+                Tools <ChevronDown className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-44 border-[#d6d8dc] bg-white text-[#111827] shadow-lg">
+              <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                <FolderOpen className="size-4" /> Import
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void saveBotNow(true)}>
+                <Save className="size-4" /> Save
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={exportBot}>
+                <Download className="size-4" /> Export
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={undo} disabled={!undoStack.length}>
+                <Undo2 className="size-4" /> Undo
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={redo} disabled={!redoStack.length}>
+                <Redo2 className="size-4" /> Redo
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={resetWorkspace}>
+                <RotateCcw className="size-4" /> Reset stats
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <ToolbarPill icon={DollarSign} label="% Stake" />
+          <ToolbarPill icon={BarChart3} label="ChartLord" />
+          <ToolbarPill icon={FileJson} label="Strategy" />
+          <button
+            type="button"
+            onClick={() => setAthenaEnabled((value) => !value)}
+            className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]"
+          >
+            Athena
+            <span
+              className={cn(
+                "relative h-4 w-8 rounded-full transition",
+                athenaEnabled ? "bg-[#16a34a]" : "bg-[#cbd5e1]",
+              )}
             >
-              Quick strategy
-            </Button>
-          </div>
+              <span
+                className={cn(
+                  "absolute top-0.5 size-3 rounded-full bg-white shadow transition",
+                  athenaEnabled ? "left-4" : "left-0.5",
+                )}
+              />
+            </span>
+          </button>
+        </div>
 
-          <Tabs defaultValue="blocks" className="flex min-h-0 flex-1 flex-col">
-            <TabsList className="grid h-11 grid-cols-2 rounded-none border-b border-[#e6e6e6] bg-white p-0">
-              <TabsTrigger
-                value="blocks"
-                className="rounded-none border-b-2 border-transparent text-xs font-bold data-[state=active]:border-[#ff444f] data-[state=active]:shadow-none"
-              >
-                Blocks menu
-              </TabsTrigger>
-              <TabsTrigger
-                value="presets"
-                className="rounded-none border-b-2 border-transparent text-xs font-bold data-[state=active]:border-[#ff444f] data-[state=active]:shadow-none"
-              >
-                Presets
-              </TabsTrigger>
-            </TabsList>
+        <div className="flex shrink-0 items-center gap-2 rounded-full border border-[#d6d8dc] bg-[#f8fafc] px-3 py-1.5">
+          {saveStatus === "saving" ? (
+            <RefreshCw className="size-3.5 animate-spin text-[#2563eb]" />
+          ) : (
+            <CloudCheck className="size-3.5 text-[#16a34a]" />
+          )}
+          <span className="text-[11px] font-bold uppercase text-[#475569]">
+            {saveStatus === "saving" ? "Saving" : saveStatus === "saved" ? "Saved" : "Offline"}
+          </span>
+        </div>
+      </section>
 
-            <TabsContent value="blocks" className="m-0 min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <aside className="flex w-[220px] shrink-0 flex-col border-r border-[#d6d8dc] bg-white">
+          <button
+            type="button"
+            onClick={() => setBlocksMenuCollapsed((value) => !value)}
+            className="flex h-11 items-center justify-between border-b border-[#e5e7eb] px-3 text-left text-sm font-bold text-[#111827]"
+          >
+            <span>Blocks menu</span>
+            {blocksMenuCollapsed ? (
+              <PanelLeftOpen className="size-4 text-[#64748b]" />
+            ) : (
+              <PanelLeftClose className="size-4 text-[#64748b]" />
+            )}
+          </button>
+
+          {!blocksMenuCollapsed && (
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
               <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#999999]" />
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#94a3b8]" />
                 <Input
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder="Search"
-                  className="h-10 rounded border-[#d6d6d6] bg-[#f7f7f7] pl-9 text-sm"
+                  className="h-9 rounded-md border-[#d6d8dc] bg-[#f8fafc] pl-9 text-sm text-[#111827] placeholder:text-[#94a3b8]"
                 />
               </div>
-              <div className="space-y-1">
-                {filteredMenu.map((group) => (
-                  <div key={group.id} className="rounded border border-[#eeeeee] bg-white">
-                    <button
-                      onClick={() => setOpenMenu(openMenu === group.id ? "" : group.id)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-bold hover:bg-[#f6f6f6]"
-                    >
-                      {group.title}
-                      <ChevronDown
-                        className={cn("size-4 transition", openMenu === group.id && "rotate-180")}
-                      />
-                    </button>
-                    {openMenu === group.id && (
-                      <div className="space-y-1 border-t border-[#eeeeee] bg-[#fafafa] p-2">
-                        {group.blocks.map((block) => (
-                          <button
-                            key={block}
-                            onClick={() => addBlock(group.id)}
-                            className="flex w-full items-center justify-between rounded border border-[#e4e4e4] bg-white px-3 py-2 text-left text-xs font-medium hover:border-[#ff444f]"
-                          >
-                            <span>{block}</span>
-                            <Plus className="size-3.5 text-[#ff444f]" />
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </TabsContent>
 
-            <TabsContent value="presets" className="m-0 min-h-0 flex-1 overflow-y-auto p-3">
-              <div className="space-y-2">
-                {BOT_PRESETS.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => loadPreset(item.id)}
-                    className="w-full rounded border border-[#e5e5e5] bg-white p-3 text-left hover:border-[#ff444f] hover:bg-[#fff7f7]"
-                  >
-                    <div className="text-sm font-bold">{item.name}</div>
-                    <div className="mt-1 line-clamp-2 text-xs leading-5 text-[#646464]">
-                      {item.desc}
+              <div className="space-y-1">
+                {filteredMenu.map((group) => {
+                  const expandable = group.blocks.length > 0;
+                  const active = activeBlocks.includes(group.id);
+                  return (
+                    <div key={group.id} className="overflow-hidden rounded-md">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          expandable
+                            ? setOpenMenu(openMenu === group.id ? "" : group.id)
+                            : addBlock(group.id)
+                        }
+                        className={cn(
+                          "flex w-full items-center justify-between px-3 py-2 text-left text-sm font-semibold text-[#334155] hover:bg-[#f1f5f9]",
+                          active && "bg-[#e0f2fe] text-[#075985]",
+                        )}
+                      >
+                        <span className="truncate">{group.title}</span>
+                        {expandable ? (
+                          <ChevronRight
+                            className={cn(
+                              "size-4 shrink-0 transition-transform",
+                              openMenu === group.id && "rotate-90",
+                            )}
+                          />
+                        ) : (
+                          <Plus className="size-4 shrink-0" />
+                        )}
+                      </button>
+                      {expandable && openMenu === group.id && (
+                        <div className="space-y-1 bg-[#f8fafc] p-2">
+                          {group.blocks.map((block) => (
+                            <button
+                              key={block}
+                              type="button"
+                              onClick={() => addBlock(group.id)}
+                              className="flex w-full items-center justify-between rounded border border-[#e2e8f0] bg-white px-2 py-1.5 text-left text-xs font-medium text-[#475569] hover:border-[#38bdf8]"
+                            >
+                              <span>{block}</span>
+                              <Plus className="size-3.5 text-[#0284c7]" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="mt-2 flex gap-1 text-[10px] font-bold uppercase text-[#777777]">
-                      <span className="rounded bg-[#f2f3f4] px-2 py-1">{item.market}</span>
-                      <span className="rounded bg-[#f2f3f4] px-2 py-1">
-                        {item.tradeType.replace("_", " ")}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
-            </TabsContent>
-          </Tabs>
+            </div>
+          )}
         </aside>
 
-        <main className="flex min-h-[520px] min-w-0 flex-1 flex-col border-b border-[#dedede] lg:min-h-0 lg:border-b-0 lg:border-r">
-          <div className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[#dedede] bg-white px-2 py-2 sm:px-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json,.xml"
-              className="hidden"
-              onChange={handleFileSelect}
-            />
-            <div className="flex min-w-0 flex-wrap items-center gap-1">
-              <ToolbarButton
-                icon={FolderOpen}
-                label="Import"
-                onClick={() => fileInputRef.current?.click()}
-              />
-              <ToolbarButton
-                icon={Upload}
-                label="Upload"
-                onClick={() => fileInputRef.current?.click()}
-              />
-              <ToolbarButton icon={Save} label="Save" onClick={() => void saveBotNow(true)} />
-              <ToolbarButton icon={Download} label="Download" onClick={exportBot} />
-              <div className="mx-1 hidden h-6 w-px bg-[#e1e1e1] sm:block" />
-              <ToolbarButton
-                icon={Undo2}
-                label="Undo"
-                onClick={undo}
-                disabled={!undoStack.length}
-              />
-              <ToolbarButton
-                icon={Redo2}
-                label="Redo"
-                onClick={redo}
-                disabled={!redoStack.length}
-              />
-              <ToolbarButton
-                icon={ZoomIn}
-                label="Zoom in"
-                onClick={() =>
-                  setWorkspaceZoom((value) => Math.min(1.5, Number((value + 0.1).toFixed(2))))
-                }
-              />
-              <ToolbarButton
-                icon={ZoomOut}
-                label="Zoom out"
-                onClick={() =>
-                  setWorkspaceZoom((value) => Math.max(0.7, Number((value - 0.1).toFixed(2))))
-                }
-              />
-              <ToolbarButton icon={RotateCcw} label="Reset" onClick={resetWorkspace} />
-            </div>
+        <main className="relative min-w-0 flex-1 overflow-auto bg-[#f3f4f6]">
+          <div
+            ref={workspaceRef}
+            className="relative"
+            style={{ height: workspaceSize.height, width: workspaceSize.width }}
+          >
+            <div className="absolute inset-0 opacity-70 [background-image:linear-gradient(#e5e7eb_1px,transparent_1px),linear-gradient(90deg,#e5e7eb_1px,transparent_1px)] [background-size:28px_28px]" />
 
-            <div className="flex shrink-0 items-center gap-2 rounded border border-[#e4e4e4] bg-[#fafafa] px-3 py-1.5">
-              {saveStatus === "saving" ? (
-                <RefreshCw className="size-3.5 animate-spin text-[#377cbd]" />
-              ) : (
-                <CloudCheck className="size-3.5 text-[#4bb4b3]" />
-              )}
-              <span className="text-[11px] font-bold uppercase text-[#646464]">
-                {saveStatus === "saving" ? "Saving" : saveStatus === "saved" ? "Saved" : "Offline"}
-              </span>
-            </div>
-          </div>
-
-          <div className="relative min-h-0 flex-1 overflow-auto bg-[#f7f8f9]">
-            <div className="absolute inset-0 opacity-60 [background-image:linear-gradient(#e8e8e8_1px,transparent_1px),linear-gradient(90deg,#e8e8e8_1px,transparent_1px)] [background-size:24px_24px]" />
-            <div
-              className="relative flex min-h-full w-full min-w-0 origin-top-left flex-col items-start gap-4 p-3 pb-20 transition-transform sm:p-5 lg:gap-5 lg:p-8 lg:pb-24"
-              style={{ transform: `scale(${workspaceZoom})`, width: `${100 / workspaceZoom}%` }}
-            >
-              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded border border-[#d9d9d9] bg-white px-3 py-2 shadow-sm sm:w-auto sm:gap-3 sm:px-4">
-                <Blocks className="size-4 text-[#ff444f]" />
-                <Input
-                  value={botName}
-                  onChange={(event) => setBotName(event.target.value)}
-                  className="h-8 min-w-0 flex-1 border-[#e4e4e4] text-sm font-bold sm:w-[320px] sm:flex-none"
-                />
-                <span className="rounded bg-[#f2f3f4] px-2 py-1 text-[10px] font-bold uppercase text-[#646464]">
-                  Editable preset
-                </span>
-              </div>
-
-              {activeBlocks.includes("params") && (
-                <WorkspaceBlock
-                  color="#0f6b8f"
-                  title="1. Trade parameters"
-                  onRemove={() => removeBlock("params")}
-                  width="720px"
-                >
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Field label="Market">
+            {activeBlocks.includes("params") && (
+              <WorkspaceBlock
+                id="params"
+                isDragging={draggingBlock === "params"}
+                onDragStart={startBlockDrag}
+                onRemove={() => removeBlock("params")}
+                position={getBlockPosition("params")}
+                title="1. Trade parameters"
+                width={BLOCK_DIMENSIONS.params.width}
+              >
+                <div className="space-y-3">
+                  <Field label="Market">
+                    <div className="flex flex-wrap gap-2">
+                      <InlineSelect
+                        value="derived"
+                        options={["derived"]}
+                        labels={{ derived: "Derived" }}
+                      />
+                      <InlineSelect
+                        value="continuous"
+                        options={["continuous"]}
+                        labels={{ continuous: "Continuous Indices" }}
+                      />
                       <InlineSelect
                         value={symbol}
                         options={Object.keys(MARKETS)}
-                        labels={MARKETS}
                         onChange={setSymbol}
                       />
-                    </Field>
-                    <Field label="Trade type">
+                    </div>
+                  </Field>
+                  <Field label="Trade Type">
+                    <div className="flex flex-wrap gap-2">
+                      <InlineSelect
+                        value="up_down"
+                        options={["up_down"]}
+                        labels={{ up_down: "Up/Down" }}
+                      />
                       <InlineSelect
                         value={tradeType}
                         options={Object.keys(TRADE_TYPE_LABELS)}
                         labels={TRADE_TYPE_LABELS}
                         onChange={(value) => setTradeType(value as TradeCategory)}
                       />
+                    </div>
+                  </Field>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Contract Type">
+                      <InlineSelect value="both" options={["both"]} labels={{ both: "Both" }} />
                     </Field>
-                    <Field label="Stake">
-                      <NumberInput
-                        value={initialStake}
-                        min={0.35}
-                        step={0.01}
-                        onChange={setInitialStake}
-                      />
-                    </Field>
-                    <Field label="Duration">
-                      <div className="flex w-full flex-col gap-2 sm:flex-row">
-                        <NumberInput
-                          value={duration}
-                          min={1}
-                          step={1}
-                          onChange={setDuration}
-                          className="sm:w-24"
-                        />
-                        <InlineSelect
-                          value={durationUnit}
-                          options={["t", "s", "m"]}
-                          labels={{ t: "Ticks", s: "Seconds", m: "Minutes" }}
-                          onChange={setDurationUnit}
-                        />
-                      </div>
+                    <Field label="Default Candle Interval">
+                      <InlineSelect value="1m" options={["1m"]} labels={{ "1m": "1 minute" }} />
                     </Field>
                   </div>
-                </WorkspaceBlock>
-              )}
-
-              {activeBlocks.includes("purchase") && (
-                <WorkspaceBlock
-                  color="#1b8a5a"
-                  title="2. Purchase conditions"
-                  onRemove={() => removeBlock("purchase")}
-                  width="560px"
-                >
-                  <div className="space-y-4">
-                    <Field label="Purchase">
-                      <InlineSelect
-                        value={purchaseSide}
-                        options={availableSides.map((side) => side.value)}
-                        labels={Object.fromEntries(
-                          availableSides.map((side) => [side.value, side.label]),
-                        )}
-                        onChange={setPurchaseSide}
-                      />
-                    </Field>
-                    {["over_under", "matches_differs"].includes(tradeType) && (
-                      <Field label="Prediction digit">
-                        <InlineSelect
-                          value={String(predictionDigit)}
-                          options={["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]}
-                          onChange={(value) => setPredictionDigit(Number(value))}
-                        />
+                  <div className="grid grid-cols-2 gap-2">
+                    <CheckOption label="Restart buy/sell on error" />
+                    <CheckOption defaultChecked label="Restart last trade on error" />
+                  </div>
+                  <BlockSection title="Run once at start">
+                    <div className="min-h-9 rounded-md border border-[#8fbec3] bg-[#d6eeee]" />
+                  </BlockSection>
+                  <BlockSection title="Trade options">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label="Duration">
+                        <div className="flex flex-wrap gap-2">
+                          <InlineSelect
+                            value={durationUnit}
+                            options={["t", "s", "m"]}
+                            labels={{ t: "Ticks", s: "Seconds", m: "Minutes" }}
+                            onChange={setDurationUnit}
+                          />
+                          <NumberInput value={duration} min={1} step={1} onChange={setDuration} />
+                        </div>
                       </Field>
-                    )}
-                    {["higher_lower", "touch_no_touch"].includes(tradeType) && (
-                      <Field label="Barrier offset">
-                        <Input
-                          value={barrierOffset}
-                          onChange={(event) => setBarrierOffset(event.target.value)}
-                          className="h-8 w-32 border-[#d6d6d6]"
-                        />
+                      <Field label="Stake">
+                        <div className="flex flex-wrap gap-2">
+                          <InlineSelect
+                            value={derivCurrency || "USD"}
+                            options={[derivCurrency || "USD"]}
+                          />
+                          <NumberInput
+                            value={initialStake}
+                            min={0.35}
+                            step={0.01}
+                            onChange={setInitialStake}
+                          />
+                        </div>
                       </Field>
-                    )}
-                  </div>
-                </WorkspaceBlock>
-              )}
+                    </div>
+                  </BlockSection>
+                </div>
+              </WorkspaceBlock>
+            )}
 
-              {activeBlocks.includes("sell") && (
-                <WorkspaceBlock
-                  color="#d47b00"
-                  title="3. Sell conditions"
-                  onRemove={() => removeBlock("sell")}
-                  width="520px"
-                >
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Field label="Sell at profit">
-                      <NumberInput
-                        value={sellAtProfit}
-                        min={0}
-                        step={0.01}
-                        onChange={setSellAtProfit}
-                      />
-                    </Field>
-                    <Field label="Sell at loss">
-                      <NumberInput
-                        value={sellAtLoss}
-                        min={0}
-                        step={0.01}
-                        onChange={setSellAtLoss}
-                      />
-                    </Field>
-                  </div>
-                </WorkspaceBlock>
-              )}
-
-              {activeBlocks.includes("restart") && (
-                <WorkspaceBlock
-                  color="#6b4ca6"
-                  title="4. Restart trading conditions"
-                  onRemove={() => removeBlock("restart")}
-                  width="680px"
-                >
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Field label="Take profit">
-                      <NumberInput
-                        value={takeProfit}
-                        min={0}
-                        step={0.01}
-                        onChange={setTakeProfit}
-                      />
-                    </Field>
-                    <Field label="Stop loss">
-                      <NumberInput value={stopLoss} min={0} step={0.01} onChange={setStopLoss} />
-                    </Field>
-                    <Field label="Recovery multiplier">
-                      <NumberInput
-                        value={martingale}
-                        min={1}
-                        step={0.05}
-                        onChange={setMartingale}
-                      />
-                    </Field>
-                    <Field label="Max runs">
-                      <NumberInput value={maxRuns} min={1} step={1} onChange={setMaxRuns} />
-                    </Field>
-                  </div>
-                </WorkspaceBlock>
-              )}
-
-              {activeBlocks.includes("analysis") && (
-                <WorkspaceBlock
-                  color="#2c6eaa"
-                  title="5. Analysis"
-                  onRemove={() => removeBlock("analysis")}
-                  width="560px"
-                >
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <Metric
-                      label="Win rate"
-                      value={`${stats.runs ? ((stats.wins / stats.runs) * 100).toFixed(1) : "0.0"}%`}
-                    />
-                    <Metric
-                      label="Total P/L"
-                      value={`${stats.profit >= 0 ? "+" : ""}${stats.profit.toFixed(2)}`}
-                    />
-                    <Metric label="Payout" value={stats.payout.toFixed(2)} />
-                  </div>
-                </WorkspaceBlock>
-              )}
-
-              {activeBlocks.includes("utility") && (
-                <WorkspaceBlock
-                  color="#5f6368"
-                  title="6. Utilities"
-                  onRemove={() => removeBlock("utility")}
-                  width="540px"
-                >
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        void navigator.clipboard?.writeText(JSON.stringify(snapshot, null, 2));
-                        toast.success("Configuration copied");
-                      }}
-                      className="h-10 rounded border-[#d6d6d6] text-sm font-bold"
-                    >
-                      <Copy className="mr-2 size-4" />
-                      Copy config
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setJournal([]);
-                        toast.success("Journal cleared");
-                      }}
-                      className="h-10 rounded border-[#d6d6d6] text-sm font-bold"
-                    >
-                      <Trash2 className="mr-2 size-4" />
-                      Clear journal
-                    </Button>
-                  </div>
-                </WorkspaceBlock>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveBlocks([]);
-                  toast.success("Workspace cleared");
-                }}
-                className="absolute bottom-8 right-8 hidden size-24 items-center justify-center rounded border-2 border-dashed border-[#d0d0d0] bg-white/80 text-[#999999] transition hover:border-[#ff444f] hover:text-[#ff444f] lg:flex"
-                title="Clear workspace"
+            {activeBlocks.includes("purchase") && (
+              <WorkspaceBlock
+                id="purchase"
+                isDragging={draggingBlock === "purchase"}
+                onDragStart={startBlockDrag}
+                onRemove={() => removeBlock("purchase")}
+                position={getBlockPosition("purchase")}
+                title="2. Purchase conditions"
+                width={BLOCK_DIMENSIONS.purchase.width}
               >
-                <Trash2 className="size-9" />
-              </button>
-            </div>
+                <Field label="Purchase">
+                  <InlineSelect
+                    value={purchaseSide}
+                    options={availableSides.map((side) => side.value)}
+                    labels={Object.fromEntries(
+                      availableSides.map((side) => [side.value, side.label]),
+                    )}
+                    onChange={setPurchaseSide}
+                  />
+                </Field>
+              </WorkspaceBlock>
+            )}
+
+            {activeBlocks.includes("sell") && (
+              <WorkspaceBlock
+                id="sell"
+                isDragging={draggingBlock === "sell"}
+                onDragStart={startBlockDrag}
+                onRemove={() => removeBlock("sell")}
+                position={getBlockPosition("sell")}
+                title="3. Sell conditions"
+                width={BLOCK_DIMENSIONS.sell.width}
+              >
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#0f3f47]">
+                    <span>if</span>
+                    <InlineSelect
+                      value="sell_available"
+                      options={["sell_available"]}
+                      labels={{ sell_available: "Sell is available" }}
+                    />
+                    <span>then</span>
+                  </div>
+                  <NestedSlot />
+                </div>
+              </WorkspaceBlock>
+            )}
+
+            {activeBlocks.includes("restart") && (
+              <WorkspaceBlock
+                id="restart"
+                isDragging={draggingBlock === "restart"}
+                onDragStart={startBlockDrag}
+                onRemove={() => removeBlock("restart")}
+                position={getBlockPosition("restart")}
+                title="4. Restart trading conditions"
+                width={BLOCK_DIMENSIONS.restart.width}
+              >
+                <div className="inline-flex h-10 items-center rounded-md border border-[#8fbec3] bg-[#e8f6f6] px-3 text-sm font-bold text-[#0f3f47]">
+                  Trade again
+                </div>
+              </WorkspaceBlock>
+            )}
+
+            {activeBlocks.includes("analysis") && (
+              <WorkspaceBlock
+                id="analysis"
+                isDragging={draggingBlock === "analysis"}
+                onDragStart={startBlockDrag}
+                onRemove={() => removeBlock("analysis")}
+                position={getBlockPosition("analysis")}
+                title="5. Analysis"
+                width={BLOCK_DIMENSIONS.analysis.width}
+              >
+                <div className="grid grid-cols-3 gap-2">
+                  <Metric
+                    label="Win rate"
+                    value={`${stats.runs ? ((stats.wins / stats.runs) * 100).toFixed(1) : "0.0"}%`}
+                  />
+                  <Metric
+                    label="Total P/L"
+                    value={`${stats.profit >= 0 ? "+" : ""}${stats.profit.toFixed(2)}`}
+                  />
+                  <Metric label="Payout" value={stats.payout.toFixed(2)} />
+                </div>
+              </WorkspaceBlock>
+            )}
+
+            {activeBlocks.includes("utility") && (
+              <WorkspaceBlock
+                id="utility"
+                isDragging={draggingBlock === "utility"}
+                onDragStart={startBlockDrag}
+                onRemove={() => removeBlock("utility")}
+                position={getBlockPosition("utility")}
+                title="6. Utility"
+                width={BLOCK_DIMENSIONS.utility.width}
+              >
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(JSON.stringify(snapshot, null, 2));
+                      toast.success("Configuration copied");
+                    }}
+                    className="h-9 rounded-md border-[#8fbec3] bg-white text-xs font-bold text-[#0f3f47]"
+                  >
+                    <Copy className="mr-2 size-4" />
+                    Copy config
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setJournal([]);
+                      toast.success("Journal cleared");
+                    }}
+                    className="h-9 rounded-md border-[#8fbec3] bg-white text-xs font-bold text-[#0f3f47]"
+                  >
+                    <Trash2 className="mr-2 size-4" />
+                    Clear journal
+                  </Button>
+                </div>
+              </WorkspaceBlock>
+            )}
+          </div>
+
+          <div className="pointer-events-none fixed bottom-12 right-6 z-40 flex flex-col items-center gap-3">
+            <button
+              type="button"
+              className="pointer-events-auto flex size-[60px] items-center justify-center rounded-full bg-[#16a34a] text-base font-black text-white shadow-[0_0_28px_rgba(22,163,74,0.42)] transition hover:scale-105"
+              aria-label="AI assistant"
+            >
+              AI
+            </button>
+            <button
+              ref={trashRef}
+              type="button"
+              onClick={() => {
+                setActiveBlocks([]);
+                toast.success("Workspace cleared");
+              }}
+              className={cn(
+                "pointer-events-auto flex size-10 items-center justify-center rounded-full border bg-white text-[#64748b] shadow-md transition",
+                trashActive
+                  ? "border-[#ef4444] bg-[#fee2e2] text-[#dc2626] scale-110"
+                  : "border-[#cbd5e1] hover:border-[#ef4444] hover:text-[#dc2626]",
+              )}
+              aria-label="Delete blocks"
+              title="Delete blocks"
+            >
+              <Trash2 className="size-5" />
+            </button>
           </div>
         </main>
-
-        <aside className="flex w-full shrink-0 flex-col bg-white lg:w-[320px] xl:w-[360px]">
-          <div className="border-b border-[#dedede] p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Wallet className="size-4 text-[#646464]" />
-              <div className="min-w-0">
-                <div className="text-xs font-bold uppercase text-[#999999]">Account</div>
-                <div className="truncate text-sm font-bold">
-                  {derivAccount?.account_id ?? "No Deriv account"}
-                </div>
-              </div>
-            </div>
-            <Button
-              onClick={toggleBot}
-              className={cn(
-                "h-12 w-full rounded text-sm font-bold text-white",
-                running ? "bg-[#ff444f] hover:bg-[#eb3e48]" : "bg-[#4bb4b3] hover:bg-[#399998]",
-              )}
-            >
-              {running ? (
-                <Square className="mr-2 size-4 fill-current" />
-              ) : (
-                <Play className="mr-2 size-4 fill-current" />
-              )}
-              {running ? "Stop" : "Run"}
-            </Button>
-          </div>
-
-          <Tabs
-            value={panelTab}
-            onValueChange={setPanelTab}
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            <TabsList className="grid h-11 grid-cols-2 rounded-none border-b border-[#dedede] bg-white p-0">
-              <TabsTrigger
-                value="summary"
-                className="rounded-none border-b-2 border-transparent text-xs font-bold data-[state=active]:border-[#ff444f] data-[state=active]:shadow-none"
-              >
-                Summary
-              </TabsTrigger>
-              <TabsTrigger
-                value="journal"
-                className="rounded-none border-b-2 border-transparent text-xs font-bold data-[state=active]:border-[#ff444f] data-[state=active]:shadow-none"
-              >
-                Journal
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="summary" className="m-0 flex-1 p-4">
-              <div className="rounded border border-[#e5e5e5] bg-[#fafafa] p-4">
-                <div className="text-[10px] font-bold uppercase text-[#999999]">
-                  Total profit/loss
-                </div>
-                <div
-                  className={cn(
-                    "mt-1 font-mono text-4xl font-bold",
-                    stats.profit >= 0 ? "text-[#0b8f62]" : "text-[#ff444f]",
-                  )}
-                >
-                  {stats.profit >= 0 ? "+" : ""}
-                  {stats.profit.toFixed(2)}
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <Metric label="Runs" value={stats.runs} />
-                <Metric label="Wins" value={stats.wins} />
-                <Metric label="Losses" value={stats.losses} />
-                <Metric label="Stake" value={stats.stake.toFixed(2)} />
-              </div>
-
-              <div className="mt-4 rounded border border-[#e5e5e5] bg-white p-4 text-sm">
-                <div className="mb-3 flex items-center gap-2 font-bold">
-                  <Settings2 className="size-4" />
-                  Active configuration
-                </div>
-                <SummaryRow label="Market" value={MARKETS[symbol] ?? symbol} />
-                <SummaryRow label="Trade" value={TRADE_TYPE_LABELS[tradeType]} />
-                <SummaryRow
-                  label="Purchase"
-                  value={
-                    availableSides.find((side) => side.value === purchaseSide)?.label ??
-                    purchaseSide
-                  }
-                />
-                <SummaryRow label="Stake" value={`${initialStake} ${derivCurrency || "USD"}`} />
-              </div>
-
-              <Button
-                variant="outline"
-                onClick={resetWorkspace}
-                className="mt-4 h-10 w-full rounded border-[#d6d6d6] text-sm font-bold"
-              >
-                Reset stats
-              </Button>
-            </TabsContent>
-
-            <TabsContent
-              value="journal"
-              className="m-0 min-h-0 flex-1 overflow-y-auto bg-[#fafafa] p-3"
-            >
-              {journal.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center text-center text-sm text-[#777777]">
-                  <Info className="mb-2 size-5" />
-                  Journal entries appear when the bot runs.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {journal.map((entry, index) => (
-                    <div
-                      key={`${entry.time}-${index}`}
-                      className={cn(
-                        "rounded border bg-white p-3 text-xs",
-                        entry.type === "success" && "border-[#bde8dc] text-[#0b7757]",
-                        entry.type === "error" && "border-[#ffd1d4] text-[#cc2f39]",
-                        entry.type === "info" && "border-[#e5e5e5] text-[#555555]",
-                      )}
-                    >
-                      <div className="mb-1 text-[10px] font-bold uppercase opacity-60">
-                        {entry.time}
-                      </div>
-                      {entry.message}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-        </aside>
       </div>
-    </TopShell>
+
+      <footer className="flex h-8 shrink-0 items-center justify-between border-t border-[#d6d8dc] bg-white px-4 text-xs text-[#475569]">
+        <div className="flex items-center gap-2">
+          <span className="size-2.5 rounded-full bg-[#16a34a]" />
+          <span className="font-medium">{derivAccount?.account_id ?? "Ready"}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-mono">{formatUtcTimestamp(utcNow)}</span>
+          <IconButton icon={Download} label="Export" onClick={exportBot} />
+          <IconButton icon={Maximize2} label="Fullscreen" onClick={toggleFullscreen} />
+        </div>
+      </footer>
+    </div>
   );
 }
 
 function WorkspaceBlock({
   children,
-  color,
+  id,
+  isDragging,
+  onDragStart,
   onRemove,
+  position,
   title,
   width,
 }: {
   children: React.ReactNode;
-  color: string;
+  id: string;
+  isDragging: boolean;
+  onDragStart: (event: React.PointerEvent<HTMLDivElement>, id: string) => void;
   onRemove: () => void;
+  position: { x: number; y: number };
   title: string;
-  width: string;
+  width: number;
 }) {
   return (
     <div
-      className="relative min-w-0 rounded border border-[#cfcfcf] bg-white shadow-sm"
-      style={{ width, maxWidth: "100%" }}
+      className={cn(
+        "absolute min-w-0 overflow-hidden rounded-md border border-[#0b3b46]/30 bg-[#b8dde0] shadow-[0_10px_24px_rgba(15,76,92,0.18)] transition-shadow",
+        isDragging && "z-30 shadow-[0_18px_38px_rgba(15,76,92,0.34)]",
+      )}
+      style={{
+        transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
+        width,
+        zIndex: isDragging ? 30 : 10,
+      }}
     >
-      <div className="absolute -left-3 top-8 hidden h-6 w-3 rounded-l bg-white shadow-[inset_0_0_0_1px_#cfcfcf] sm:block" />
-      <div className="absolute -right-3 top-16 hidden h-6 w-3 rounded-r bg-white shadow-[inset_0_0_0_1px_#cfcfcf] sm:block" />
       <div
-        className="flex items-center justify-between rounded-t px-3 py-2 text-white"
-        style={{ backgroundColor: color }}
+        onPointerDown={(event) => onDragStart(event, id)}
+        className={cn(
+          "flex touch-none cursor-grab select-none items-center justify-between bg-[#0f4c5c] px-3 py-2 text-white",
+          isDragging && "cursor-grabbing",
+        )}
       >
         <div className="flex min-w-0 items-center gap-2 text-sm font-bold">
           <GripVertical className="size-4 opacity-70" />
           <span className="truncate">{title}</span>
         </div>
         <button
+          type="button"
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={onRemove}
           className="rounded p-1 hover:bg-white/15"
           aria-label={`Remove ${title}`}
@@ -1320,40 +1433,48 @@ function WorkspaceBlock({
           <Trash2 className="size-4" />
         </button>
       </div>
-      <div className="p-3 sm:p-4">{children}</div>
+      <div className="p-3">{children}</div>
     </div>
   );
 }
 
-function ToolbarButton({
-  disabled,
+function ToolbarPill({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
+  return (
+    <button className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]">
+      <Icon className="size-4" />
+      <span>{label}</span>
+      <ChevronDown className="size-3.5" />
+    </button>
+  );
+}
+
+function IconButton({
   icon: Icon,
   label,
   onClick,
 }: {
-  disabled?: boolean;
   icon: LucideIcon;
   label: string;
-  onClick?: () => void;
+  onClick: () => void;
 }) {
   return (
     <button
-      disabled={disabled}
+      type="button"
       onClick={onClick}
-      className="flex h-8 shrink-0 items-center gap-1 rounded px-2 text-xs font-bold text-[#646464] hover:bg-[#f2f3f4] hover:text-[#333333] disabled:cursor-not-allowed disabled:opacity-40"
+      className="flex size-6 items-center justify-center rounded text-[#475569] hover:bg-[#f1f5f9] hover:text-[#111827]"
+      aria-label={label}
       title={label}
     >
       <Icon className="size-4" />
-      <span className="hidden sm:inline">{label}</span>
     </button>
   );
 }
 
 function Field({ children, label }: { children: React.ReactNode; label: string }) {
   return (
-    <div className="flex min-h-10 min-w-0 flex-col gap-2 rounded border border-[#eeeeee] bg-[#fafafa] px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <Label className="shrink-0 text-xs font-bold text-[#555555]">{label}</Label>
-      <div className="min-w-0 sm:max-w-[65%]">{children}</div>
+    <div className="min-w-0 rounded-md border border-[#92c3c8] bg-[#d5eeee] px-2.5 py-2">
+      <Label className="mb-1.5 block text-[11px] font-bold text-[#16434c]">{label}</Label>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
@@ -1371,12 +1492,12 @@ function InlineSelect({
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-8 w-full min-w-0 rounded border-[#d6d6d6] bg-white px-3 text-xs font-bold sm:w-[190px]">
+      <SelectTrigger className="h-7 min-w-[92px] rounded-full border-[#8fbec3] bg-white px-3 text-xs font-bold text-[#0f3f47] shadow-sm data-[placeholder]:text-[#64748b]">
         <SelectValue>{labels?.[value] ?? value}</SelectValue>
       </SelectTrigger>
-      <SelectContent className="bg-white">
+      <SelectContent className="border-[#cbd5e1] bg-white text-[#111827]">
         {options.map((option) => (
-          <SelectItem key={option} value={option} className="text-xs font-bold">
+          <SelectItem key={option} value={option} className="text-xs font-bold text-[#111827]">
             {labels?.[option] ?? option}
           </SelectItem>
         ))}
@@ -1406,20 +1527,55 @@ function NumberInput({
       value={value}
       onChange={(event) => onChange(Number(event.target.value))}
       className={cn(
-        "h-8 w-full rounded border-[#d6d6d6] bg-white text-right font-mono text-xs font-bold sm:w-32",
+        "h-7 w-20 rounded-full border-[#8fbec3] bg-white px-3 text-right font-mono text-xs font-bold text-[#0f3f47] shadow-sm",
         className,
       )}
     />
   );
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) {
+function CheckOption({ defaultChecked, label }: { defaultChecked?: boolean; label: string }) {
   return (
-    <div className="rounded border border-[#e5e5e5] bg-white p-3">
-      <div className="text-[10px] font-bold uppercase text-[#999999]">{label}</div>
-      <div className="mt-1 font-mono text-lg font-bold">{value}</div>
+    <label className="flex min-h-9 items-center gap-2 rounded-md border border-[#92c3c8] bg-[#d5eeee] px-2.5 text-[11px] font-bold text-[#16434c]">
+      <input
+        type="checkbox"
+        defaultChecked={defaultChecked}
+        className="size-3.5 rounded border-[#6aaab0] accent-[#0f4c5c]"
+      />
+      <span className="leading-tight">{label}</span>
+    </label>
+  );
+}
+
+function BlockSection({ children, title }: { children: React.ReactNode; title: string }) {
+  return (
+    <div className="rounded-md border border-[#92c3c8] bg-[#cce8ea] p-2.5">
+      <div className="mb-2 text-[11px] font-bold text-[#16434c]">{title}</div>
+      {children}
     </div>
   );
+}
+
+function NestedSlot() {
+  return (
+    <div className="min-h-16 rounded-md border-2 border-dashed border-[#76aeb5] bg-[#d6eeee] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]" />
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md border border-[#92c3c8] bg-[#d5eeee] p-2">
+      <div className="text-[9px] font-bold uppercase text-[#3f6970]">{label}</div>
+      <div className="mt-1 font-mono text-sm font-bold text-[#0f3f47]">{value}</div>
+    </div>
+  );
+}
+
+function formatUtcTimestamp(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(
+    date.getUTCHours(),
+  )}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())} GMT`;
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
