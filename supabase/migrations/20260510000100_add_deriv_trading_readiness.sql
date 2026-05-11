@@ -8,11 +8,11 @@ alter table public.sessions
 alter table public.sessions
   drop constraint if exists sessions_trading_adapter_check,
   add constraint sessions_trading_adapter_check
-    check (trading_adapter is null or trading_adapter in ('newOAuthTradingAdapter', 'legacyTradingAdapter'));
+    check (trading_adapter is null or trading_adapter = 'oauth2PkceTradingAdapter');
 
 alter table public.sessions
   drop constraint if exists sessions_token_source_check,
   add constraint sessions_token_source_check
-    check (token_source is null or token_source in ('oauth_access_token', 'legacy_authorize_token'));
+    check (token_source is null or token_source = 'oauth_access_token');
 
 notify pgrst, 'reload schema';

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { buildOAuthUrl, redirectToDerivOAuth } from "@/lib/deriv";
+import { buildOAuthUrl, redirectToDerivOAuth, sanitizeDerivOAuthUrl } from "@/lib/deriv";
 import { isDemoAccount, normalizeDerivAccount } from "@/lib/deriv-account";
 import { Plug, Trash2 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
@@ -94,7 +94,7 @@ function SettingsPage() {
   async function connectDeriv() {
     try {
       const url = await buildOAuthUrl({ returnTo: "/dashboard/settings" });
-      console.log("Deriv OAuth URL:", url);
+      console.log("Deriv OAuth URL:", sanitizeDerivOAuthUrl(url));
       redirectToDerivOAuth(url);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not start Deriv OAuth.";

@@ -2,7 +2,12 @@ import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
-import { buildOAuthUrl, disconnectAll, redirectToDerivOAuth } from "@/lib/deriv";
+import {
+  buildOAuthUrl,
+  disconnectAll,
+  redirectToDerivOAuth,
+  sanitizeDerivOAuthUrl,
+} from "@/lib/deriv";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -109,7 +114,7 @@ export function TopShell({ children }: { children: ReactNode }) {
     if (!account || dropdownOpen) return;
     if (account.normalizedType !== "real" && account.normalizedType !== "demo") return;
     setActiveAccountTab(account.normalizedType);
-  }, [account?.account_id, account?.normalizedType, dropdownOpen]);
+  }, [account, dropdownOpen]);
 
   useEffect(() => {
     console.info(
@@ -166,7 +171,7 @@ export function TopShell({ children }: { children: ReactNode }) {
   async function handleConnectDeriv() {
     try {
       const url = await buildOAuthUrl({ returnTo: "/dashboard/settings" });
-      console.log("Deriv OAuth URL:", url);
+      console.log("Deriv OAuth URL:", sanitizeDerivOAuthUrl(url));
       redirectToDerivOAuth(url);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not start Deriv OAuth.";

@@ -20,6 +20,7 @@ import {
   getTradingSocketAccountId,
   onStatus,
   redirectToDerivOAuth,
+  sanitizeDerivOAuthUrl,
 } from "@/lib/deriv";
 import { SYNTHETIC_MARKETS } from "@/lib/deriv";
 import { supabase } from "@/integrations/supabase/client";
@@ -535,7 +536,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
           if (!token) {
             buildOAuthUrl({ returnTo: "/" })
               .then((url) => {
-                console.log("Deriv OAuth URL:", url);
+                console.log("Deriv OAuth URL:", sanitizeDerivOAuthUrl(url));
                 redirectToDerivOAuth(url);
               })
               .catch((error) => {

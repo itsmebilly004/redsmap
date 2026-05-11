@@ -15,7 +15,7 @@ const PROPOSAL_ALLOWED_KEYS = new Set([
   "basis",
   "contract_type",
   "currency",
-  "symbol",
+  "underlying_symbol",
   "duration",
   "duration_unit",
   "barrier",
@@ -32,9 +32,9 @@ export type TradeRequestContext = {
 };
 
 function assertNoRejectedProposalProperties(payload: DerivRecord, adapter?: TradingAdapter) {
-  if ("underlying_symbol" in payload) {
+  if ("symbol" in payload) {
     throw new Error(
-      `Invalid ${adapter ?? "Deriv"} proposal payload: use symbol, not underlying_symbol.`,
+      `Invalid ${adapter ?? "Deriv"} proposal payload: use underlying_symbol, not symbol.`,
     );
   }
   if (payload.proposal === 1) {

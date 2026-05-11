@@ -85,6 +85,7 @@ function DashboardLayout() {
     };
   }, [
     user,
+    account,
     account?.account_id,
     account?.deriv_token,
     account?.expires_at,

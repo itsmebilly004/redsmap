@@ -1,12 +1,15 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { TopShell, PageHero } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/copy-trading")({
   head: () => ({
     meta: [
-      { title: "Copy Trading — ArkTrader Hub" },
-      { name: "description", content: "Mirror top Deriv traders automatically." },
+      { title: "Copy Trading - ArkTrader Hub" },
+      {
+        name: "description",
+        content: "Copy-trading discovery for ArkTrader Hub. Live mirroring is not enabled yet.",
+      },
     ],
   }),
   component: CopyTrading,
@@ -23,7 +26,7 @@ function CopyTrading() {
     <TopShell>
       <PageHero
         title="Copy Trading"
-        subtitle="Follow top traders and automatically mirror their trades on your Deriv account."
+        subtitle="Copy-trading discovery is under development. Manual trader and trading bots are the live Deriv execution paths today."
       >
         <div className="grid gap-4 md:grid-cols-3">
           {TRADERS.map((t) => (
@@ -41,13 +44,12 @@ function CopyTrading() {
               <div className="mt-3 text-2xl font-bold text-[oklch(0.55_0.18_150)]">{t.roi}</div>
               <div className="text-xs text-[oklch(0.5_0.02_260)]">12-month ROI</div>
               <Button
-                asChild
                 size="sm"
-                className="mt-4 w-full bg-[oklch(0.55_0.22_265)] text-white"
+                disabled
+                title="Copy trading is not live yet"
+                className="mt-4 w-full bg-[oklch(0.55_0.22_265)] text-white disabled:opacity-60"
               >
-                <Link to="/auth" search={{ mode: "signup" }}>
-                  Copy
-                </Link>
+                Coming soon
               </Button>
             </div>
           ))}

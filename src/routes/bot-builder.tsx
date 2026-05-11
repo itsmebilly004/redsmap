@@ -199,6 +199,7 @@ function BotBuilder() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastSnapshotRef = useRef<string>("");
   const applyingHistoryRef = useRef(false);
+  const saveBotNowRef = useRef<(showToast?: boolean) => Promise<void>>(async () => {});
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "idle">("saved");
   const [panelTab, setPanelTab] = useState("summary");
   const [undoStack, setUndoStack] = useState<string[]>([]);
@@ -324,6 +325,7 @@ function BotBuilder() {
     });
   }, [
     derivAccount?.account_id,
+    derivAccount,
     derivAccount?.deriv_token,
     derivAccount?.expires_at,
     derivAccount?.normalizedType,
@@ -374,7 +376,7 @@ function BotBuilder() {
     if (!user) return;
     const timeoutId = setTimeout(async () => {
       setSaveStatus("saving");
-      await saveBotNow(false);
+      await saveBotNowRef.current(false);
     }, 900);
     return () => clearTimeout(timeoutId);
   }, [
@@ -510,6 +512,8 @@ function BotBuilder() {
     setSaveStatus("saved");
     if (showToast) toast.success("Bot saved");
   }
+
+  saveBotNowRef.current = saveBotNow;
 
   function exportBot() {
     const payload = {

@@ -22,8 +22,6 @@ const search = z.object({
   debug_oauth: z.union([z.literal("1"), z.literal(1)]).optional(),
 });
 
-const DERIV_RAPID_APPROVAL_MESSAGE = "Please wait one minute and try again.";
-
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
   validateSearch: search,
@@ -53,19 +51,6 @@ function AuthPage() {
         expectedCallback: sessionStorage.getItem("deriv_oauth_expected_callback"),
       });
       if (!attemptedAt) return;
-      const rapidApprovalUrl =
-        getUnsupportedApprovalUrl(window.location.href) ??
-        getUnsupportedApprovalUrl(document.referrer);
-      if (rapidApprovalUrl) {
-        setOauthFailure(null);
-        setErrorMessage(DERIV_RAPID_APPROVAL_MESSAGE);
-        console.warn("[Deriv OAuth] Deriv reported rapid repeated approval", {
-          url: rapidApprovalUrl,
-          attemptedAt,
-          trace: readDerivOAuthTrace(),
-        });
-        return;
-      }
       const failure =
         getDerivOAuthRedirectFailure(window.location.href) ??
         getDerivOAuthRedirectFailure(document.referrer);
@@ -149,7 +134,9 @@ function AuthPage() {
   function continueToDeriv() {
     if (!debugUrl) return;
     try {
-      console.info("[Deriv OAuth Debug] Redirecting to exact URL", debugUrl);
+      console.info("[Deriv OAuth Debug] Redirecting to exact URL", {
+        sanitizedOAuthUrl: sanitizeDerivOAuthUrl(debugUrl),
+      });
       recordDerivOAuthTrace("oauth-debug-continue-clicked", {
         sanitizedOAuthUrl: sanitizeDerivOAuthUrl(debugUrl),
         diagnostics: oauthDiagnostics
@@ -461,18 +448,6 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
       ok: !diagnostics.hasDoubleEncodedRedirectUri,
     },
     {
-      label: "unsupported OAuth host",
-      actual: diagnostics.hasOAuthDerivHost ? "oauth.deriv.com present" : "absent",
-      expected: "absent",
-      ok: !diagnostics.hasOAuthDerivHost,
-    },
-    {
-      label: "unsupported authorize path",
-      actual: diagnostics.hasUnsupportedAuthorizeEndpoint ? "/oauth2/authorize present" : "absent",
-      expected: "absent",
-      ok: !diagnostics.hasUnsupportedAuthorizeEndpoint,
-    },
-    {
       label: "app.deriv.com dashboard",
       actual: diagnostics.hasAppDerivDashboardRedirect ? "app.deriv.com present" : "absent",
       expected: "absent",
@@ -499,17 +474,4 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
       ok: !diagnostics.hasBrandDeriv,
     },
   ];
-}
-
-function getUnsupportedApprovalUrl(url: string | null | undefined) {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    if (parsed.origin === "https://oauth.deriv.com" && parsed.pathname === "/oauth2/authorize") {
-      return url;
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }

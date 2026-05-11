@@ -25,12 +25,7 @@ const DERIV_OAUTH_PKCE_BACKUP_KEY = "deriv_oauth_pkce_backups";
 const DERIV_OAUTH_PKCE_BACKUP_LIMIT = 5;
 const DERIV_OAUTH_PKCE_BACKUP_TTL_MS = 15 * 60 * 1000;
 const PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public";
-const FORBIDDEN_OAUTH_ROUTE_MARKERS = [
-  "oauth.deriv.com",
-  "/oauth2/authorize",
-  "redirect=home",
-  "brand=deriv",
-];
+const FORBIDDEN_OAUTH_ROUTE_MARKERS = ["redirect=home", "brand=deriv"];
 export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
   "Deriv redirected to dashboard instead of authorization. This account may not support the new OAuth app flow or the OAuth app configuration must be checked.";
 const DERIV_FORBIDDEN_OAUTH_ROUTE_MESSAGE =
@@ -79,8 +74,6 @@ export type DerivOAuthDiagnostics = {
   hasAppDerivDashboardRedirect: boolean;
   hasBrandDeriv: boolean;
   hasHomeDashboardLoginRedirect: boolean;
-  hasUnsupportedAuthorizeEndpoint: boolean;
-  hasOAuthDerivHost: boolean;
   hasRedirectHome: boolean;
   redirectUriMatchesRegisteredUrl: boolean;
   requiredParamsPresent: Record<string, boolean>;
@@ -1866,9 +1859,9 @@ export async function forgetSubscription(subscriptionId: string) {
 
 export async function send(payload: DerivRecord): Promise<DerivMessage> {
   if (!isBrowser) return {};
-  if (payload.proposal === 1 && "underlying_symbol" in payload) {
+  if (payload.proposal === 1 && "symbol" in payload) {
     throw createDerivSocketError(
-      "Invalid Deriv proposal payload: use symbol, not underlying_symbol.",
+      "Invalid Deriv proposal payload: use underlying_symbol, not symbol.",
       "DERIV_PAYLOAD_INVALID",
       undefined,
       false,
@@ -2238,16 +2231,12 @@ function forbiddenOAuthMarkers(url: string) {
   const parsed = safeParseUrl(url);
   const lower = url.toLowerCase();
   const markers: string[] = [];
-  if (parsed?.origin === "https://oauth.deriv.com") markers.push("oauth.deriv.com");
   if (parsed?.origin === "https://app.deriv.com") markers.push("app.deriv.com");
   if (
     parsed?.origin === "https://home.deriv.com" &&
     parsed.pathname.startsWith("/dashboard/login")
   ) {
     markers.push("home.deriv.com/dashboard/login");
-  }
-  if (parsed?.pathname === "/oauth2/authorize" || lower.includes("/oauth2/authorize")) {
-    markers.push("/oauth2/authorize");
   }
   if (parsed?.searchParams.get("redirect") === "home" || lower.includes("redirect=home")) {
     markers.push("redirect=home");
@@ -2349,8 +2338,6 @@ export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
     hasBrandDeriv: parsed.searchParams.get("brand") === "deriv",
     hasHomeDashboardLoginRedirect:
       parsed.origin === "https://home.deriv.com" && parsed.pathname.startsWith("/dashboard/login"),
-    hasUnsupportedAuthorizeEndpoint: parsed.pathname === "/oauth2/authorize",
-    hasOAuthDerivHost: parsed.origin === "https://oauth.deriv.com",
     hasRedirectHome: parsed.searchParams.get("redirect") === "home",
     redirectUriMatchesRegisteredUrl: decodedRedirectUri === DERIV_REDIRECT_URI,
     requiredParamsPresent,
@@ -2366,7 +2353,10 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
 
   const marker = forbiddenOAuthRouteMarker(url);
   if (marker) {
-    console.error("Blocked unsupported Deriv OAuth URL", { marker, url });
+    console.error("Blocked unsupported Deriv OAuth URL", {
+      marker,
+      sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
+    });
     throw new Error(DERIV_FORBIDDEN_OAUTH_ROUTE_MESSAGE);
   }
 
@@ -2383,7 +2373,7 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
   if (parsed.searchParams.has("redirect") || parsed.searchParams.has("brand")) {
     console.error("Blocked unsupported Deriv OAuth URL", {
       marker: parsed.searchParams.has("redirect") ? "redirect" : "brand",
-      url,
+      sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
     });
     throw new Error("Blocked unsupported Deriv OAuth URL");
   }

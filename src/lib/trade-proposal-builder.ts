@@ -7,7 +7,7 @@ export type StandardProposalPayload = Record<string, unknown> & {
   basis: "stake" | "payout";
   contract_type: string;
   currency: string;
-  symbol: string;
+  underlying_symbol: string;
   duration?: number;
   duration_unit?: "t" | "s" | "m";
   barrier?: string;
@@ -40,7 +40,7 @@ const STANDARD_PROPOSAL_KEYS = new Set([
   "basis",
   "contract_type",
   "currency",
-  "symbol",
+  "underlying_symbol",
   "duration",
   "duration_unit",
   "barrier",
@@ -59,8 +59,8 @@ export function validateProposalPayload(
   payload: Record<string, unknown>,
   adapter: TradingAdapter,
 ): asserts payload is StandardProposalPayload {
-  if ("underlying_symbol" in payload) {
-    throw new Error(`Invalid ${adapter} proposal payload: use symbol, not underlying_symbol.`);
+  if ("symbol" in payload) {
+    throw new Error(`Invalid ${adapter} proposal payload: use underlying_symbol, not symbol.`);
   }
   for (const key of Object.keys(payload)) {
     if (!STANDARD_PROPOSAL_KEYS.has(key)) {
@@ -70,8 +70,8 @@ export function validateProposalPayload(
   if (payload.proposal !== 1) {
     throw new Error(`Invalid ${adapter} proposal payload: proposal must be 1.`);
   }
-  if (!payload.symbol || typeof payload.symbol !== "string") {
-    throw new Error(`Invalid ${adapter} proposal payload: symbol is required.`);
+  if (!payload.underlying_symbol || typeof payload.underlying_symbol !== "string") {
+    throw new Error(`Invalid ${adapter} proposal payload: underlying_symbol is required.`);
   }
   if (!payload.contract_type || typeof payload.contract_type !== "string") {
     throw new Error(`Invalid ${adapter} proposal payload: contract_type is required.`);
@@ -102,7 +102,7 @@ function buildDerivWsProposalPayload(
     basis: input.payoutMode,
     contract_type: contractTypeFor(input.tradeType, input.side),
     currency: input.currency,
-    symbol: input.market,
+    underlying_symbol: input.market,
   };
 
   if (config.needsDuration) {

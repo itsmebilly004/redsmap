@@ -13,7 +13,7 @@ export type AccumulatorProposalPayload = {
   basis: "stake";
   contract_type: string;
   currency: string;
-  symbol: string;
+  underlying_symbol: string;
   growth_rate: number;
   limit_order?: { take_profit: number };
 };
@@ -66,7 +66,7 @@ const ACCUMULATOR_PROPOSAL_KEYS = new Set([
   "basis",
   "contract_type",
   "currency",
-  "symbol",
+  "underlying_symbol",
   "growth_rate",
   "limit_order",
 ]);
@@ -90,8 +90,8 @@ export function validateAccumulatorProposalPayload(
   payload: Record<string, unknown>,
   adapter: TradingAdapter,
 ): asserts payload is AccumulatorProposalPayload {
-  if ("underlying_symbol" in payload) {
-    throw new Error(`Invalid ${adapter} accumulator payload: use symbol, not underlying_symbol.`);
+  if ("symbol" in payload) {
+    throw new Error(`Invalid ${adapter} accumulator payload: use underlying_symbol, not symbol.`);
   }
   for (const key of Object.keys(payload)) {
     if (!ACCUMULATOR_PROPOSAL_KEYS.has(key)) {
@@ -101,8 +101,8 @@ export function validateAccumulatorProposalPayload(
   if (payload.proposal !== 1) {
     throw new Error(`Invalid ${adapter} accumulator payload: proposal must be 1.`);
   }
-  if (!payload.symbol || typeof payload.symbol !== "string") {
-    throw new Error(`Invalid ${adapter} accumulator payload: symbol is required.`);
+  if (!payload.underlying_symbol || typeof payload.underlying_symbol !== "string") {
+    throw new Error(`Invalid ${adapter} accumulator payload: underlying_symbol is required.`);
   }
   if (payload.contract_type !== "ACCU") {
     throw new Error(`Invalid ${adapter} accumulator payload: contract_type must be ACCU.`);
@@ -126,7 +126,7 @@ function buildDerivWsAccumulatorProposalPayload(
     basis: "stake",
     contract_type: contractTypeFor("accumulator", "buy"),
     currency,
-    symbol: market,
+    underlying_symbol: market,
     growth_rate: growthRate,
   };
   if (takeProfit && takeProfit > 0) {

@@ -33,6 +33,7 @@ import {
   isDerivTradingAuthorizationFailure,
   onStatus,
   redirectToDerivOAuth,
+  sanitizeDerivOAuthUrl,
   tradingAuthorizationIsFresh,
   type ConnectionStatus,
   type TradeCategory,
@@ -202,6 +203,7 @@ export function TradePanel({
         setTradingConnectionStatus(nextStatus);
       }),
     [
+      account,
       account?.account_id,
       account?.token_source,
       account?.trading_authorized,
@@ -311,6 +313,7 @@ export function TradePanel({
       cancelled = true;
     };
   }, [
+    account,
     account?.account_id,
     account?.deriv_token,
     account?.expires_at,
@@ -543,7 +546,7 @@ export function TradePanel({
     if (!token) {
       try {
         const url = await buildOAuthUrl({ returnTo: "/" });
-        console.log("Deriv OAuth URL:", url);
+        console.log("Deriv OAuth URL:", sanitizeDerivOAuthUrl(url));
         redirectToDerivOAuth(url);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not start Deriv OAuth.";

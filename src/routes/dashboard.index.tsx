@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import {
   buildOAuthUrl,
   redirectToDerivOAuth,
+  sanitizeDerivOAuthUrl,
   subscribeTicks,
   SYNTHETIC_MARKETS,
 } from "@/lib/deriv";
@@ -109,7 +110,7 @@ function DashboardHome() {
   const connectDeriv = async () => {
     try {
       const url = await buildOAuthUrl({ returnTo: "/dashboard" });
-      console.log("Deriv OAuth URL:", url);
+      console.log("Deriv OAuth URL:", sanitizeDerivOAuthUrl(url));
       redirectToDerivOAuth(url);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not start Deriv OAuth.";
