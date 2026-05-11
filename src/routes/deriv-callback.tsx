@@ -6,6 +6,9 @@ import {
   DERIV_CLIENT_ID_VALUE,
   DERIV_REDIRECT_URI_VALUE,
   adapterForTokenSource,
+  clearDerivOAuthPkceBackup,
+  getDerivOAuthPkceBackupSummary,
+  readDerivOAuthPkceBackup,
   readDerivOAuthTrace,
   recordDerivOAuthTrace,
   tradingWebSocketMode,
@@ -112,10 +115,11 @@ function navigationSummary() {
   };
 }
 
-function callbackStorageSummary() {
+function callbackStorageSummary(state?: string | null) {
   return {
     stateExists: Boolean(sessionStorage.getItem("deriv_oauth_state")),
     codeVerifierExists: Boolean(sessionStorage.getItem("deriv_code_verifier")),
+    pkceBackup: getDerivOAuthPkceBackupSummary(state),
     startedAt: sessionStorage.getItem("deriv_oauth_started_at"),
     redirecting: sessionStorage.getItem(OAUTH_REDIRECTING_KEY),
     expectedCallback: sessionStorage.getItem("deriv_oauth_expected_callback"),
@@ -270,7 +274,7 @@ function DerivCallback() {
       hasError: Boolean(error),
       referrer: document.referrer || null,
       navigation: navigationSummary(),
-      storage: callbackStorageSummary(),
+      storage: callbackStorageSummary(state),
     });
     markStage("callback URL received", {
       origin: window.location.origin,
@@ -279,7 +283,7 @@ function DerivCallback() {
       hashKeys: Array.from(hashParams.keys()),
       referrer: document.referrer || null,
       navigation: navigationSummary(),
-      storage: callbackStorageSummary(),
+      storage: callbackStorageSummary(state),
     });
     markStage("has code", {
       hasCode: Boolean(code),
@@ -326,7 +330,7 @@ function DerivCallback() {
           errorDescription,
           redirect_uri: DERIV_REDIRECT_URI_VALUE,
           client_id: DERIV_CLIENT_ID_VALUE,
-          storage: callbackStorageSummary(),
+          storage: callbackStorageSummary(state),
           trace: readDerivOAuthTrace(),
         });
         if (error) {
@@ -357,38 +361,52 @@ function DerivCallback() {
           if (!state) throw new Error("State mismatch");
 
           const expectedState = sessionStorage.getItem("deriv_oauth_state");
+          const pkceBackup = readDerivOAuthPkceBackup(state);
+          const stateMatchesSession = expectedState === state;
+          const stateMatchesBackup = pkceBackup?.state === state;
           markStage("state matches stored state", {
             returnedStateExists: Boolean(state),
             storedStateExists: Boolean(expectedState),
-            matches: expectedState === state,
+            pkceBackupExists: Boolean(pkceBackup),
+            matches: stateMatchesSession || stateMatchesBackup,
+            sessionStorageMatches: stateMatchesSession,
+            pkceBackupMatches: stateMatchesBackup,
             storageKey: "deriv_oauth_state",
             returnedStatePrefix: state ? `${state.slice(0, 8)}...` : null,
             storedStatePrefix: expectedState ? `${expectedState.slice(0, 8)}...` : null,
           });
-          if (!expectedState || expectedState !== state) {
+          if (!stateMatchesSession && !stateMatchesBackup) {
             recordDerivOAuthTrace("oauth-state-verification-failed", {
               returnedStateExists: Boolean(state),
               storedStateExists: Boolean(expectedState),
-              matches: expectedState === state,
-              storage: callbackStorageSummary(),
+              pkceBackupExists: Boolean(pkceBackup),
+              sessionStorageMatches: stateMatchesSession,
+              pkceBackupMatches: stateMatchesBackup,
+              storage: callbackStorageSummary(state),
             });
             throw new Error("State mismatch. Please restart the Deriv authorization flow.");
           }
 
-          const codeVerifier = sessionStorage.getItem("deriv_code_verifier");
+          const sessionCodeVerifier = sessionStorage.getItem("deriv_code_verifier");
+          const codeVerifier = sessionCodeVerifier ?? pkceBackup?.codeVerifier ?? "";
           markStage("code_verifier exists", {
             exists: Boolean(codeVerifier),
             length: codeVerifier?.length ?? 0,
             storageKey: "deriv_code_verifier",
+            source: sessionCodeVerifier
+              ? "sessionStorage"
+              : pkceBackup?.codeVerifier
+                ? "localStorage-pkce-backup"
+                : "missing",
           });
           if (!codeVerifier) {
             logCallbackFailure("missing code_verifier", {
               sessionStorageKeys: sessionStorageKeys(),
-              storage: callbackStorageSummary(),
+              storage: callbackStorageSummary(state),
               trace: readDerivOAuthTrace(),
             });
             recordDerivOAuthTrace("oauth-code-verifier-missing", {
-              storage: callbackStorageSummary(),
+              storage: callbackStorageSummary(state),
             });
             throw new Error("Expired login session. Please sign in with Deriv again.");
           }
@@ -440,6 +458,7 @@ function DerivCallback() {
           recordDerivOAuthTrace("oauth-token-exchange-succeeded", tokenLog);
           sessionStorage.removeItem("deriv_oauth_state");
           sessionStorage.removeItem("deriv_code_verifier");
+          clearDerivOAuthPkceBackup(state);
 
           accessToken = tokenData.access_token ?? "";
           expiresIn = Number(tokenData.expires_in ?? 0);
@@ -500,7 +519,7 @@ function DerivCallback() {
             hasState: Boolean(state),
             searchKeys: Array.from(params.keys()),
             hashKeys: Array.from(hashParams.keys()),
-            storage: callbackStorageSummary(),
+            storage: callbackStorageSummary(state),
           });
           throw new Error("Missing authorization code");
         }
@@ -799,13 +818,13 @@ function DerivCallback() {
           message,
           error: e,
           sessionStorageKeys: sessionStorageKeys(),
-          storage: callbackStorageSummary(),
+          storage: callbackStorageSummary(state),
           trace: readDerivOAuthTrace(),
         });
         recordDerivOAuthTrace("oauth-callback-failed", {
           stage: currentStage,
           message,
-          storage: callbackStorageSummary(),
+          storage: callbackStorageSummary(state),
         });
         callbackInFlight = false;
         sessionStorage.removeItem(CALLBACK_PROCESSING_KEY);

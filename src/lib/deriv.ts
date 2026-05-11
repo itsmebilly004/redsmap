@@ -21,6 +21,9 @@ const DERIV_SCOPE = DERIV_OAUTH_SCOPE;
 const DERIV_OAUTH_CANONICAL_ORIGIN = new URL(DERIV_REDIRECT_URI).origin;
 const DERIV_OAUTH_TRACE_KEY = "deriv_oauth_trace";
 const DERIV_OAUTH_TRACE_LIMIT = 40;
+const DERIV_OAUTH_PKCE_BACKUP_KEY = "deriv_oauth_pkce_backups";
+const DERIV_OAUTH_PKCE_BACKUP_LIMIT = 5;
+const DERIV_OAUTH_PKCE_BACKUP_TTL_MS = 15 * 60 * 1000;
 const PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public";
 const FORBIDDEN_OAUTH_ROUTE_MARKERS = [
   "oauth.deriv.com",
@@ -84,6 +87,16 @@ export type DerivOAuthRedirectFailure = {
   message: string;
   reason: "app-dashboard" | "home-dashboard";
   url: string;
+};
+export type DerivOAuthPkceBackup = {
+  state: string;
+  codeVerifier: string;
+  attemptId: string;
+  createdAt: string;
+  expiresAt: string;
+  redirectUri: string;
+  clientId: string;
+  authorizationUrl: string;
 };
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
@@ -1909,6 +1922,99 @@ export function readDerivOAuthTrace() {
   }
 }
 
+function readDerivOAuthPkceBackupsRaw(): DerivOAuthPkceBackup[] {
+  if (!isBrowser) return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DERIV_OAUTH_PKCE_BACKUP_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is DerivOAuthPkceBackup => {
+      return (
+        entry &&
+        typeof entry === "object" &&
+        typeof entry.state === "string" &&
+        typeof entry.codeVerifier === "string" &&
+        typeof entry.attemptId === "string" &&
+        typeof entry.createdAt === "string" &&
+        typeof entry.expiresAt === "string" &&
+        typeof entry.redirectUri === "string" &&
+        typeof entry.clientId === "string" &&
+        typeof entry.authorizationUrl === "string"
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+function writeDerivOAuthPkceBackups(backups: DerivOAuthPkceBackup[]) {
+  if (!isBrowser) return;
+  try {
+    localStorage.setItem(
+      DERIV_OAUTH_PKCE_BACKUP_KEY,
+      JSON.stringify(backups.slice(-DERIV_OAUTH_PKCE_BACKUP_LIMIT)),
+    );
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
+function pruneDerivOAuthPkceBackups(backups = readDerivOAuthPkceBackupsRaw()) {
+  const now = Date.now();
+  const fresh = backups.filter((backup) => {
+    const expiresAt = new Date(backup.expiresAt).getTime();
+    return Number.isFinite(expiresAt) && expiresAt > now;
+  });
+  if (fresh.length !== backups.length) writeDerivOAuthPkceBackups(fresh);
+  return fresh;
+}
+
+export function persistDerivOAuthPkceBackup(backup: DerivOAuthPkceBackup) {
+  if (!isBrowser) return;
+  const fresh = pruneDerivOAuthPkceBackups().filter((entry) => entry.state !== backup.state);
+  fresh.push(backup);
+  writeDerivOAuthPkceBackups(fresh);
+  recordDerivOAuthTrace("oauth-pkce-backup-saved", {
+    attemptId: backup.attemptId,
+    statePrefix: `${backup.state.slice(0, 8)}...`,
+    expiresAt: backup.expiresAt,
+    redirectUri: backup.redirectUri,
+    clientId: backup.clientId,
+    backupCount: fresh.length,
+  });
+}
+
+export function readDerivOAuthPkceBackup(state: string | null | undefined) {
+  if (!state) return null;
+  const fresh = pruneDerivOAuthPkceBackups();
+  return fresh.find((backup) => backup.state === state) ?? null;
+}
+
+export function clearDerivOAuthPkceBackup(state?: string | null) {
+  if (!isBrowser) return;
+  if (!state) {
+    writeDerivOAuthPkceBackups([]);
+    return;
+  }
+  const fresh = pruneDerivOAuthPkceBackups().filter((backup) => backup.state !== state);
+  writeDerivOAuthPkceBackups(fresh);
+}
+
+export function getDerivOAuthPkceBackupSummary(state?: string | null) {
+  const backups = pruneDerivOAuthPkceBackups();
+  return {
+    backupCount: backups.length,
+    matchingBackupExists: Boolean(state && backups.some((backup) => backup.state === state)),
+    states: backups.map((backup) => ({
+      statePrefix: `${backup.state.slice(0, 8)}...`,
+      attemptId: backup.attemptId,
+      createdAt: backup.createdAt,
+      expiresAt: backup.expiresAt,
+      redirectUri: backup.redirectUri,
+      clientId: backup.clientId,
+    })),
+  };
+}
+
 function forbiddenOAuthMarkers(url: string) {
   const parsed = safeParseUrl(url);
   const lower = url.toLowerCase();
@@ -2185,10 +2291,9 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
-  // The provider handles the login and consent screens. `prompt` is only
-  // documented for signup, where it must be `registration`.
-  const prompt = options.mode === "signup" ? "registration" : undefined;
-  if (prompt) params.set("prompt", prompt);
+  // Keep a single login/consent URL for every account type. Registration is
+  // handled by Deriv if the user chooses it on the provider side.
+  const prompt = undefined;
 
   const requiredParams = [
     "response_type",
@@ -2223,6 +2328,16 @@ export async function buildOAuthUrl(
       "Invalid Deriv OAuth URL. Authorization must use client_id only; app_id is not used.",
     );
   }
+  persistDerivOAuthPkceBackup({
+    state,
+    codeVerifier,
+    attemptId,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + DERIV_OAUTH_PKCE_BACKUP_TTL_MS).toISOString(),
+    redirectUri: DERIV_REDIRECT_URI,
+    clientId: DERIV_CLIENT_ID,
+    authorizationUrl: url,
+  });
   recordDerivOAuthTrace("oauth-url-generated", {
     attemptId,
     mode: options.mode ?? "signin",
