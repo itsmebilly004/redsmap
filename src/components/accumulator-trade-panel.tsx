@@ -345,10 +345,28 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
 
   return (
     <div className="space-y-3">
-      <div className="rounded-xl bg-white p-3">
-        <div className="mb-2 text-center text-sm font-medium text-[#555555]">Market</div>
+      <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+        <div className="mb-3 grid grid-cols-2 gap-2 rounded border border-[#eceeef] bg-[#fafbfc] p-2">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#7a838c]">
+              Account
+            </div>
+            <div className="truncate font-mono text-xs font-semibold text-[#1f2328]">
+              {accountLoginId || "-"}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#7a838c]">
+              Last price
+            </div>
+            <div className="truncate font-mono text-xs font-semibold text-[#1f2328]">
+              {numberLabel(lastPrice)}
+            </div>
+          </div>
+        </div>
+        <div className="mb-2 text-sm font-semibold text-[#1f2328]">Market</div>
         <Select value={market} onValueChange={onMarketChange}>
-          <SelectTrigger className="h-10 rounded-md border-[#d6d6d6] bg-white text-sm">
+          <SelectTrigger className="h-10 rounded border-[#d6d9dc] bg-white text-sm font-medium">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -361,39 +379,43 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         </Select>
       </div>
 
-      <div className="rounded-xl bg-white p-3">
-        <div className="mb-2 flex items-center justify-center gap-1 text-sm text-[#646464]">
-          Growth rate <Info className="h-3.5 w-3.5" />
+      <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+        <div className="mb-2 flex items-center justify-between gap-2 text-sm font-semibold text-[#1f2328]">
+          <span>Growth rate</span>
+          <span className="flex items-center gap-1 text-xs font-medium text-[#6f767d]">
+            <Info className="h-3.5 w-3.5" />
+            Risk scales with rate
+          </span>
         </div>
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-5 gap-1.5">
           {ACCUMULATOR_GROWTH_RATES.map((rate) => (
             <button
               key={rate}
               onClick={() => setGrowthRate(rate)}
               disabled={state.status === "active"}
               className={cn(
-                "rounded-md py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60",
+                "rounded border py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
                 growthRate === rate
-                  ? "bg-[#e5f7f6] text-[#147a78] ring-1 ring-[#4bb4b3]"
-                  : "text-[#333333] hover:bg-[#f2f3f4]",
+                  ? "border-[#ff444f] bg-[#fff1f2] text-[#cc2f39]"
+                  : "border-[#d6d9dc] bg-white text-[#1f2328] hover:bg-[#f6f7f8]",
               )}
             >
               {Math.round(rate * 100)}%
             </button>
           ))}
         </div>
-        <p className="mt-2 text-center text-[11px] text-[#777777]">
-          Higher growth tightens barriers and increases risk.
+        <p className="mt-2 text-[11px] text-[#6f767d]">
+          Higher growth rates increase payout speed and tighten barrier tolerance.
         </p>
       </div>
 
-      <div className="rounded-xl bg-white p-3">
-        <div className="text-center text-sm text-[#646464]">Stake</div>
-        <div className="mt-2 flex min-w-0 items-center gap-1.5 sm:gap-2">
+      <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-[#6f767d]">Stake</div>
+        <div className="mt-1.5 flex min-w-0 items-center gap-1.5 sm:gap-2">
           <button
             onClick={() => setStake((value) => Math.max(1, +(value - 1).toFixed(2)))}
             disabled={state.status === "active"}
-            className="shrink-0 rounded-md bg-[#f2f3f4] p-2 hover:bg-[#e6e9e9] disabled:opacity-60"
+            className="shrink-0 rounded border border-[#d6d9dc] bg-white p-2 text-[#495057] hover:bg-[#f6f7f8] disabled:opacity-60"
             aria-label="Decrease stake"
           >
             <Minus className="h-4 w-4" />
@@ -405,25 +427,25 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             value={stake}
             disabled={state.status === "active"}
             onChange={(event) => setStake(Number(event.target.value))}
-            className="min-w-0 text-center font-mono text-base"
+            className="h-10 min-w-0 rounded border-[#d6d9dc] text-center font-mono text-base font-semibold"
           />
           <button
             onClick={() => setStake((value) => +(value + 1).toFixed(2))}
             disabled={state.status === "active"}
-            className="shrink-0 rounded-md bg-[#f2f3f4] p-2 hover:bg-[#e6e9e9] disabled:opacity-60"
+            className="shrink-0 rounded border border-[#d6d9dc] bg-white p-2 text-[#495057] hover:bg-[#f6f7f8] disabled:opacity-60"
             aria-label="Increase stake"
           >
             <Plus className="h-4 w-4" />
           </button>
-          <span className="w-10 shrink-0 truncate text-center text-xs font-medium text-[#646464] sm:w-14">
+          <span className="w-10 shrink-0 truncate text-center text-xs font-semibold text-[#495057] sm:w-14">
             {tradeCurrency}
           </span>
         </div>
       </div>
 
-      <div className="rounded-xl bg-white p-3">
+      <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
         <label className="flex items-center justify-between text-sm">
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-2 font-semibold text-[#1f2328]">
             <input
               type="checkbox"
               checked={takeProfitEnabled}
@@ -431,8 +453,9 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
               onChange={(event) => setTakeProfitEnabled(event.target.checked)}
               className="size-4 rounded border-[#d6d6d6]"
             />
-            Take profit <Info className="h-3.5 w-3.5 text-[#777777]" />
+            Take profit
           </span>
+          <Info className="h-3.5 w-3.5 text-[#777777]" />
         </label>
         {takeProfitEnabled && (
           <Input
@@ -442,18 +465,18 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             value={takeProfit}
             disabled={state.status === "active"}
             onChange={(event) => setTakeProfit(Number(event.target.value))}
-            className="mt-2 text-center font-mono"
+            className="mt-2 h-10 rounded border-[#d6d9dc] text-center font-mono font-semibold"
             placeholder={`Amount (${tradeCurrency})`}
           />
         )}
       </div>
 
-      <div className="rounded-xl border border-[#d8edf7] bg-[#f7fcff] p-3 text-sm">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md bg-white px-3 py-2 text-xs">
+      <div className="rounded-md border border-[#d8edf7] bg-[#f7fcff] p-3 text-sm shadow-sm">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs">
           <span className="font-semibold text-[#147a78]">Accumulator status</span>
           <span
             className={cn(
-              "rounded-full px-2 py-0.5 font-bold uppercase",
+              "rounded-full px-2 py-0.5 font-semibold uppercase tracking-wide",
               state.status === "active" && "bg-[#e5f7f6] text-[#147a78]",
               state.status === "sold" && "bg-[#edf7ed] text-[#0b8f62]",
               state.status === "lost" && "bg-[#fff1f2] text-[#cc2f39]",
@@ -484,7 +507,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
 
         <div
           className={cn(
-            "mt-3 flex items-start gap-2 rounded-md border p-2 text-xs",
+            "mt-3 flex items-start gap-2 rounded border p-2 text-xs",
             state.barrierBreached
               ? "border-[#ffd1d4] bg-[#fff7f7] text-[#cc2f39]"
               : insideRange
@@ -526,8 +549,8 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         }}
         disabled={busy || (state.status === "active" && !canSell)}
         className={cn(
-          "h-12 w-full rounded-xl text-base font-semibold text-white",
-          state.status === "active" ? "bg-[#ff444f] hover:bg-[#eb3e48]" : "bg-[#4bb4b3] hover:bg-[#399998]",
+          "h-12 w-full rounded-md text-base font-semibold text-white",
+          state.status === "active" ? "bg-[#ff444f] hover:bg-[#eb3e48]" : "bg-[#13a883] hover:bg-[#119875]",
         )}
       >
         {busy

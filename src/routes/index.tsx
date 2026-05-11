@@ -1,26 +1,26 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { TopShell } from "@/components/top-shell";
-import { DerivChart } from "@/components/deriv-chart";
-import { TradePanel } from "@/components/trade-panel";
-import { SignalsPanel } from "@/components/signals-panel";
-import type { TradeCategory } from "@/lib/deriv";
-import { isDigitTrade } from "@/lib/trade-types";
 import {
-  Shield,
-  Sun,
-  HelpCircle,
-  Settings,
-  Globe,
   Bot,
   Crosshair,
+  Globe,
+  HelpCircle,
   Maximize2,
+  Settings,
+  Shield,
+  Sun,
 } from "lucide-react";
+import { DerivChart } from "@/components/deriv-chart";
+import { SignalsPanel } from "@/components/signals-panel";
+import { TopShell } from "@/components/top-shell";
+import { TradePanel } from "@/components/trade-panel";
+import type { TradeCategory } from "@/lib/deriv";
+import { isDigitTrade } from "@/lib/trade-types";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ArkTrader Hub — Real-time Deriv Trading Platform" },
+      { title: "ArkTrader Hub - Real-time Deriv Trading Platform" },
       {
         name: "description",
         content:
@@ -62,13 +62,12 @@ function Index() {
   return (
     <TopShell>
       <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100dvh-9.5rem)] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
-        {/* Chart section */}
         <section className="relative min-h-0 min-w-0 border-r border-[oklch(0.92_0.005_240)] bg-white p-2 sm:p-3">
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-semibold">Manual Trader</div>
               <div className="font-mono text-[11px] text-[oklch(0.55_0.02_260)]">
-                {price !== null ? price.toFixed(4) : "—"}
+                {price !== null ? price.toFixed(4) : "-"}
               </div>
             </div>
           </div>
@@ -92,7 +91,6 @@ function Index() {
           <SignalsPanel symbol={symbol} compact />
         </section>
 
-        {/* Trade panel */}
         <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 sm:p-3">
           <TradePanel
             market={symbol}
@@ -103,11 +101,10 @@ function Index() {
           />
         </aside>
       </div>
-      
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[oklch(0.92_0.005_240)] bg-white px-4 py-3">
         <span className="rounded-md bg-[oklch(0.92_0.13_95)] px-4 py-1.5 text-sm font-semibold text-[oklch(0.3_0.1_80)]">
-          Risk Disclaimer — Trading involves significant risk of loss.
+          Risk Disclaimer - Trading involves significant risk of loss.
         </span>
         <div className="flex items-center gap-3 font-mono text-xs text-[oklch(0.45_0.02_260)]">
           <Shield className="size-4" />

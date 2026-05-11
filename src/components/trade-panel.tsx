@@ -97,20 +97,18 @@ function TradingConnectionBadge({
   error: string | null;
   status: ConnectionStatus;
 }) {
-  const connected = status === "connected";
+  const statusMeta =
+    status === "connected"
+      ? { chip: "bg-[#e7f8f2] text-[#0b8f62]", label: "READY" }
+      : status === "connecting" || status === "reconnecting"
+        ? { chip: "bg-[#fff8e7] text-[#9a6700]", label: "CONNECTING" }
+        : { chip: "bg-[#fff1f2] text-[#cc2f39]", label: "DISCONNECTED" };
   return (
-    <div className="rounded-lg border border-[#e6e6e6] bg-white px-3 py-2 text-xs shadow-sm">
+    <div className="rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <span className="font-semibold text-[#555555]">Trading connection</span>
-        <span
-          className={[
-            "rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wider",
-            connected
-              ? "bg-[#e5f7f6] text-[#147a78]"
-              : "bg-[#fff7f7] text-[#cc2f39]",
-          ].join(" ")}
-        >
-          {status}
+        <span className="font-semibold text-[#495057]">Trading connection</span>
+        <span className={["rounded px-2 py-1 text-[10px] font-semibold tracking-wide", statusMeta.chip].join(" ")}>
+          {statusMeta.label}
         </span>
       </div>
       {error && <div className="mt-1 text-[#cc2f39]">{error}</div>}
@@ -738,10 +736,28 @@ export function TradePanel({
         onPrevious={() => nextTradeType(-1)}
       />
 
-      <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
-        <div className="mb-2 text-center text-sm font-medium text-[#555555]">Market</div>
+      <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+        <div className="mb-3 grid grid-cols-2 gap-2 rounded border border-[#eceeef] bg-[#fafbfc] p-2">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#7a838c]">
+              Account
+            </div>
+            <div className="truncate font-mono text-xs font-semibold text-[#1f2328]">
+              {accountLoginId || "-"}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#7a838c]">
+              Last price
+            </div>
+            <div className="truncate font-mono text-xs font-semibold text-[#1f2328]">
+              {lastPrice?.toFixed(4) ?? "-"}
+            </div>
+          </div>
+        </div>
+        <div className="mb-2 text-sm font-semibold text-[#1f2328]">Market</div>
         <Select value={market} onValueChange={onMarketChange}>
-          <SelectTrigger className="h-10 rounded-md border-[#d6d6d6] bg-white text-sm">
+          <SelectTrigger className="h-10 rounded border-[#d6d9dc] bg-white text-sm font-medium">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -774,25 +790,25 @@ export function TradePanel({
       )}
 
       {config.needsBarrier && (
-        <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
-          <div className="mb-2 text-sm font-bold text-[#333333]">Barrier</div>
+        <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+          <div className="mb-2 text-sm font-semibold text-[#1f2328]">Barrier offset</div>
           <Input
             value={barrier}
             onChange={(event) => setBarrier(event.target.value)}
-            className="h-10 rounded-md border-[#d6d6d6] text-center font-mono"
+            className="h-10 rounded border-[#d6d9dc] text-center font-mono font-semibold"
             placeholder="+0.10"
           />
-          <div className="mt-2 text-xs text-[#777777]">
+          <div className="mt-2 text-xs text-[#6f767d]">
             Distance from barrier: {distanceFromBarrierLabel(lastPrice, barrier)}
           </div>
         </div>
       )}
 
       {config.supportsMultiplier && (
-        <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
-          <div className="mb-2 text-sm font-bold text-[#333333]">Multiplier</div>
+        <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+          <div className="mb-2 text-sm font-semibold text-[#1f2328]">Multiplier</div>
           <Select value={String(multiplier)} onValueChange={(value) => setMultiplier(Number(value))}>
-            <SelectTrigger className="h-10 rounded-md border-[#d6d6d6]">
+            <SelectTrigger className="h-10 rounded border-[#d6d9dc] font-semibold">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -809,7 +825,7 @@ export function TradePanel({
               min={0}
               value={takeProfit}
               onChange={(event) => setTakeProfit(Number(event.target.value))}
-              className="h-9 text-center font-mono"
+              className="h-9 rounded border-[#d6d9dc] text-center font-mono"
               placeholder="Take profit"
             />
             <Input
@@ -817,7 +833,7 @@ export function TradePanel({
               min={0}
               value={stopLoss}
               onChange={(event) => setStopLoss(Number(event.target.value))}
-              className="h-9 text-center font-mono"
+              className="h-9 rounded border-[#d6d9dc] text-center font-mono"
               placeholder="Stop loss"
             />
           </div>
@@ -858,7 +874,7 @@ export function TradePanel({
         <Button
           onClick={() => void handleSell()}
           disabled={busy || !activeContract.isValidToSell}
-          className="h-11 w-full rounded-lg bg-[#ff444f] text-sm font-bold text-white hover:bg-[#eb3e48]"
+          className="h-11 w-full rounded-md bg-[#ff444f] text-sm font-semibold text-white hover:bg-[#eb3e48]"
         >
           <X className="mr-2 size-4" />
           {activeContract.isValidToSell
@@ -868,12 +884,12 @@ export function TradePanel({
       )}
 
       {(errorMessage || activeContract.error || activeQuote?.error) && (
-        <div className="rounded-lg border border-[#ffd1d4] bg-[#fff7f7] p-3 text-xs font-medium text-[#cc2f39]">
+        <div className="rounded-md border border-[#ffd1d4] bg-[#fff7f7] p-3 text-xs font-medium text-[#cc2f39]">
           {errorMessage || activeContract.error || activeQuote?.error}
         </div>
       )}
 
-      <p className="text-[11px] text-[#777777]">
+      <p className="text-[11px] text-[#6f767d]">
         Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "-"}</span>. You can lose
         money rapidly.
       </p>

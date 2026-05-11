@@ -1,5 +1,6 @@
+import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Minus, Plus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
@@ -15,33 +16,28 @@ export function TradeTypeCard({
   onPrevious: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          onClick={onPrevious}
-          className="flex size-8 items-center justify-center rounded-md text-[#646464] hover:bg-[#f2f3f4]"
-          aria-label="Previous trade type"
-        >
-          ‹
-        </button>
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#f2f3f4] text-sm font-black text-[#ff444f]">
+    <section className="rounded-md border border-[#d6d9dc] bg-white shadow-sm">
+      <div className="border-b border-[#eceded] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#6f767d]">
+        Contract type
+      </div>
+      <div className="flex items-center gap-2 px-2 py-2">
+        <NavButton label="Previous trade type" onClick={onPrevious}>
+          <ChevronLeft className="size-4" />
+        </NavButton>
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md border border-[#eceded] bg-[#fafafa] px-2 py-2">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-[11px] font-black text-[#ff444f] ring-1 ring-[#e5e5e5]">
             {config.icon}
           </span>
           <div className="min-w-0 text-center">
-            <div className="truncate text-sm font-bold text-[#333333]">{config.label}</div>
-            <div className="truncate text-[11px] text-[#777777]">{config.description}</div>
+            <div className="truncate text-sm font-semibold text-[#1f2328]">{config.label}</div>
+            <p className="truncate text-[11px] text-[#6f767d]">{config.description}</p>
           </div>
         </div>
-        <button
-          onClick={onNext}
-          className="flex size-8 items-center justify-center rounded-md text-[#646464] hover:bg-[#f2f3f4]"
-          aria-label="Next trade type"
-        >
-          ›
-        </button>
+        <NavButton label="Next trade type" onClick={onNext}>
+          <ChevronRight className="size-4" />
+        </NavButton>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -59,9 +55,12 @@ export function TickDurationSelector({
   showUnits: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
-      <div className="text-center text-sm font-medium text-[#646464]">
-        {durationUnit === "t" ? "Ticks" : durationUnit === "s" ? "Seconds" : "Minutes"}
+    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-[#1f2328]">Duration</div>
+        <div className="rounded-full bg-[#f2f4f5] px-2 py-0.5 text-xs font-semibold text-[#495057]">
+          {durationUnit === "t" ? "Ticks" : durationUnit === "s" ? "Seconds" : "Minutes"}
+        </div>
       </div>
       <Slider
         className="mt-3"
@@ -71,28 +70,29 @@ export function TickDurationSelector({
         value={[duration]}
         onValueChange={(value) => onDurationChange(value[0])}
       />
-      <div className="mt-2 text-center text-sm font-bold text-[#333333]">
-        {duration} {durationUnit === "t" ? `Tick${duration > 1 ? "s" : ""}` : durationUnit}
+      <div className="mt-2 text-center font-mono text-sm font-semibold text-[#1f2328]">
+        {duration} {durationUnit === "t" ? `Tick${duration === 1 ? "" : "s"}` : durationUnit}
       </div>
       {showUnits && (
-        <div className="mt-2 flex justify-center gap-1">
+        <div className="mt-2 grid grid-cols-3 gap-1">
           {(["t", "s", "m"] as const).map((unit) => (
             <button
               key={unit}
+              type="button"
               onClick={() => onUnitChange(unit)}
               className={cn(
-                "rounded px-2 py-0.5 text-[11px] font-medium",
+                "rounded border px-2 py-1 text-xs font-semibold transition",
                 durationUnit === unit
-                  ? "bg-[#ff444f] text-white"
-                  : "bg-[#f2f3f4] text-[#646464] hover:bg-[#e6e9e9]",
+                  ? "border-[#ff444f] bg-[#fff1f2] text-[#cc2f39]"
+                  : "border-[#e1e4e8] bg-white text-[#495057] hover:bg-[#f6f7f8]",
               )}
             >
-              {unit === "t" ? "ticks" : unit === "s" ? "sec" : "min"}
+              {unit === "t" ? "Ticks" : unit === "s" ? "Sec" : "Min"}
             </button>
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -108,36 +108,33 @@ export function DigitSelector({
   onDigitChange: (digit: number) => void;
 }) {
   return (
-    <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
-      <div className="mb-2 flex items-center justify-between">
-        <div>
-          <div className="text-sm font-bold text-[#333333]">
-            {mode === "barrier" ? "Last digit barrier" : "Last digit prediction"}
-          </div>
-          <div className="text-[11px] text-[#777777]">Current digit: {currentDigit ?? "-"}</div>
+    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-[#1f2328]">
+          {mode === "barrier" ? "Last digit barrier" : "Last digit prediction"}
         </div>
-        <span className="rounded-md bg-[#ff444f] px-2.5 py-1 text-xs font-bold text-white">
+        <span className="rounded border border-[#ffd4d8] bg-[#fff1f2] px-2 py-0.5 text-xs font-bold text-[#cc2f39]">
           {currentDigit ?? "-"}
         </span>
       </div>
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-5 gap-1.5">
         {Array.from({ length: 10 }, (_, digit) => (
           <button
             key={digit}
             type="button"
             onClick={() => onDigitChange(digit)}
             className={cn(
-              "h-10 rounded-md border text-sm font-bold transition",
+              "h-9 rounded border text-sm font-semibold transition",
               selectedDigit === digit
-                ? "border-[#333333] bg-[#333333] text-white"
-                : "border-[#d6d6d6] bg-[#f7f7f7] text-[#333333] hover:border-[#999999]",
+                ? "border-[#ff444f] bg-[#ff444f] text-white"
+                : "border-[#d6d9dc] bg-white text-[#1f2328] hover:bg-[#f6f7f8]",
             )}
           >
             {digit}
           </button>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -155,38 +152,51 @@ export function StakePayoutToggle({
   stake: number;
 }) {
   return (
-    <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 shadow-sm">
-      <div className="mb-3 grid grid-cols-2 rounded-md bg-[#f2f3f4] p-1">
+    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+      <div className="grid grid-cols-2 rounded-md border border-[#d6d9dc] bg-[#f8f9fa] p-1">
         {(["stake", "payout"] as const).map((item) => (
           <button
             key={item}
+            type="button"
             onClick={() => onModeChange(item)}
             className={cn(
-              "rounded py-1.5 text-sm font-bold capitalize transition",
-              mode === item ? "bg-white text-[#333333] shadow-sm" : "text-[#646464]",
+              "rounded px-2 py-1.5 text-sm font-semibold capitalize transition",
+              mode === item
+                ? "bg-white text-[#1f2328] shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
+                : "text-[#6f767d] hover:text-[#343a40]",
             )}
           >
             {item}
           </button>
         ))}
       </div>
-      <div className="text-center text-sm text-[#646464]">{mode === "stake" ? "Stake" : "Payout"}</div>
-      <div className="mt-2 flex min-w-0 items-center gap-1.5">
-        <StepperButton icon={Minus} label="Decrease" onClick={() => onStakeChange(Math.max(0.35, +(stake - 1).toFixed(2)))} />
+      <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-[#6f767d]">
+        {mode === "stake" ? "Stake amount" : "Payout target"}
+      </div>
+      <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+        <StepperButton
+          icon={Minus}
+          label="Decrease amount"
+          onClick={() => onStakeChange(Math.max(0.35, +(stake - 1).toFixed(2)))}
+        />
         <Input
           type="number"
           min={0.35}
           step={1}
           value={stake}
           onChange={(event) => onStakeChange(Number(event.target.value))}
-          className="min-w-0 text-center font-mono text-base"
+          className="h-10 min-w-0 rounded border-[#d6d9dc] text-center font-mono text-base font-semibold"
         />
-        <StepperButton icon={Plus} label="Increase" onClick={() => onStakeChange(+(stake + 1).toFixed(2))} />
-        <span className="w-12 shrink-0 truncate text-center text-xs font-bold text-[#646464]">
+        <StepperButton
+          icon={Plus}
+          label="Increase amount"
+          onClick={() => onStakeChange(+(stake + 1).toFixed(2))}
+        />
+        <span className="w-12 shrink-0 truncate text-center text-xs font-semibold text-[#495057]">
           {currency}
         </span>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -207,24 +217,38 @@ export function ProposalButton({
   pct?: string;
   tone: "up" | "down";
 }) {
+  const toneStyles =
+    tone === "up"
+      ? {
+          body: "bg-[#13a883] hover:bg-[#119875]",
+          head: "bg-[#109070]",
+          Icon: ArrowUpRight,
+          accent: "text-[#d9fff4]",
+        }
+      : {
+          body: "bg-[#ff444f] hover:bg-[#e33c47]",
+          head: "bg-[#e33c47]",
+          Icon: ArrowDownRight,
+          accent: "text-[#ffe0e2]",
+        };
+  const ToneIcon = toneStyles.Icon;
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "w-full overflow-hidden rounded-lg text-left text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60",
-        tone === "up"
-          ? "bg-gradient-to-r from-[#1db6a6] to-[#0f8f80] hover:from-[#18a898] hover:to-[#0c8174]"
-          : "bg-gradient-to-r from-[#ff5f67] to-[#d93d47] hover:from-[#f4535c] hover:to-[#c9333d]",
+        "w-full overflow-hidden rounded-md text-left text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60",
+        toneStyles.body,
       )}
     >
-      <div className="flex items-center justify-between bg-black/5 px-3 py-1.5 text-xs">
-        <span>Payout {payout ?? "-"}</span>
-        <span className="font-mono">{pct ?? ""}</span>
+      <div className={cn("flex items-center justify-between px-3 py-1.5 text-xs", toneStyles.head)}>
+        <span className="font-medium">Payout {payout ?? "-"}</span>
+        <span className={cn("font-mono font-semibold", toneStyles.accent)}>{pct ?? ""}</span>
       </div>
-      <div className="flex items-center justify-between px-4 py-3">
-        <span className="text-base font-bold">{loading ? "Loading..." : label}</span>
-        <span className="text-lg font-black">{tone === "up" ? "↗" : "↘"}</span>
+      <div className="flex items-center justify-between px-3 py-2.5">
+        <span className="text-sm font-semibold">{loading ? "Loading quote..." : label}</span>
+        <ToneIcon className="size-5" />
       </div>
     </button>
   );
@@ -236,19 +260,21 @@ export function ProposalSummary({
   rows: Array<[string, string | number | null | undefined]>;
 }) {
   return (
-    <div className="rounded-lg border border-[#e6e6e6] bg-white p-3 text-sm shadow-sm">
-      <div className="mb-2 text-sm font-bold text-[#333333]">Active contract</div>
+    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+      <div className="mb-2 text-sm font-semibold text-[#1f2328]">Open contract</div>
       <div className="grid grid-cols-2 gap-2">
         {rows.map(([label, value]) => (
-          <div key={label} className="rounded-md bg-[#f7f7f7] p-2">
-            <div className="text-[10px] font-bold uppercase text-[#999999]">{label}</div>
-            <div className="mt-0.5 truncate font-mono text-xs font-bold text-[#333333]">
+          <div key={label} className="rounded border border-[#edf0f2] bg-[#fafbfc] px-2 py-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#7a838c]">
+              {label}
+            </div>
+            <div className="mt-0.5 truncate font-mono text-xs font-semibold text-[#1f2328]">
               {value ?? "-"}
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -265,10 +291,31 @@ function StepperButton({
     <button
       type="button"
       onClick={onClick}
-      className="shrink-0 rounded-md bg-[#f2f3f4] p-2 hover:bg-[#e6e9e9]"
+      className="shrink-0 rounded border border-[#d6d9dc] bg-white p-2 text-[#495057] hover:bg-[#f6f7f8]"
       aria-label={label}
     >
       <Icon className="size-4" />
+    </button>
+  );
+}
+
+function NavButton({
+  children,
+  label,
+  onClick,
+}: {
+  children: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex size-8 items-center justify-center rounded border border-[#d6d9dc] bg-white text-[#495057] transition hover:bg-[#f6f7f8]"
+      aria-label={label}
+    >
+      {children}
     </button>
   );
 }
