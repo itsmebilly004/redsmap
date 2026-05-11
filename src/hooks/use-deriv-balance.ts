@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  DERIV_APP_ID_VALUE,
   DERIV_CLIENT_ID_VALUE,
   adapterForTokenSource,
   getActiveDerivTradingSession,
@@ -638,6 +639,7 @@ export function useDerivBalance(): LiveBalance {
               accessToken: oauthSeed.deriv_token,
               appIdMode: "oauth",
               oauthClientId: DERIV_CLIENT_ID_VALUE ?? "",
+              oauthAppId: DERIV_APP_ID_VALUE ?? "",
             }),
           });
           const data = (await response.json().catch(() => ({
