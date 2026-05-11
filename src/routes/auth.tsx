@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
-  DERIV_LEGACY_APP_ID_VALUE,
   DERIV_OAUTH_ENDPOINT_VALUE,
   buildOAuthUrl,
   getDerivOAuthRedirectFailure,
@@ -102,7 +101,7 @@ function AuthPage() {
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "Could not start Deriv OAuth. Check the configured client_id and app_id.",
+          : "Could not start Deriv OAuth. Check the configured client_id.",
       );
     } finally {
       setBusy(false);
@@ -178,13 +177,8 @@ function AuthPage() {
                   <span className="font-mono text-foreground">{DERIV_OAUTH_ENDPOINT_VALUE}</span>
                 </div>
                 <div>OAuth mode: client_id-only OAuth2 PKCE</div>
-                <div>
-                  Legacy app_id:{" "}
-                  <span className="font-mono text-foreground">
-                    {DERIV_LEGACY_APP_ID_VALUE || "(not configured)"}
-                  </span>
-                </div>
-                <div>Legacy token callbacks accepted: yes</div>
+                <div>Legacy app_id: not used</div>
+                <div>Legacy Deriv users are handled by the OAuth2 client_id infrastructure.</div>
               </div>
               {debugUrl && (
                 <div className="mt-3 space-y-2">
@@ -258,7 +252,7 @@ function AuthPage() {
                   <div>
                     OAuth app_id query param included: {oauthDiagnostics.hasAppId ? "yes" : "no"}
                   </div>
-                  <div>legacy app_id: {oauthDiagnostics.appId ?? "(not configured)"}</div>
+                  <div>Expected app_id query param: absent</div>
                 </div>
               </div>
 
@@ -357,14 +351,10 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
       warning: diagnostics.clientIdIsConfigured && diagnostics.clientIdLooksDefined,
     },
     {
-      label: "legacy app_id",
-      actual: diagnostics.appId ?? "(not configured)",
-      expected: "numeric V1 legacy app ID when configured; must not equal client_id",
-      ok:
-        diagnostics.hasAppId &&
-        diagnostics.appIdIsLegacyNumeric &&
-        !diagnostics.appIdLooksLikeClientId,
-      warning: !diagnostics.hasAppId,
+      label: "app_id param",
+      actual: diagnostics.appId ?? "(absent)",
+      expected: "absent; OAuth2 authorization uses client_id only",
+      ok: !diagnostics.hasAppId,
     },
     {
       label: "redirect_uri",

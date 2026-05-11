@@ -10,8 +10,6 @@ import {
   getDerivTradingErrorMessage,
   prepareTradingAuthorization,
   readStoredTradingAuthorizationState,
-  setAuthenticatedAccount,
-  subscribeBalance,
   tradingAuthorizationIsFresh,
   tradingWebSocketMode,
   type DerivTokenSource,
@@ -687,54 +685,10 @@ export function useDerivBalance(): LiveBalance {
 
         const legacyAccounts = accounts.filter(isLikelyLegacyToken);
         if (legacyAccounts.length) {
-          const response = await fetch("/api/deriv-accounts", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              appIdMode: "legacy",
-              legacyAccounts: legacyAccounts.map((account) => ({
-                account_id: account.account_id,
-                loginid: account.loginid ?? account.account_id,
-                deriv_token: account.deriv_token,
-                currency: account.currency,
-                balance: account.balance,
-                is_demo: account.is_demo,
-                is_virtual: account.is_virtual,
-                account_type: account.account_type,
-              })),
-            }),
-          });
-          const data = (await response.json().catch(() => ({
-            error: "Deriv legacy accounts endpoint returned a non-JSON response",
-          }))) as DerivAccountsApiResponse;
-          if (!response.ok) {
-            throw new Error(data.detail ?? data.error ?? "Could not refresh legacy Deriv balances");
-          }
-          const refreshed = mergeFreshAccounts(
-            data.data ?? [],
-            undefined,
-            "legacy_authorize_token",
-          );
-          const freshLegacyIds = new Set(refreshed.map((account) => account.account_id));
-          const staleLegacyIds = legacyAccounts
-            .map((account) => account.account_id)
-            .filter((accountId) => !freshLegacyIds.has(accountId));
-
-          if (staleLegacyIds.length) {
-            console.warn("[Deriv Balance] preserving legacy Supabase rows missing from refresh", {
-              staleLegacyIds,
-              freshLegacyIds: Array.from(freshLegacyIds),
-              reason:
-                "Balance refresh snapshots can be partial; Deriv sessions are only deactivated on manual logout or explicit token expiry/invalid-token responses.",
-            });
-          }
-
-          console.info("[Deriv Balance] balance fetch completed", {
-            source: "legacy",
-            status: response.status,
-            accountCount: refreshed.length,
-            accounts: refreshed.map(accountSummary),
-            staleLegacyIds,
+          console.warn("[Deriv Balance] legacy authorize-token accounts skipped", {
+            accountIds: legacyAccounts.map((account) => account.account_id),
+            reason:
+              "ArkTrader uses OAuth2 client_id 33dF8d2wwjIpeFDBvNkln for all account types. Reconnect these accounts through Deriv OAuth2.",
           });
         }
 
@@ -859,119 +813,21 @@ export function useDerivBalance(): LiveBalance {
     }
 
     if (activeTokenSource === "legacy_authorize_token") {
-      console.info("[Deriv Balance] Legacy account using direct App ID WebSocket flow", {
+      console.warn("[Deriv Balance] legacy authorize-token account requires OAuth2 reconnect", {
         account_id: active.account_id,
         loginid: active.loginid,
         normalizedType: active.normalizedType,
         token_source: activeTokenSource,
         adapter: adapterForTokenSource(activeTokenSource),
         websocketMode: tradingWebSocketMode(activeTokenSource),
-        reason: "Legacy accounts keep the existing direct authorize/live balance implementation.",
+        reason:
+          "ArkTrader uses OAuth2 client_id 33dF8d2wwjIpeFDBvNkln for all account types and no longer opens direct legacy trading sockets.",
       });
-    } else {
       return;
     }
-    let unsub: (() => void) | undefined;
-    let cancelled = false;
-    const activeIsDemo = active.normalizedType === "demo";
-    const requestedAccountId = active.account_id;
-    const previousAccountKey = lastWebSocketAccountKeyRef.current;
-
-    (async () => {
-      try {
-        if (previousAccountKey !== activeAccountKey) {
-          console.info("[Deriv Balance] Initializing Deriv WebSocket account", {
-            previousSelectedAccountKey: previousAccountKey,
-            requestedAccountId,
-            requestedAccountType: active.normalizedType,
-            detected_prefix: active.detected_prefix,
-            token_source: activeTokenSource,
-            adapter: adapterForTokenSource(activeTokenSource),
-            websocketMode: tradingWebSocketMode(activeTokenSource),
-          });
-          setAuthenticatedAccount(
-            active.deriv_token,
-            requestedAccountId,
-            activeIsDemo,
-            activeTokenSource,
-          );
-          lastWebSocketAccountKeyRef.current = activeAccountKey;
-          console.log("Deriv authenticated WebSocket initialized", {
-            account_id: requestedAccountId,
-            loginid: active.loginid,
-            normalizedType: active.normalizedType,
-            detected_prefix: active.detected_prefix,
-            is_virtual: activeIsDemo,
-            token_source: activeTokenSource,
-            adapter: adapterForTokenSource(activeTokenSource),
-            websocketMode: tradingWebSocketMode(activeTokenSource),
-          });
-        } else {
-          console.info("[Deriv Balance] Skipped Deriv WebSocket account initialization", {
-            requestedAccountId,
-            requestedAccountType: active.normalizedType,
-            detected_prefix: active.detected_prefix,
-          });
-        }
-        const nextUnsub = await subscribeBalance(active.deriv_token, async (b) => {
-          if (cancelled) return;
-          if (b.loginid && b.loginid !== requestedAccountId) {
-            console.warn("[Deriv Balance] ignored balance for a different Deriv account", {
-              requestedAccountId,
-              receivedLoginid: b.loginid,
-              receivedCurrency: b.currency,
-              receivedBalance: b.balance,
-            });
-            return;
-          }
-          console.info("[Deriv Balance] live balance received", {
-            requestedAccountId,
-            loginid: b.loginid,
-            currency: b.currency,
-            balance: b.balance,
-          });
-          setBalance(b.balance);
-          if (b.currency) setCurrency(b.currency);
-          setAccounts((previous) =>
-            previous.map((account) =>
-              account.account_id === requestedAccountId
-                ? {
-                    ...account,
-                    balance: b.balance,
-                    currency: b.currency || account.currency,
-                  }
-                : account,
-            ),
-          );
-
-          // Background update to DB
-          const updateQuery = supabase
-            .from("sessions")
-            .update({ balance: b.balance, currency: b.currency })
-            .eq("user_id", user.id);
-          if (active.id) await updateQuery.eq("id", active.id);
-          else await updateQuery.eq("account_id", requestedAccountId);
-        });
-        if (cancelled) {
-          nextUnsub();
-          return;
-        }
-        unsub = nextUnsub;
-      } catch (err) {
-        if (cancelled) return;
-        console.warn("Deriv live balance sync unavailable", {
-          account_id: active.account_id,
-          loginid: active.loginid,
-          error: err,
-        });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      if (unsub) unsub();
-    };
+    return;
   }, [
+    active,
     activeAccountKey,
     active?.account_id,
     active?.deriv_token,

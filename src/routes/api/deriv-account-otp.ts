@@ -33,12 +33,9 @@ type SessionRow = {
 
 const DERIV_SESSION_EXPIRED = "DERIV_SESSION_EXPIRED";
 const RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
+const OAUTH_ONLY_RECONNECT_MESSAGE =
+  "Reconnect this Deriv account through OAuth2. ArkTrader uses client_id 33dF8d2wwjIpeFDBvNkln for all account types.";
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
-
-function isLegacyNumericAppId(value: unknown) {
-  const text = String(value ?? "").trim();
-  return Boolean(text) && /^\d+$/.test(text);
-}
 
 function addAppIdCandidate(candidates: AppIdCandidate[], value: unknown, source: string) {
   const text = String(value ?? "").trim();
@@ -60,34 +57,18 @@ function oauthAppIdCandidates(
   return candidates;
 }
 
-function legacyAppIdCandidates() {
-  const candidates: AppIdCandidate[] = [];
-  if (isLegacyNumericAppId(process.env.VITE_DERIV_LEGACY_APP_ID)) {
-    addAppIdCandidate(candidates, process.env.VITE_DERIV_LEGACY_APP_ID, "VITE_DERIV_LEGACY_APP_ID");
-  }
-  if (isLegacyNumericAppId(process.env.VITE_DERIV_APP_ID)) {
-    addAppIdCandidate(candidates, process.env.VITE_DERIV_APP_ID, "VITE_DERIV_APP_ID");
-  }
-  addAppIdCandidate(candidates, "1089", "DERIV_PUBLIC_LEGACY_APP_ID");
-  return candidates;
-}
-
 function derivApiAppId(
-  mode: DerivAccountOtpRequest["appIdMode"] = "oauth",
+  _mode: DerivAccountOtpRequest["appIdMode"] = "oauth",
   requestHints?: Pick<DerivAccountOtpRequest, "oauthClientId" | "oauthAppId">,
 ) {
-  const oauthAppId = oauthAppIdCandidates(requestHints)[0]?.value ?? "";
-  return mode === "legacy" ? (legacyAppIdCandidates()[0]?.value ?? "1089") : oauthAppId;
+  return oauthAppIdCandidates(requestHints)[0]?.value ?? "";
 }
 
 function derivApiAppIdSource(
-  mode: DerivAccountOtpRequest["appIdMode"] = "oauth",
+  _mode: DerivAccountOtpRequest["appIdMode"] = "oauth",
   requestHints?: Pick<DerivAccountOtpRequest, "oauthClientId" | "oauthAppId">,
 ) {
   const oauthCandidates = oauthAppIdCandidates(requestHints);
-  if (mode === "legacy") {
-    return legacyAppIdCandidates()[0]?.source ?? "DERIV_PUBLIC_LEGACY_APP_ID";
-  }
   if (oauthCandidates.length) return oauthCandidates[0].source;
   return "missing:VITE_DERIV_CLIENT_ID_OR_VITE_DERIV_APP_ID";
 }
@@ -199,27 +180,6 @@ function compareSessionFreshness(left: SessionRow, right: SessionRow) {
   const rightExpiry = timestampValue(right.expires_at);
   if (leftExpiry !== rightExpiry) return rightExpiry - leftExpiry;
   return timestampValue(right.created_at) - timestampValue(left.created_at);
-}
-
-function numericAppId(...ids: Array<string | undefined>) {
-  return ids.map((id) => String(id ?? "").trim()).find((id) => /^\d+$/.test(id)) ?? "";
-}
-
-function legacyWsUrl() {
-  const appId = legacyAppIdCandidates()[0]?.value ?? numericAppId("1089");
-  return `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`;
-}
-
-function legacyDirectResponse(details: Record<string, unknown> = {}) {
-  return errorResponse(
-    "DERIV_LEGACY_DIRECT_WS_REQUIRED",
-    "Legacy accounts use direct Deriv WebSocket authorization instead of the OAuth OTP endpoint.",
-    409,
-    {
-      legacyWsUrl: legacyWsUrl(),
-      ...details,
-    },
-  );
 }
 
 function createRouteSupabase(jwt: string) {
@@ -640,10 +600,10 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             });
           }
           const incomingAppIdMode = appIdMode;
-          if (tokenSource !== "oauth_access_token" && tokenSource !== "legacy_authorize_token") {
+          if (tokenSource !== "oauth_access_token") {
             return errorResponse(
-              "DERIV_TOKEN_SOURCE_REQUIRED",
-              "Missing Deriv token_source. Reconnect this account before trading.",
+              "DERIV_OAUTH_RECONNECT_REQUIRED",
+              OAUTH_ONLY_RECONNECT_MESSAGE,
               400,
               {
                 requestedAccountId: accountId,
@@ -657,8 +617,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             oauthClientId,
             oauthAppId,
           } satisfies Pick<DerivAccountOtpRequest, "oauthClientId" | "oauthAppId">;
-          const finalAppIdMode: AppIdMode =
-            requestTokenSource === "legacy_authorize_token" ? "legacy" : "oauth";
+          const finalAppIdMode: AppIdMode = "oauth";
           const canUseOAuthTokenOnly =
             finalAppIdMode === "oauth" &&
             requestTokenSource === "oauth_access_token" &&
@@ -678,14 +637,6 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               finalTokenSource: requestTokenSource,
               canUseOAuthTokenOnly,
             });
-            if (requestTokenSource === "legacy_authorize_token") {
-              return legacyDirectResponse({
-                requestedAccountId: accountId,
-                selectedAccountType: "unknown",
-                tokenSource: requestTokenSource,
-                authMode: "no-supabase-session",
-              });
-            }
             if (canUseOAuthTokenOnly) {
               return requestOAuthOtp({
                 accountId,
@@ -718,14 +669,6 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
               finalTokenSource: requestTokenSource,
               canUseOAuthTokenOnly,
             });
-            if (requestTokenSource === "legacy_authorize_token") {
-              return legacyDirectResponse({
-                requestedAccountId: accountId,
-                selectedAccountType: "unknown",
-                tokenSource: requestTokenSource,
-                authMode: "invalid-supabase-user",
-              });
-            }
             if (canUseOAuthTokenOnly) {
               return requestOAuthOtp({
                 accountId,
@@ -910,21 +853,6 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
                 tokenForOtpSource,
               },
             );
-          }
-
-          if (!shouldUseOAuthOtp) {
-            console.info("[Deriv OTP API] legacy token requires direct WebSocket authorization", {
-              requestedAccountId: accountId,
-              authenticatedUserId: userId,
-              selectedAccountType,
-              tokenSource: requestedTokenSource,
-              wsUrl: legacyWsUrl(),
-            });
-            return legacyDirectResponse({
-              requestedAccountId: accountId,
-              selectedAccountType,
-              tokenSource: requestedTokenSource,
-            });
           }
 
           return requestOAuthOtp({

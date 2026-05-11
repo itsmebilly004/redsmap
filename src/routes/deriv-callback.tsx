@@ -102,10 +102,6 @@ function tradingAdapterStorageKey(userId: string, accountId: string) {
   return `deriv_trading_adapter:${userId}:${accountId.toUpperCase()}`;
 }
 
-function tokenSourceForFetchMode(mode: "oauth" | "legacy"): DerivTokenSource {
-  return mode === "oauth" ? "oauth_access_token" : "legacy_authorize_token";
-}
-
 function sessionStorageKeys() {
   return Object.keys(sessionStorage).filter((key) => key.startsWith("deriv_"));
 }
@@ -390,10 +386,7 @@ function DerivCallback() {
         let accessToken = "";
         let expiresIn = 0;
         let rawAccounts: DerivAccount[] = [];
-        let accountFetchMode: "oauth" | "legacy" = "oauth";
-
         if (code) {
-          accountFetchMode = "oauth";
           markStage("new OAuth callback selected", {
             appIdMode: "oauth",
             hasLegacyCallbackAccounts: Boolean(legacyCallbackAccounts.length),
@@ -523,65 +516,12 @@ function DerivCallback() {
           }
           markStage("accounts fetch success", accountsLog);
           rawAccounts = accountsData.data ?? [];
-        } else if (legacyCallbackAccounts.length) {
-          accountFetchMode = "legacy";
-          sessionStorage.removeItem("deriv_oauth_state");
-          sessionStorage.removeItem("deriv_code_verifier");
-          accessToken = legacyCallbackAccounts[0]?.deriv_token ?? "";
-          expiresIn = 0;
-          setStatus("Loading Deriv accounts...");
-          markStage("legacy token callback accepted", {
-            accountCount: legacyCallbackAccounts.length,
-            accountIds: legacyCallbackAccounts.map((account) => account.account_id),
-            oauthStartedAt: sessionStorage.getItem("deriv_oauth_started_at"),
-          });
-          markStage("token exchange skipped", {
-            reason: "Deriv returned legacy account tokens for this old account.",
-          });
-          markStage("accounts fetch started", {
-            localRoute: "/api/deriv-accounts",
-            browserDirectToDeriv: false,
-            appIdMode: "legacy",
-            source: "legacy callback tokens",
-            accountCount: legacyCallbackAccounts.length,
-            accountIds: legacyCallbackAccounts.map((account) => account.account_id),
-          });
-          const accountsResponse = await fetch("/api/deriv-accounts", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              appIdMode: "legacy",
-              legacyAccounts: legacyCallbackAccounts,
-            }),
-          });
-          const accountsData = await responseJson<DerivAccountsResponse>(accountsResponse, {
-            error: "Deriv legacy accounts endpoint returned a non-JSON response",
-          });
-          const accountsLog = {
-            ok: accountsResponse.ok,
-            status: accountsResponse.status,
-            accountCount: accountsData.data?.length ?? 0,
-            error: accountsData.error,
-            detail: accountsData.detail,
-          };
-          if (!accountsResponse.ok) {
-            markStage("accounts fetch failure", accountsLog);
-            if (accountsResponse.status === 403) {
-              throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
-            }
-            throw new Error(
-              accountsData.detail ??
-                accountsData.error ??
-                "Could not load fresh Deriv accounts for this legacy login",
-            );
-          }
-          markStage("accounts fetch success", {
-            ...accountsLog,
-            source: "legacy live Deriv WebSocket snapshot",
-          });
-          rawAccounts = accountsData.data ?? [];
         } else {
-          throw new Error("Missing authorization code");
+          throw new Error(
+            legacyCallbackAccounts.length
+              ? "Deriv returned a legacy token callback instead of an OAuth2 authorization code. Restart login through the OAuth2 client_id flow."
+              : "Missing authorization code",
+          );
         }
 
         markStage("accounts count", {
@@ -660,7 +600,6 @@ function DerivCallback() {
           });
           if (staleSessions.length) {
             markStage("stale Supabase rows invalidation skipped", {
-              accountFetchMode,
               staleAccountIds: staleSessions.map((session) => session.account_id),
               freshAccountIds: Array.from(freshAccountIds),
               reason:
@@ -677,7 +616,7 @@ function DerivCallback() {
           accountCount: accounts.length,
         });
         const savedAccounts: string[] = [];
-        const tokenSource = tokenSourceForFetchMode(accountFetchMode);
+        const tokenSource: DerivTokenSource = "oauth_access_token";
         const tradingAdapter = adapterForTokenSource(tokenSource);
         const connectedAt = new Date().toISOString();
         for (const account of accounts) {

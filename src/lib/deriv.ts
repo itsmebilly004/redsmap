@@ -16,7 +16,6 @@ import {
 
 const DERIV_APP_ID = DERIV_OAUTH_CLIENT_ID;
 const DERIV_CLIENT_ID = DERIV_OAUTH_CLIENT_ID;
-const DERIV_LEGACY_APP_ID = "";
 const DERIV_OAUTH_ENDPOINT = DERIV_OAUTH_AUTHORIZE_ENDPOINT;
 const DERIV_SCOPE = DERIV_OAUTH_SCOPE;
 const PUBLIC_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
@@ -30,6 +29,8 @@ export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
   "Deriv redirected to dashboard instead of authorization. This account may not support the new OAuth app flow or the OAuth app configuration must be checked.";
 const DERIV_LEGACY_OAUTH_ROUTE_MESSAGE =
   "Blocked legacy Deriv OAuth route. Use the OAuth2 PKCE authorization endpoint.";
+const DERIV_OAUTH_ONLY_RECONNECT_MESSAGE =
+  "Reconnect this Deriv account through OAuth2. ArkTrader uses client_id 33dF8d2wwjIpeFDBvNkln for all account types.";
 const DERIV_SESSION_EXPIRED_CODE = "DERIV_SESSION_EXPIRED";
 const DERIV_OTP_AUTH_FAILED_CODE = "DERIV_OTP_AUTH_FAILED";
 const DERIV_RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
@@ -40,7 +41,6 @@ const TRADING_AUTHORIZATION_FRESH_MS = 10 * 60 * 1000;
 
 export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
-export const DERIV_LEGACY_APP_ID_VALUE = DERIV_LEGACY_APP_ID;
 export const DERIV_REDIRECT_URI_VALUE = DERIV_REDIRECT_URI;
 export const DERIV_OAUTH_ENDPOINT_VALUE = DERIV_OAUTH_ENDPOINT;
 export type DerivOAuthDiagnostics = {
@@ -55,9 +55,6 @@ export type DerivOAuthDiagnostics = {
   codeChallenge: string;
   codeChallengeMethod: string;
   hasAppId: boolean;
-  appIdMatchesClientId: boolean;
-  appIdIsLegacyNumeric: boolean;
-  appIdLooksLikeClientId: boolean;
   forbiddenMarkers: string[];
   clientIdIsConfigured: boolean;
   clientIdLooksDefined: boolean;
@@ -121,7 +118,7 @@ export type DerivBalance = { balance: number; currency: string; loginid: string 
 export type ActiveSymbol = { symbol: string; display_name: string; market: string };
 type DerivAppIdMode = "oauth" | "legacy";
 export type TradingAdapter = "newOAuthTradingAdapter" | "legacyTradingAdapter";
-export type TradingWebSocketMode = "oauth-otp" | "legacy-direct-authorize";
+export type TradingWebSocketMode = "oauth-otp";
 export type DerivTokenSource = "oauth_access_token" | "legacy_authorize_token";
 export type TradingAuthorizationState = {
   account_id: string;
@@ -733,16 +730,20 @@ export async function prepareTradingAuthorization(
   });
 
   try {
-    if (session.token_source === "oauth_access_token") {
-      const authenticatedWsUrl = await getAuthenticatedWsUrl(
-        session.deriv_token,
-        session.account_id,
-        session.token_source,
+    if (session.token_source !== "oauth_access_token") {
+      throw createDerivSocketError(
+        DERIV_OAUTH_ONLY_RECONNECT_MESSAGE,
+        "DERIV_OAUTH_RECONNECT_REQUIRED",
+        401,
+        false,
       );
-      await verifyOAuthOtpTradingSocket(authenticatedWsUrl, session);
-    } else {
-      await verifyLegacyTradingAuthorize(session);
     }
+    const authenticatedWsUrl = await getAuthenticatedWsUrl(
+      session.deriv_token,
+      session.account_id,
+      session.token_source,
+    );
+    await verifyOAuthOtpTradingSocket(authenticatedWsUrl, session);
 
     const state: TradingAuthorizationState = {
       account_id: session.account_id,
@@ -868,119 +869,6 @@ function verifyOAuthOtpTradingSocket(
   });
 }
 
-function verifyLegacyTradingAuthorize(session: DerivTradingSession): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let ws: WebSocket | null = null;
-    let settled = false;
-    const authorizeReqId = reqId++;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        ws?.close();
-      } catch {
-        /* ignore */
-      }
-      reject(
-        createDerivSocketError(
-          "Legacy trading authorization timed out.",
-          DERIV_SESSION_EXPIRED_CODE,
-          408,
-          false,
-        ),
-      );
-    }, 15000);
-
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        ws?.close(1000, "Legacy trading authorization verified");
-      } catch {
-        /* ignore */
-      }
-      if (error) reject(error);
-      else resolve();
-    };
-
-    try {
-      ws = new WebSocket(legacyTradingWsUrl());
-      ws.onopen = () => {
-        console.info("[Deriv Trading] legacy trading authorization verify started", {
-          selectedAccountId: session.account_id,
-          token_source: session.token_source,
-          adapter: session.adapter,
-          websocketMode: session.websocketMode,
-          req_id: authorizeReqId,
-        });
-        ws?.send(JSON.stringify({ authorize: session.deriv_token, req_id: authorizeReqId }));
-      };
-      ws.onerror = () => {
-        finish(
-          createDerivSocketError(
-            "Legacy trading WebSocket authorization failed.",
-            DERIV_SESSION_EXPIRED_CODE,
-            401,
-            false,
-          ),
-        );
-      };
-      ws.onclose = (event) => {
-        if (settled) return;
-        finish(
-          createDerivSocketError(
-            event.reason
-              ? `Legacy trading WebSocket closed: ${event.reason}`
-              : `Legacy trading WebSocket closed with code ${event.code}`,
-            DERIV_SESSION_EXPIRED_CODE,
-            401,
-            false,
-          ),
-        );
-      };
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data) as DerivMessage;
-          if (data.req_id !== authorizeReqId && data.msg_type !== "authorize") return;
-          if (data.error) {
-            finish(derivMessageError(data.error));
-            return;
-          }
-          const authorizedLoginid = textFrom(data.authorize?.loginid, data.authorize?.account_id);
-          if (authorizedLoginid && !sameDerivId(authorizedLoginid, session.account_id)) {
-            finish(
-              createDerivSocketError(
-                "Legacy trading authorization account mismatch. Please reconnect this account.",
-                "DERIV_TOKEN_ACCOUNT_MISMATCH",
-                401,
-                false,
-              ),
-            );
-            return;
-          }
-          console.info("[Deriv Trading] legacy trading authorization verify passed", {
-            selectedAccountId: session.account_id,
-            authorizedLoginid: authorizedLoginid || null,
-            token_source: session.token_source,
-            adapter: session.adapter,
-            websocketMode: session.websocketMode,
-            authorizationResult: "legacy-direct-authorize-success",
-            req_id: authorizeReqId,
-          });
-          finish();
-        } catch (error) {
-          finish(
-            error instanceof Error ? error : new Error("Legacy authorize response parse failed."),
-          );
-        }
-      };
-    } catch (error) {
-      finish(error instanceof Error ? error : new Error("Legacy trading authorization failed."));
-    }
-  });
-}
-
 function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticatedAccount>) {
   if (account.isDemo === true) return "demo";
   if (account.isDemo === false) return "real";
@@ -991,15 +879,6 @@ function tokenSourceFromText(value: unknown): DerivTokenSource | null {
   const text = textFrom(value);
   if (text === "oauth_access_token" || text === "legacy_authorize_token") return text;
   return null;
-}
-
-function numericDerivAppId(...ids: Array<string | undefined>) {
-  return ids.map((id) => String(id ?? "").trim()).find((id) => /^\d+$/.test(id)) ?? "";
-}
-
-function legacyTradingWsUrl() {
-  const appId = numericDerivAppId(DERIV_LEGACY_APP_ID, DERIV_APP_ID, "1089");
-  return `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`;
 }
 
 function createDerivSocketError(message: string, code: string, status?: number, retryable = true) {
@@ -1015,7 +894,6 @@ function isRetryableSocketError(error: Error) {
   if (socketError.retryable === false) return false;
   if (
     socketError.code === DERIV_SESSION_EXPIRED_CODE ||
-    socketError.code === "DERIV_LEGACY_DIRECT_WS_REQUIRED" ||
     socketError.code === "DERIV_AUTHORIZE_FAILED" ||
     socketError.status === 401 ||
     socketError.status === 403
@@ -1492,7 +1370,7 @@ export function adapterForTokenSource(tokenSource: DerivTokenSource): TradingAda
 }
 
 export function tradingWebSocketMode(tokenSource: DerivTokenSource): TradingWebSocketMode {
-  return tokenSource === "legacy_authorize_token" ? "legacy-direct-authorize" : "oauth-otp";
+  return "oauth-otp";
 }
 
 function startKeepalive() {
@@ -1563,7 +1441,6 @@ function openAuthenticatedSocket(
   return new Promise((resolve, reject) => {
     let ws: WebSocket | null = null;
     let settled = false;
-    let authorizeReqId: number | null = null;
     const websocketMode = tradingWebSocketMode(account.tokenSource);
 
     const completeOpen = () => {
@@ -1597,10 +1474,7 @@ function openAuthenticatedSocket(
         mode: websocketMode,
         tokenSource: account.tokenSource,
         adapter: adapterForTokenSource(account.tokenSource),
-        authorizationResult:
-          account.tokenSource === "oauth_access_token"
-            ? "oauth-otp-authorized"
-            : "legacy-direct-authorize-success",
+        authorizationResult: "oauth-otp-authorized",
         readyState: ws.readyState,
       });
       startKeepalive();
@@ -1676,10 +1550,19 @@ function openAuthenticatedSocket(
           socketAccountId = null;
         }
 
-        const useOAuthOtp = account.tokenSource === "oauth_access_token";
-        const authenticatedWsUrl = useOAuthOtp
-          ? await getAuthenticatedWsUrl(account.accessToken, account.accountId, account.tokenSource)
-          : legacyTradingWsUrl();
+        if (account.tokenSource !== "oauth_access_token") {
+          throw createDerivSocketError(
+            DERIV_OAUTH_ONLY_RECONNECT_MESSAGE,
+            "DERIV_OAUTH_RECONNECT_REQUIRED",
+            401,
+            false,
+          );
+        }
+        const authenticatedWsUrl = await getAuthenticatedWsUrl(
+          account.accessToken,
+          account.accountId,
+          account.tokenSource,
+        );
         if (!isCurrentAuthenticatedAccount(account)) {
           connecting = null;
           reject(new Error("Deriv account changed while opening WebSocket."));
@@ -1691,9 +1574,7 @@ function openAuthenticatedSocket(
           mode: websocketMode,
           tokenSource: account.tokenSource,
           adapter: adapterForTokenSource(account.tokenSource),
-          authorizationResult: useOAuthOtp
-            ? "oauth-otp-url-issued"
-            : "legacy-direct-authorize-required",
+          authorizationResult: "oauth-otp-url-issued",
           wsUrl: authenticatedWsUrl,
           retried,
         });
@@ -1724,38 +1605,14 @@ function openAuthenticatedSocket(
             readyState: ws.readyState,
           });
 
-          if (useOAuthOtp) {
-            console.info("[Deriv WS] OAuth OTP socket authorization ready", {
-              accountId: account.accountId,
-              mode: websocketMode,
-              tokenSource: account.tokenSource,
-              adapter: adapterForTokenSource(account.tokenSource),
-              authorizationResult: "oauth-otp-socket-open",
-            });
-            completeOpen();
-            return;
-          }
-
-          authorizeReqId = reqId++;
-          console.info("[Deriv WS] direct authorize started", {
+          console.info("[Deriv WS] OAuth OTP socket authorization ready", {
             accountId: account.accountId,
             mode: websocketMode,
             tokenSource: account.tokenSource,
             adapter: adapterForTokenSource(account.tokenSource),
-            req_id: authorizeReqId,
+            authorizationResult: "oauth-otp-socket-open",
           });
-          try {
-            ws.send(
-              JSON.stringify({
-                authorize: account.accessToken,
-                req_id: authorizeReqId,
-              }),
-            );
-          } catch (error) {
-            void fail(
-              error instanceof Error ? error : new Error("Could not send Deriv authorize request"),
-            );
-          }
+          completeOpen();
         };
         ws.onerror = (event) => {
           console.error("[Deriv WS] onerror", {
@@ -1799,88 +1656,6 @@ function openAuthenticatedSocket(
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data) as DerivMessage;
-            if (!settled && (data.req_id === authorizeReqId || data.msg_type === "authorize")) {
-              if (data.error) {
-                const invalidToken = isInvalidDerivTokenMessage(data.error.message);
-                if (invalidToken && account.tokenSource === "legacy_authorize_token") {
-                  void deactivateInvalidDerivSession("legacy-authorize-invalid-token");
-                }
-                console.warn("[Deriv WS] direct authorize failed", {
-                  accountId: account.accountId,
-                  mode: websocketMode,
-                  tokenSource: account.tokenSource,
-                  adapter: adapterForTokenSource(account.tokenSource),
-                  authorizationResult: invalidToken ? "invalid-token" : "authorize-error",
-                  message: data.error.message,
-                  code: data.error.code ?? null,
-                });
-                if (invalidToken && account.tokenSource === "oauth_access_token") {
-                  console.warn("[Deriv WS] OAuth direct authorize token rejected", {
-                    accountId: account.accountId,
-                    mode: websocketMode,
-                    message: data.error.message,
-                    code: data.error.code ?? null,
-                  });
-                }
-                void fail(
-                  invalidToken
-                    ? createDerivSocketError(
-                        account.tokenSource === "oauth_access_token"
-                          ? "Trading authorization failed for this account. Please switch account or reconnect if it continues."
-                          : "Your Deriv session expired. Please reconnect your Deriv account.",
-                        account.tokenSource === "oauth_access_token"
-                          ? "DERIV_OAUTH_TRADING_AUTH_FAILED"
-                          : DERIV_SESSION_EXPIRED_CODE,
-                        401,
-                        false,
-                      )
-                    : createDerivSocketError(
-                        data.error.message ?? DERIV_RECONNECT_MESSAGE,
-                        "DERIV_AUTHORIZE_FAILED",
-                        401,
-                        false,
-                      ),
-                );
-                return;
-              }
-              const authorizedLoginid = textFrom(
-                data.authorize?.loginid,
-                data.authorize?.account_id,
-              );
-              if (authorizedLoginid && !sameDerivId(authorizedLoginid, account.accountId)) {
-                console.warn("[Deriv WS] direct authorize account mismatch", {
-                  selectedAccountId: account.accountId,
-                  authorizedLoginid,
-                  mode: websocketMode,
-                  tokenSource: account.tokenSource,
-                  adapter: adapterForTokenSource(account.tokenSource),
-                  authorizationResult: "account-mismatch",
-                });
-                void fail(
-                  createDerivSocketError(
-                    account.tokenSource === "oauth_access_token"
-                      ? "Trading authorization account mismatch. Please switch account or reconnect if it continues."
-                      : "Your Deriv session expired. Please reconnect your Deriv account.",
-                    "DERIV_TOKEN_ACCOUNT_MISMATCH",
-                    401,
-                    false,
-                  ),
-                );
-                return;
-              }
-              console.info("[Deriv WS] direct authorize success", {
-                accountId: account.accountId,
-                authorizedLoginid: authorizedLoginid || null,
-                mode: websocketMode,
-                tokenSource: account.tokenSource,
-                adapter: adapterForTokenSource(account.tokenSource),
-                authorizationResult: "legacy-direct-authorize-success",
-                req_id: authorizeReqId,
-                msg_type: data.msg_type,
-              });
-              completeOpen();
-              return;
-            }
             listeners.forEach((l) => l(data));
           } catch {
             /* ignore */
@@ -2132,10 +1907,6 @@ function forbiddenOAuthMarkers(url: string) {
   return markers;
 }
 
-function isNumericLegacyAppId(appId: string | null | undefined) {
-  return !appId || /^\d+$/.test(appId);
-}
-
 export function getDerivOAuthRedirectFailure(url: string | null | undefined) {
   if (!url) return null;
   const parsed = safeParseUrl(url);
@@ -2203,9 +1974,6 @@ export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
     codeChallenge: parsed.searchParams.get("code_challenge") ?? "",
     codeChallengeMethod: parsed.searchParams.get("code_challenge_method") ?? "",
     hasAppId: parsed.searchParams.has("app_id"),
-    appIdMatchesClientId: Boolean(appId && appId === clientId),
-    appIdIsLegacyNumeric: isNumericLegacyAppId(appId),
-    appIdLooksLikeClientId: Boolean(appId && appId === clientId),
     forbiddenMarkers,
     clientIdIsConfigured: Boolean(DERIV_CLIENT_ID),
     clientIdLooksDefined: !["", "undefined", "null"].includes(
@@ -2255,13 +2023,9 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
     throw new Error("Blocked legacy Deriv OAuth URL");
   }
   if (parsed.searchParams.has("app_id")) {
-    const appId = parsed.searchParams.get("app_id");
-    if (!isNumericLegacyAppId(appId)) {
-      throw new Error("Invalid Deriv OAuth URL. app_id must be the numeric legacy V1 app ID.");
-    }
-    if (appId === parsed.searchParams.get("client_id")) {
-      throw new Error("Invalid Deriv OAuth URL. app_id must not be the OAuth client_id.");
-    }
+    throw new Error(
+      "Invalid Deriv OAuth URL. Authorization must use client_id only; app_id is not used.",
+    );
   }
   if (!parsed.searchParams.get("client_id")) {
     throw new Error("Invalid Deriv OAuth URL. Authorization URL must include client_id.");
@@ -2302,7 +2066,7 @@ export function redirectToDerivOAuth(url: string) {
   console.info("[Deriv OAuth] Redirecting to authorization endpoint", {
     endpoint: diagnostics.endpoint,
     client_id: diagnostics.clientId,
-    legacy_app_id: diagnostics.appId ?? "(not configured)",
+    app_id_param: diagnostics.appId ?? "(not included)",
     redirect_uri: diagnostics.decodedRedirectUri,
     scope: diagnostics.scopes,
     finalOAuthUrl: url,
@@ -2363,15 +2127,6 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
-  if (DERIV_LEGACY_APP_ID) {
-    if (!isNumericLegacyAppId(DERIV_LEGACY_APP_ID)) {
-      throw new Error("Invalid VITE_DERIV_LEGACY_APP_ID. It must be a numeric legacy V1 app ID.");
-    }
-    if (DERIV_LEGACY_APP_ID === DERIV_CLIENT_ID) {
-      throw new Error("Invalid VITE_DERIV_LEGACY_APP_ID. It must not equal VITE_DERIV_CLIENT_ID.");
-    }
-    params.set("app_id", DERIV_LEGACY_APP_ID);
-  }
   // The provider handles the login and consent screens. `prompt` is only
   // documented for signup, where it must be `registration`.
   const prompt = options.mode === "signup" ? "registration" : undefined;
@@ -2405,11 +2160,10 @@ export async function buildOAuthUrl(
     throw new Error("Invalid Deriv OAuth URL. Authorization URL must include client_id.");
   }
   const diagnostics = getDerivOAuthDiagnostics(url);
-  if (
-    diagnostics.hasAppId &&
-    (!diagnostics.appIdIsLegacyNumeric || diagnostics.appIdLooksLikeClientId)
-  ) {
-    throw new Error("Invalid Deriv OAuth URL. app_id must be the numeric legacy V1 app ID.");
+  if (diagnostics.hasAppId) {
+    throw new Error(
+      "Invalid Deriv OAuth URL. Authorization must use client_id only; app_id is not used.",
+    );
   }
   logOAuthDebug("[Deriv OAuth Debug] Exact final authorization URL", url);
   logOAuthDebug("[Deriv OAuth Debug] Authorization diagnostics", {
@@ -2417,9 +2171,9 @@ export async function buildOAuthUrl(
     finalOAuthUrl: url,
     endpoint: DERIV_OAUTH_ENDPOINT,
     client_id: DERIV_CLIENT_ID,
-    legacy_app_id: DERIV_LEGACY_APP_ID || "(not configured)",
+    app_id_param: diagnostics.appId ?? "(not included)",
     clientIdExists: Boolean(DERIV_CLIENT_ID),
-    legacyAppIdExists: Boolean(DERIV_LEGACY_APP_ID),
+    appIdParamExists: diagnostics.hasAppId,
     redirect_uri: DERIV_REDIRECT_URI,
     scopes: DERIV_SCOPE,
     prompt: prompt ?? "standard-login",
@@ -2433,7 +2187,7 @@ export async function buildOAuthUrl(
     attemptId,
     endpoint: diagnostics.endpoint,
     client_id: diagnostics.clientId,
-    legacy_app_id: diagnostics.appId ?? "(not configured)",
+    app_id_param: diagnostics.appId ?? "(not included)",
     redirect_uri: diagnostics.decodedRedirectUri,
     scope: diagnostics.scopes,
     prompt: prompt ?? "standard-login",
@@ -2448,17 +2202,14 @@ export async function getAuthenticatedWsUrl(
   accountId: string,
   tokenSource: DerivTokenSource,
 ): Promise<string> {
-  const appIdMode: DerivAppIdMode = tokenSource === "oauth_access_token" ? "oauth" : "legacy";
-  if (appIdMode === "legacy") {
-    console.info("[Deriv WS] legacy token_source selected; skipping OAuth OTP route", {
-      accountId,
-      tokenSource,
-      adapter: adapterForTokenSource(tokenSource),
-      websocketMode: tradingWebSocketMode(tokenSource),
-      authorizationResult: "legacy-direct-authorize-required",
-      wsUrl: legacyTradingWsUrl(),
-    });
-    return legacyTradingWsUrl();
+  const appIdMode: DerivAppIdMode = "oauth";
+  if (tokenSource !== "oauth_access_token") {
+    throw createDerivSocketError(
+      DERIV_OAUTH_ONLY_RECONNECT_MESSAGE,
+      "DERIV_OAUTH_RECONNECT_REQUIRED",
+      401,
+      false,
+    );
   }
 
   const { data: authData, error: authError } = await supabase.auth.getSession();
