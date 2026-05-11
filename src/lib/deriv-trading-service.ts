@@ -57,7 +57,20 @@ export async function requestProposal(payload: DerivRecord, context: TradeReques
     contractType: context.contractType ?? payload.contract_type ?? null,
     finalPayload: payload,
   });
-  const response = await send(payload);
+  let response: DerivMessage;
+  try {
+    response = await send(payload);
+  } catch (error) {
+    console.warn("[Deriv Trading] Proposal request failed", {
+      adapter: context.adapter ?? "unknown",
+      selectedAccountId: context.selectedAccountId ?? null,
+      selectedAccountType: context.selectedAccountType ?? null,
+      contractType: context.contractType ?? payload.contract_type ?? null,
+      failureReason: error instanceof Error ? error.message : String(error),
+      error,
+    });
+    throw error;
+  }
   if (!response.proposal?.id) {
     throw new Error("Deriv did not return a proposal id.");
   }
@@ -77,7 +90,20 @@ export async function buyProposal(
     contractType: context.contractType ?? null,
     finalPayload: payload,
   });
-  const response = await send(payload);
+  let response: DerivMessage;
+  try {
+    response = await send(payload);
+  } catch (error) {
+    console.warn("[Deriv Trading] Buy request failed", {
+      adapter: context.adapter ?? "unknown",
+      selectedAccountId: context.selectedAccountId ?? null,
+      selectedAccountType: context.selectedAccountType ?? null,
+      contractType: context.contractType ?? null,
+      failureReason: error instanceof Error ? error.message : String(error),
+      error,
+    });
+    throw error;
+  }
   console.info("[Deriv Trading] Buy response", {
     adapter: context.adapter ?? "unknown",
     selectedAccountId: context.selectedAccountId ?? null,
@@ -95,7 +121,17 @@ export async function sellContract(contractId: string, price: number) {
   if (!Number.isFinite(price) || price < 0) {
     throw new Error("No valid sell price is available for this contract.");
   }
-  const response = await send({ sell: contractId, price });
+  let response: DerivMessage;
+  try {
+    response = await send({ sell: contractId, price });
+  } catch (error) {
+    console.warn("[Deriv Trading] Sell request failed", {
+      contractId,
+      failureReason: error instanceof Error ? error.message : String(error),
+      error,
+    });
+    throw error;
+  }
   console.info("[Deriv Trading] Sell response", response.sell);
   return response;
 }
@@ -116,7 +152,17 @@ export async function subscribeOpenContract(
     onUpdate(contract, message);
   });
 
-  const initial = await send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
+  let initial: DerivMessage;
+  try {
+    initial = await send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
+  } catch (error) {
+    console.warn("[Deriv Trading] proposal_open_contract subscribe failed", {
+      contractId,
+      failureReason: error instanceof Error ? error.message : String(error),
+      error,
+    });
+    throw error;
+  }
   subscriptionId = String(initial.subscription?.id ?? "");
   if (initial.proposal_open_contract) {
     onUpdate(initial.proposal_open_contract, initial);

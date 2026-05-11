@@ -39,6 +39,8 @@ const DERIV_OAUTH_ONLY_RECONNECT_MESSAGE =
   "Reconnect this Deriv account through OAuth2. ArkTrader uses client_id 33dF8d2wwjIpeFDBvNkln for all account types.";
 const DERIV_SESSION_EXPIRED_CODE = "DERIV_SESSION_EXPIRED";
 const DERIV_OTP_AUTH_FAILED_CODE = "DERIV_OTP_AUTH_FAILED";
+const DERIV_TRADING_SESSION_NOT_INITIALIZED_CODE = "DERIV_TRADING_SESSION_NOT_INITIALIZED";
+export const DERIV_TRADING_SESSION_NOT_INITIALIZED_MESSAGE = "Trading session not initialized";
 const DERIV_RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
 export const DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE =
   "Account connected. Trading authorization not ready yet.";
@@ -201,10 +203,20 @@ const listeners = new Set<Listener>();
 const statusListeners = new Set<StatusListener>();
 let status: ConnectionStatus = "disconnected";
 let reqId = 1;
+let socketInstanceId = 0;
 let connecting: Promise<WebSocket> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
 let reconnectAttempts = 0;
 const tradingAuthorizationRequests = new Map<string, Promise<TradingAuthorizationState>>();
+let confirmedTradingSession: {
+  accountId: string;
+  tokenSource: DerivTokenSource;
+  tokenFingerprint: string;
+  expiresAt: string | null;
+  socketInstanceId: number;
+  initializedAt: string;
+  handshakeConfirmedAt: string;
+} | null = null;
 let authenticatedAccount: {
   accessToken: string;
   accountId: string;
@@ -224,6 +236,49 @@ function isCurrentAuthenticatedAccount(account: NonNullable<typeof authenticated
     authenticatedAccount.accountId === account.accountId &&
     authenticatedAccount.isDemo === account.isDemo &&
     authenticatedAccount.tokenSource === account.tokenSource
+  );
+}
+
+function tokenFingerprint(token: string) {
+  return token.slice(-12);
+}
+
+function authenticatedAccountSummary(account = authenticatedAccount) {
+  return account
+    ? {
+        accountId: account.accountId,
+        tokenSource: account.tokenSource,
+        tokenFingerprint: tokenFingerprint(account.accessToken),
+        accountType: authenticatedAccountTypeLabel(account),
+      }
+    : null;
+}
+
+function confirmedTradingSessionMatches(account: NonNullable<typeof authenticatedAccount>) {
+  return (
+    confirmedTradingSession?.accountId === account.accountId &&
+    confirmedTradingSession.tokenSource === account.tokenSource &&
+    confirmedTradingSession.tokenFingerprint === tokenFingerprint(account.accessToken) &&
+    confirmedTradingSession.socketInstanceId === socketInstanceId
+  );
+}
+
+function clearConfirmedTradingSession(reason: string, details: Record<string, unknown> = {}) {
+  if (!confirmedTradingSession) return;
+  console.info("[Deriv Trading] trading session readiness cleared", {
+    reason,
+    confirmedTradingSession,
+    ...details,
+  });
+  confirmedTradingSession = null;
+}
+
+function createTradingSessionNotInitializedError(reason: string) {
+  return createDerivSocketError(
+    DERIV_TRADING_SESSION_NOT_INITIALIZED_MESSAGE,
+    DERIV_TRADING_SESSION_NOT_INITIALIZED_CODE,
+    409,
+    false,
   );
 }
 
@@ -271,6 +326,12 @@ export function setAuthenticatedAccount(
     authenticatedAccount.tokenSource === tokenSource;
   if (sameAccount) return;
 
+  clearConfirmedTradingSession("authenticated-account-changed", {
+    previousAccount: authenticatedAccountSummary(),
+    nextAccountId: accountId,
+    nextTokenSource: tokenSource,
+    nextTokenFingerprint: tokenFingerprint(accessToken),
+  });
   authenticatedAccount = { accessToken, accountId, isDemo: normalizedIsDemo, tokenSource };
   console.info("[Deriv WS] Active account configured", {
     accountId,
@@ -316,6 +377,8 @@ export function isDerivTradingAuthorizationFailure(error: unknown) {
   return (
     socketError?.code === DERIV_OTP_AUTH_FAILED_CODE ||
     socketError?.code === "DERIV_OAUTH_TRADING_AUTH_FAILED" ||
+    socketError?.code === DERIV_TRADING_SESSION_NOT_INITIALIZED_CODE ||
+    text.includes("trading session not initialized") ||
     text.includes("trading authorization failed") ||
     text.includes("trading authorization not ready")
   );
@@ -685,12 +748,17 @@ export async function ensureDerivTradingConnection(
   options: { context?: string } = {},
 ): Promise<DerivTradingSession> {
   const session = await prepareDerivTradingSession(selectedAccount, options);
-  await prepareTradingAuthorization(session, {
+  const authorization = await prepareTradingAuthorization(session, {
     context: options.context ?? "trade",
   });
-  await connect();
+  const ws = await connect();
+  if (!authenticatedAccount || !confirmedTradingSessionMatches(authenticatedAccount)) {
+    await confirmTradingSocketHandshake(session, ws, options.context ?? "trade");
+  }
   console.info("[Deriv Trading] active trading connection ready", {
     context: options.context ?? "trade",
+    trading_authorized: authorization.trading_authorized,
+    trading_authorized_at: authorization.trading_authorized_at,
     activeTradingAccount: {
       account_id: session.account_id,
       loginid: session.loginid,
@@ -722,6 +790,7 @@ export async function prepareTradingAuthorization(
 
   const { data: authData } = await supabase.auth.getSession();
   const userId = authData.session?.user?.id ?? null;
+  assertOAuthTradingTokenFresh(session);
   const cached = readStoredTradingAuthorizationState(userId, session.account_id);
   if (
     !options.force &&
@@ -770,8 +839,171 @@ function tradingAuthorizationRequestKey(session: DerivTradingSession) {
   return [
     session.account_id.toUpperCase(),
     session.token_source,
-    session.deriv_token.slice(-12),
+    tokenFingerprint(session.deriv_token),
   ].join(":");
+}
+
+function assertOAuthTradingTokenFresh(
+  session: Pick<DerivTradingSession, "expires_at" | "createdAt" | "token_source" | "account_id">,
+) {
+  if (session.token_source !== "oauth_access_token") {
+    throw createDerivSocketError(
+      DERIV_OAUTH_ONLY_RECONNECT_MESSAGE,
+      "DERIV_OAUTH_RECONNECT_REQUIRED",
+      401,
+      false,
+    );
+  }
+
+  const expiry = effectiveTokenExpiryState(
+    session.expires_at,
+    session.createdAt,
+    session.token_source,
+  );
+  if (expiry.expired || expiry.invalidExpiry) {
+    clearConfirmedTradingSession("oauth-token-expired", {
+      selectedAccountId: session.account_id,
+      tokenExpiry: expiry.expiresAt,
+      invalidExpiry: expiry.invalidExpiry,
+    });
+    throw createDerivSocketError(
+      "Your Deriv OAuth token is stale. Please reconnect your Deriv account.",
+      DERIV_SESSION_EXPIRED_CODE,
+      401,
+      false,
+    );
+  }
+  return expiry;
+}
+
+function assertConfirmedTradingSessionFresh() {
+  if (!confirmedTradingSession) return false;
+  const expiry = tokenExpiryState(confirmedTradingSession.expiresAt);
+  if (expiry.expired || expiry.invalidExpiry) {
+    clearConfirmedTradingSession("confirmed-session-token-expired", {
+      tokenExpiry: expiry.expiresAt,
+      invalidExpiry: expiry.invalidExpiry,
+    });
+    throw createDerivSocketError(
+      "Your Deriv OAuth token is stale. Please reconnect your Deriv account.",
+      DERIV_SESSION_EXPIRED_CODE,
+      401,
+      false,
+    );
+  }
+  return true;
+}
+
+function markTradingSessionInitialized(
+  account: NonNullable<typeof authenticatedAccount>,
+  expiresAt: string | null,
+  context: string,
+) {
+  const now = new Date().toISOString();
+  confirmedTradingSession = {
+    accountId: account.accountId,
+    tokenSource: account.tokenSource,
+    tokenFingerprint: tokenFingerprint(account.accessToken),
+    expiresAt,
+    socketInstanceId,
+    initializedAt: confirmedTradingSession?.initializedAt ?? now,
+    handshakeConfirmedAt: now,
+  };
+  console.info("[Deriv Trading] trading session initialization success", {
+    context,
+    confirmedTradingSession,
+    socketAccountId,
+    connectionStatus: getStatus(),
+  });
+}
+
+function assertInitializedTradingSessionForSend(payload: DerivRecord) {
+  const account = authenticatedAccount;
+  const payloadType = textFrom(
+    payload.buy ? "buy" : "",
+    payload.sell ? "sell" : "",
+    payload.proposal ? "proposal" : "",
+    payload.proposal_open_contract ? "proposal_open_contract" : "",
+    payload.forget ? "forget" : "",
+    "unknown",
+  );
+  if (!account?.accessToken) {
+    console.warn("[Deriv Trading] trade attempt blocked", {
+      reason: "missing-oauth-access-token",
+      payloadType,
+    });
+    throw createTradingSessionNotInitializedError("missing-oauth-access-token");
+  }
+  assertConfirmedTradingSessionFresh();
+  if (
+    !confirmedTradingSession ||
+    !confirmedTradingSessionMatches(account) ||
+    !socket ||
+    socket.readyState !== WebSocket.OPEN ||
+    socketAccountId !== account.accountId
+  ) {
+    console.warn("[Deriv Trading] trade attempt blocked", {
+      reason: "trading-session-not-initialized",
+      payloadType,
+      authenticatedAccount: authenticatedAccountSummary(account),
+      confirmedTradingSession,
+      socketReadyState: socket?.readyState ?? null,
+      socketAccountId,
+      connectionStatus: getStatus(),
+    });
+    throw createTradingSessionNotInitializedError("trading-session-not-initialized");
+  }
+}
+
+function sendSocketPayload(
+  ws: WebSocket,
+  payload: DerivRecord,
+  options: { timeoutMs?: number } = {},
+): Promise<DerivMessage> {
+  const id = reqId++;
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      off();
+      reject(new Error("Deriv request timed out"));
+    }, options.timeoutMs ?? 15000);
+    const off = onMessage((msg) => {
+      if (msg.req_id === id) {
+        clearTimeout(timeoutId);
+        off();
+        if (msg.error) reject(derivMessageError(msg.error));
+        else resolve(msg);
+      }
+    });
+    ws.send(JSON.stringify({ ...payload, req_id: id }));
+  });
+}
+
+async function confirmTradingSocketHandshake(
+  session: DerivTradingSession,
+  ws: WebSocket,
+  context: string,
+) {
+  if (!authenticatedAccount) {
+    throw createTradingSessionNotInitializedError("missing-authenticated-account");
+  }
+  console.info("[Deriv Trading] trading session initialization handshake started", {
+    context,
+    selectedAccountId: session.account_id,
+    token_source: session.token_source,
+    adapter: session.adapter,
+    websocketMode: session.websocketMode,
+    socketReadyState: ws.readyState,
+    socketAccountId,
+  });
+  const response = await sendSocketPayload(ws, { ping: 1 }, { timeoutMs: 10000 });
+  markTradingSessionInitialized(authenticatedAccount, session.expires_at, context);
+  console.info("[Deriv Trading] trading session initialization handshake completed", {
+    context,
+    selectedAccountId: session.account_id,
+    msg_type: response.msg_type ?? null,
+    socketAccountId,
+    connectionStatus: getStatus(),
+  });
 }
 
 async function runTradingAuthorization(
@@ -794,28 +1026,7 @@ async function runTradingAuthorization(
   });
 
   try {
-    if (session.token_source !== "oauth_access_token") {
-      throw createDerivSocketError(
-        DERIV_OAUTH_ONLY_RECONNECT_MESSAGE,
-        "DERIV_OAUTH_RECONNECT_REQUIRED",
-        401,
-        false,
-      );
-    }
-
-    const expiry = effectiveTokenExpiryState(
-      session.expires_at,
-      session.createdAt,
-      session.token_source,
-    );
-    if (expiry.expired || expiry.invalidExpiry) {
-      throw createDerivSocketError(
-        "Your Deriv OAuth token is stale. Please reconnect your Deriv account.",
-        DERIV_SESSION_EXPIRED_CODE,
-        401,
-        false,
-      );
-    }
+    assertOAuthTradingTokenFresh(session);
 
     setAuthenticatedAccount(
       session.deriv_token,
@@ -823,7 +1034,8 @@ async function runTradingAuthorization(
       session.normalizedType === "demo",
       session.token_source,
     );
-    await connect();
+    const ws = await connect();
+    await confirmTradingSocketHandshake(session, ws, options.context ?? "trade");
 
     const state: TradingAuthorizationState = {
       account_id: session.account_id,
@@ -848,6 +1060,12 @@ async function runTradingAuthorization(
   } catch (error) {
     if (isTradingReadinessSchemaError(error)) throw error;
     const message = getDerivTradingErrorMessage(error);
+    clearConfirmedTradingSession("trading-authorization-failed", {
+      selectedAccountId: session.account_id,
+      token_source: session.token_source,
+      adapter: session.adapter,
+      message,
+    });
     const state: TradingAuthorizationState = {
       account_id: session.account_id,
       trading_authorized: false,
@@ -1302,8 +1520,8 @@ function derivMessageError(error: DerivError | undefined) {
   const message = textFrom(error?.message, "Deriv request failed.");
   if (isInvalidDerivTokenMessage(message)) {
     return createDerivSocketError(
-      "Trading authorization failed for this account. Please switch account or reconnect if it continues.",
-      "DERIV_OAUTH_TRADING_AUTH_FAILED",
+      "Your Deriv session expired. Please reconnect your Deriv account.",
+      DERIV_SESSION_EXPIRED_CODE,
       401,
       false,
     );
@@ -1362,6 +1580,10 @@ function connect(): Promise<WebSocket> {
         websocketMode: tradingWebSocketMode(authenticatedAccount.tokenSource),
         disconnectReason: "selected-account-changed",
       });
+      clearConfirmedTradingSession("selected-account-changed", {
+        socketAccountId,
+        selectedAccountId: authenticatedAccount.accountId,
+      });
       try {
         socket.close(1000, "Selected Deriv account changed");
       } catch {
@@ -1419,6 +1641,7 @@ function openAuthenticatedSocket(
       settled = true;
       socket = ws;
       socketAccountId = account.accountId;
+      socketInstanceId += 1;
       connecting = null;
       reconnectAttempts = 0;
       setStatus("connected");
@@ -1651,26 +1874,12 @@ export async function send(payload: DerivRecord): Promise<DerivMessage> {
       false,
     );
   }
+  assertInitializedTradingSessionForSend(payload);
   const ws = await connect();
   if (authenticatedAccount && socketAccountId !== authenticatedAccount.accountId) {
     throw new Error("Deriv WebSocket account does not match the selected account.");
   }
-  const id = reqId++;
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      off();
-      reject(new Error("Deriv request timed out"));
-    }, 15000);
-    const off = onMessage((msg) => {
-      if (msg.req_id === id) {
-        clearTimeout(timeoutId);
-        off();
-        if (msg.error) reject(derivMessageError(msg.error));
-        else resolve(msg);
-      }
-    });
-    ws.send(JSON.stringify({ ...payload, req_id: id }));
-  });
+  return sendSocketPayload(ws, payload);
 }
 
 export async function subscribeTicks(
@@ -1789,6 +1998,7 @@ export function disconnectAll(): void {
   if (!isBrowser) return;
   activeSubs.clear();
   authenticatedAccount = null;
+  clearConfirmedTradingSession("disconnect-all");
   stopKeepalive();
   if (socket) {
     try {
@@ -1828,6 +2038,15 @@ function safeParseUrl(url: string) {
   } catch {
     return null;
   }
+}
+
+export function sanitizeDerivOAuthUrl(url: string) {
+  const parsed = safeParseUrl(url);
+  if (!parsed) return "(invalid-url)";
+  for (const param of ["state", "code_challenge"]) {
+    if (parsed.searchParams.has(param)) parsed.searchParams.set(param, "[redacted]");
+  }
+  return parsed.toString();
 }
 
 function oauthDebugEnabled() {
@@ -2218,9 +2437,11 @@ export function redirectToDerivOAuth(url: string) {
     scopeTokens: diagnostics.scopeTokens,
     hasRequiredScopes: diagnostics.scopeHasTrade && diagnostics.scopeHasAccountManage,
     app_id_param: diagnostics.appId ?? "(not included)",
-    finalOAuthUrl: url,
+    sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
   });
-  logOAuthDebug("[Deriv OAuth Debug] Exact final URL before redirect", url);
+  logOAuthDebug("[Deriv OAuth Debug] Sanitized final URL before redirect", {
+    sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
+  });
   logOAuthDebug("[Deriv OAuth Debug] Final URL diagnostics before redirect", diagnostics);
   console.info("[Deriv OAuth] Redirecting to authorization endpoint", {
     endpoint: diagnostics.endpoint,
@@ -2228,7 +2449,7 @@ export function redirectToDerivOAuth(url: string) {
     app_id_param: diagnostics.appId ?? "(not included)",
     redirect_uri: diagnostics.decodedRedirectUri,
     scope: diagnostics.scopes,
-    finalOAuthUrl: url,
+    sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
     forbiddenMarkers: diagnostics.forbiddenMarkers,
   });
   sessionStorage.setItem("deriv_oauth_last_authorization_url", url);
@@ -2356,15 +2577,17 @@ export async function buildOAuthUrl(
     scopeTokens: diagnostics.scopeTokens,
     hasRequiredScopes: diagnostics.scopeHasTrade && diagnostics.scopeHasAccountManage,
     prompt: prompt ?? "standard-login",
-    finalOAuthUrl: url,
+    sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
     stateStored: sessionStorage.getItem("deriv_oauth_state") === state,
     codeVerifierStored: sessionStorage.getItem("deriv_code_verifier") === codeVerifier,
     returnTo: sessionStorage.getItem("deriv_oauth_return_to"),
   });
-  logOAuthDebug("[Deriv OAuth Debug] Exact final authorization URL", url);
+  logOAuthDebug("[Deriv OAuth Debug] Sanitized final authorization URL", {
+    sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
+  });
   logOAuthDebug("[Deriv OAuth Debug] Authorization diagnostics", {
     attemptId,
-    finalOAuthUrl: url,
+    sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
     endpoint: DERIV_OAUTH_ENDPOINT,
     client_id: DERIV_CLIENT_ID,
     app_id_param: diagnostics.appId ?? "(not included)",
@@ -2387,7 +2610,7 @@ export async function buildOAuthUrl(
     redirect_uri: diagnostics.decodedRedirectUri,
     scope: diagnostics.scopes,
     prompt: prompt ?? "standard-login",
-    finalOAuthUrl: url,
+    sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
     forbiddenMarkers: diagnostics.forbiddenMarkers,
   });
   return url;

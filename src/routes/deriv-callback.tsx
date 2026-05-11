@@ -7,7 +7,9 @@ import {
   DERIV_REDIRECT_URI_VALUE,
   adapterForTokenSource,
   clearDerivOAuthPkceBackup,
+  ensureDerivTradingConnection,
   getDerivOAuthPkceBackupSummary,
+  getDerivTradingErrorMessage,
   readDerivOAuthPkceBackup,
   readDerivOAuthTrace,
   recordDerivOAuthTrace,
@@ -768,8 +770,80 @@ function DerivCallback() {
           tradingAdapterStorageKey: tradingAdapterStorageKey(sessionUser.id, selectedAccountId),
           tradePreconnectRequested: false,
           reason:
-            "Callback only persists the OAuth session. Trading readiness is prepared lazily from trading pages/actions.",
+            "Callback persists the OAuth session and immediately verifies trading readiness; trading pages still re-check before sending orders.",
         });
+        let initialTradingAuthorized = false;
+        let initialTradingAuthorizedAt: string | null = null;
+        try {
+          markStage("trading session initialization started", {
+            selectedAccountId,
+            selectedAccountType: primary.normalizedType,
+            token_source: tokenSource,
+            adapter: tradingAdapter,
+            websocketMode: tradingWebSocketMode(tokenSource),
+            reason:
+              "Callback verifies that the OAuth access token can initialize the OTP authenticated trading WebSocket before any trade is allowed.",
+          });
+          const initializedTradingSession = await ensureDerivTradingConnection(
+            {
+              ...primary,
+              account_id: selectedAccountId,
+              loginid: selectedAccountId,
+              deriv_token: selectedAccessToken,
+              token_source: tokenSource,
+              expires_at: expiresAt,
+              created_at: connectedAt,
+            },
+            { context: "deriv-callback-initial-trading-session" },
+          );
+          initialTradingAuthorized = true;
+          initialTradingAuthorizedAt = new Date().toISOString();
+          markStage("trading session initialization success", {
+            selectedAccountId,
+            selectedAccountType: primary.normalizedType,
+            token_source: initializedTradingSession.token_source,
+            adapter: initializedTradingSession.adapter,
+            websocketMode: initializedTradingSession.websocketMode,
+          });
+          recordDerivOAuthTrace("oauth-trading-session-initialized", {
+            selectedAccountId,
+            selectedAccountType: primary.normalizedType,
+            token_source: initializedTradingSession.token_source,
+            adapter: initializedTradingSession.adapter,
+            websocketMode: initializedTradingSession.websocketMode,
+          });
+        } catch (tradingInitializationError) {
+          const tradingInitializationMessage = getDerivTradingErrorMessage(
+            tradingInitializationError,
+          );
+          markStage("trading session initialization failure", {
+            selectedAccountId,
+            selectedAccountType: primary.normalizedType,
+            token_source: tokenSource,
+            adapter: tradingAdapter,
+            websocketMode: tradingWebSocketMode(tokenSource),
+            failureReason: tradingInitializationMessage,
+            code:
+              tradingInitializationError instanceof Error
+                ? (tradingInitializationError as Error & { code?: string }).code
+                : null,
+          });
+          recordDerivOAuthTrace("oauth-trading-session-initialization-failed", {
+            selectedAccountId,
+            selectedAccountType: primary.normalizedType,
+            token_source: tokenSource,
+            adapter: tradingAdapter,
+            websocketMode: tradingWebSocketMode(tokenSource),
+            failureReason: tradingInitializationMessage,
+          });
+          if (
+            tradingInitializationError instanceof Error &&
+            (tradingInitializationError as Error & { code?: string }).code ===
+              "DERIV_SESSION_EXPIRED"
+          ) {
+            throw tradingInitializationError;
+          }
+        }
         window.dispatchEvent(
           new CustomEvent("deriv:sessions-updated", {
             detail: {
@@ -779,8 +853,8 @@ function DerivCallback() {
               tokenSource,
               adapter: adapterForTokenSource(tokenSource),
               websocketMode: tradingWebSocketMode(tokenSource),
-              trading_authorized: false,
-              trading_authorized_at: null,
+              trading_authorized: initialTradingAuthorized,
+              trading_authorized_at: initialTradingAuthorizedAt,
             },
           }),
         );

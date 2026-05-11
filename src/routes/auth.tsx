@@ -11,6 +11,7 @@ import {
   readDerivOAuthTrace,
   recordDerivOAuthTrace,
   redirectToDerivOAuth,
+  sanitizeDerivOAuthUrl,
   type DerivOAuthRedirectFailure,
   type DerivOAuthDiagnostics,
 } from "@/lib/deriv";
@@ -104,8 +105,17 @@ function AuthPage() {
       });
       const diagnostics = getDerivOAuthDiagnostics(url);
       if (showOAuthDebug) {
-        console.info("[Deriv OAuth Debug] Exact final URL before redirect", url);
-        console.info("[Deriv OAuth Debug] OAuth diagnostics", diagnostics);
+        console.info("[Deriv OAuth Debug] Sanitized final URL before redirect", {
+          sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
+        });
+        console.info("[Deriv OAuth Debug] OAuth diagnostics", {
+          ...diagnostics,
+          finalUrl: sanitizeDerivOAuthUrl(diagnostics.finalUrl),
+          state: diagnostics.state ? `${diagnostics.state.slice(0, 8)}...` : "",
+          codeChallenge: diagnostics.codeChallenge
+            ? `${diagnostics.codeChallenge.slice(0, 12)}...`
+            : "",
+        });
         setDebugUrl(url);
         setOauthDiagnostics(diagnostics);
       } else {
@@ -141,8 +151,17 @@ function AuthPage() {
     try {
       console.info("[Deriv OAuth Debug] Redirecting to exact URL", debugUrl);
       recordDerivOAuthTrace("oauth-debug-continue-clicked", {
-        finalOAuthUrl: debugUrl,
-        diagnostics: oauthDiagnostics,
+        sanitizedOAuthUrl: sanitizeDerivOAuthUrl(debugUrl),
+        diagnostics: oauthDiagnostics
+          ? {
+              ...oauthDiagnostics,
+              finalUrl: sanitizeDerivOAuthUrl(oauthDiagnostics.finalUrl),
+              state: oauthDiagnostics.state ? `${oauthDiagnostics.state.slice(0, 8)}...` : "",
+              codeChallenge: oauthDiagnostics.codeChallenge
+                ? `${oauthDiagnostics.codeChallenge.slice(0, 12)}...`
+                : "",
+            }
+          : null,
       });
       redirectToDerivOAuth(debugUrl);
     } catch (error) {
