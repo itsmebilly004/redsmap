@@ -8,7 +8,6 @@ import {
   type DerivAccountLike,
 } from "@/lib/deriv-account";
 
-const DERIV_APP_ID = import.meta.env.VITE_DERIV_APP_ID;
 const DERIV_CLIENT_ID = import.meta.env.VITE_DERIV_CLIENT_ID;
 const DERIV_LEGACY_APP_ID = String(import.meta.env.VITE_DERIV_LEGACY_APP_ID ?? "").trim();
 const DERIV_REDIRECT_URI =
@@ -34,7 +33,6 @@ export const DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE =
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
 const TRADING_AUTHORIZATION_FRESH_MS = 10 * 60 * 1000;
 
-export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
 export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
 export const DERIV_LEGACY_APP_ID_VALUE = DERIV_LEGACY_APP_ID;
 export const DERIV_REDIRECT_URI_VALUE = DERIV_REDIRECT_URI;
@@ -991,7 +989,7 @@ function numericDerivAppId(...ids: Array<string | undefined>) {
 }
 
 function legacyTradingWsUrl() {
-  const appId = numericDerivAppId(DERIV_LEGACY_APP_ID, DERIV_APP_ID, "1089");
+  const appId = numericDerivAppId(DERIV_LEGACY_APP_ID, "1089");
   return `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`;
 }
 
@@ -2256,13 +2254,7 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
     throw new Error("Blocked legacy Deriv OAuth URL");
   }
   if (parsed.searchParams.has("app_id")) {
-    const appId = parsed.searchParams.get("app_id");
-    if (!isNumericLegacyAppId(appId)) {
-      throw new Error("Invalid Deriv OAuth URL. app_id must be the numeric legacy V1 app ID.");
-    }
-    if (appId === parsed.searchParams.get("client_id")) {
-      throw new Error("Invalid Deriv OAuth URL. app_id must not be the OAuth client_id.");
-    }
+    throw new Error("Invalid Deriv OAuth URL. app_id is not allowed in the OAuth2 PKCE flow.");
   }
   if (!parsed.searchParams.get("client_id")) {
     throw new Error("Invalid Deriv OAuth URL. Authorization URL must include client_id.");
@@ -2301,7 +2293,7 @@ export function redirectToDerivOAuth(url: string) {
   console.info("[Deriv OAuth] Redirecting to authorization endpoint", {
     endpoint: diagnostics.endpoint,
     client_id: diagnostics.clientId,
-    legacy_app_id: diagnostics.appId ?? "(not configured)",
+    app_id_included: diagnostics.hasAppId,
     redirect_uri: diagnostics.decodedRedirectUri,
     scope: diagnostics.scopes,
     finalOAuthUrl: url,
@@ -2360,15 +2352,6 @@ export async function buildOAuthUrl(
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
-  if (DERIV_LEGACY_APP_ID) {
-    if (!isNumericLegacyAppId(DERIV_LEGACY_APP_ID)) {
-      throw new Error("Invalid VITE_DERIV_LEGACY_APP_ID. It must be a numeric legacy V1 app ID.");
-    }
-    if (DERIV_LEGACY_APP_ID === DERIV_CLIENT_ID) {
-      throw new Error("Invalid VITE_DERIV_LEGACY_APP_ID. It must not equal VITE_DERIV_CLIENT_ID.");
-    }
-    params.set("app_id", DERIV_LEGACY_APP_ID);
-  }
   // The provider handles the login and consent screens. `prompt` is only
   // documented for signup, where it must be `registration`.
   const prompt = options.mode === "signup" ? "registration" : undefined;
@@ -2400,8 +2383,8 @@ export async function buildOAuthUrl(
     throw new Error("Invalid Deriv OAuth URL. Authorization URL must include client_id.");
   }
   const diagnostics = getDerivOAuthDiagnostics(url);
-  if (diagnostics.hasAppId && (!diagnostics.appIdIsLegacyNumeric || diagnostics.appIdLooksLikeClientId)) {
-    throw new Error("Invalid Deriv OAuth URL. app_id must be the numeric legacy V1 app ID.");
+  if (diagnostics.hasAppId) {
+    throw new Error("Invalid Deriv OAuth URL. app_id is not allowed in the OAuth2 PKCE flow.");
   }
   logOAuthDebug("[Deriv OAuth Debug] Exact final authorization URL", url);
   logOAuthDebug("[Deriv OAuth Debug] Authorization diagnostics", {
@@ -2409,9 +2392,8 @@ export async function buildOAuthUrl(
     finalOAuthUrl: url,
     endpoint: DERIV_OAUTH_ENDPOINT,
     client_id: DERIV_CLIENT_ID,
-    legacy_app_id: DERIV_LEGACY_APP_ID || "(not configured)",
     clientIdExists: Boolean(DERIV_CLIENT_ID),
-    legacyAppIdExists: Boolean(DERIV_LEGACY_APP_ID),
+    appIdIncluded: false,
     redirect_uri: DERIV_REDIRECT_URI,
     scopes: DERIV_SCOPE,
     prompt: prompt ?? "standard-login",
@@ -2425,7 +2407,7 @@ export async function buildOAuthUrl(
     attemptId,
     endpoint: diagnostics.endpoint,
     client_id: diagnostics.clientId,
-    legacy_app_id: diagnostics.appId ?? "(not configured)",
+    app_id_included: diagnostics.hasAppId,
     redirect_uri: diagnostics.decodedRedirectUri,
     scope: diagnostics.scopes,
     prompt: prompt ?? "standard-login",
@@ -2503,7 +2485,6 @@ export async function getAuthenticatedWsUrl(
     tokenExists: Boolean(accessToken),
     supabaseJwtExists: Boolean(supabaseAccessToken),
     oauthClientIdHint: DERIV_CLIENT_ID ? `${DERIV_CLIENT_ID.slice(0, 4)}...` : null,
-    oauthAppIdHint: DERIV_APP_ID ? `${DERIV_APP_ID.slice(0, 4)}...` : null,
   });
 
   const response = await fetch("/api/deriv-account-otp", {
@@ -2515,7 +2496,6 @@ export async function getAuthenticatedWsUrl(
       appIdMode,
       tokenSource,
       oauthClientId: DERIV_CLIENT_ID ?? "",
-      oauthAppId: DERIV_APP_ID ?? "",
     }),
   });
   const contentType = response.headers.get("content-type") ?? "";

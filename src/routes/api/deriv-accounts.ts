@@ -13,7 +13,6 @@ type DerivAccountsRequest = {
   appIdMode?: "oauth" | "legacy";
   legacyAccounts?: LegacyDerivAccountInput[];
   oauthClientId?: string;
-  oauthAppId?: string;
 };
 type AppIdCandidate = { value: string; source: string };
 
@@ -57,12 +56,12 @@ type DerivWebSocketSnapshot = {
   balance: DerivRpcMessage;
 };
 
-function isLegacyNumericAppId(value: unknown) {
+function isNumericAppId(value: unknown) {
   const text = String(value ?? "").trim();
   return Boolean(text) && /^\d+$/.test(text);
 }
 
-function addAppIdCandidate(
+function addDerivAppIdCandidate(
   candidates: AppIdCandidate[],
   value: unknown,
   source: string,
@@ -72,45 +71,52 @@ function addAppIdCandidate(
   candidates.push({ value: text, source });
 }
 
-function oauthAppIdCandidates(
-  requestHints?: Pick<DerivAccountsRequest, "oauthClientId" | "oauthAppId">,
+function oauthClientIdCandidates(
+  requestHints?: Pick<DerivAccountsRequest, "oauthClientId">,
 ) {
   const candidates: AppIdCandidate[] = [];
-  addAppIdCandidate(candidates, requestHints?.oauthClientId, "request.oauthClientId");
-  if (requestHints?.oauthAppId && !isLegacyNumericAppId(requestHints.oauthAppId)) {
-    addAppIdCandidate(candidates, requestHints.oauthAppId, "request.oauthAppId");
-  }
-  addAppIdCandidate(candidates, process.env.VITE_DERIV_CLIENT_ID, "VITE_DERIV_CLIENT_ID");
-  if (process.env.VITE_DERIV_APP_ID && !isLegacyNumericAppId(process.env.VITE_DERIV_APP_ID)) {
-    addAppIdCandidate(candidates, process.env.VITE_DERIV_APP_ID, "VITE_DERIV_APP_ID");
-  }
+  addDerivAppIdCandidate(candidates, requestHints?.oauthClientId, "request.oauthClientId");
+  addDerivAppIdCandidate(candidates, process.env.VITE_DERIV_CLIENT_ID, "VITE_DERIV_CLIENT_ID");
   return candidates;
+}
+
+function legacyAppIdCandidate() {
+  const configuredLegacyAppId = String(process.env.VITE_DERIV_LEGACY_APP_ID ?? "").trim();
+  if (isNumericAppId(configuredLegacyAppId)) {
+    return {
+      value: configuredLegacyAppId,
+      source: "VITE_DERIV_LEGACY_APP_ID",
+    } satisfies AppIdCandidate;
+  }
+  return {
+    value: "1089",
+    source: configuredLegacyAppId
+      ? "invalid:VITE_DERIV_LEGACY_APP_ID->default:1089"
+      : "default:1089",
+  } satisfies AppIdCandidate;
 }
 
 function derivApiAppId(
   mode: DerivAccountsRequest["appIdMode"] = "oauth",
-  requestHints?: Pick<DerivAccountsRequest, "oauthClientId" | "oauthAppId">,
+  requestHints?: Pick<DerivAccountsRequest, "oauthClientId">,
 ) {
-  const oauthAppId = oauthAppIdCandidates(requestHints)[0]?.value ?? "";
-  const legacyAppId = process.env.VITE_DERIV_LEGACY_APP_ID ?? process.env.VITE_DERIV_APP_ID ?? "";
-  return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId;
+  return mode === "legacy"
+    ? legacyAppIdCandidate().value
+    : oauthClientIdCandidates(requestHints)[0]?.value ?? "";
 }
 
 function derivApiAppIdSource(
   mode: DerivAccountsRequest["appIdMode"] = "oauth",
-  requestHints?: Pick<DerivAccountsRequest, "oauthClientId" | "oauthAppId">,
+  requestHints?: Pick<DerivAccountsRequest, "oauthClientId">,
 ) {
-  const hasOAuthAppId = oauthAppIdCandidates(requestHints).length > 0;
-  const hasLegacyAppId = Boolean(process.env.VITE_DERIV_LEGACY_APP_ID);
+  const hasOAuthClientId = oauthClientIdCandidates(requestHints).length > 0;
   if (mode === "legacy") {
-    if (hasLegacyAppId) return "VITE_DERIV_LEGACY_APP_ID";
-    if (process.env.VITE_DERIV_APP_ID) return "VITE_DERIV_APP_ID";
-    return process.env.VITE_DERIV_CLIENT_ID ? "VITE_DERIV_CLIENT_ID" : "missing:VITE_DERIV_LEGACY_APP_ID";
+    return legacyAppIdCandidate().source;
   }
-  if (hasOAuthAppId) {
-    return oauthAppIdCandidates(requestHints)[0]?.source ?? "unknown";
+  if (hasOAuthClientId) {
+    return oauthClientIdCandidates(requestHints)[0]?.source ?? "unknown";
   }
-  return "missing:VITE_DERIV_CLIENT_ID_OR_VITE_DERIV_APP_ID";
+  return "missing:VITE_DERIV_CLIENT_ID";
 }
 
 function errorMessage(data: DerivAccountsResponse) {
@@ -642,31 +648,29 @@ export const Route = createFileRoute("/api/deriv-accounts")({
             appIdMode = "oauth",
             legacyAccounts = [],
             oauthClientId,
-            oauthAppId,
           } = (await request.json()) as DerivAccountsRequest;
           const appIdHints = {
             oauthClientId,
-            oauthAppId,
-          } satisfies Pick<DerivAccountsRequest, "oauthClientId" | "oauthAppId">;
+          } satisfies Pick<DerivAccountsRequest, "oauthClientId">;
+          const resolvedAppIdMode = legacyAccounts.length ? "legacy" : appIdMode;
           console.log("[Deriv Accounts API] request received", {
             hasAccessToken: Boolean(accessToken),
-            appIdMode,
+            appIdMode: resolvedAppIdMode,
             legacyAccountCount: legacyAccounts.length,
             oauthClientIdHint: oauthClientId ? `${oauthClientId.slice(0, 4)}...` : null,
-            oauthAppIdHint: oauthAppId ? `${oauthAppId.slice(0, 4)}...` : null,
           });
           if (!accessToken && !legacyAccounts.length) {
             return Response.json({ error: "Missing Deriv access token" }, { status: 400 });
           }
 
-          const oauthCandidates = oauthAppIdCandidates(appIdHints);
+          const oauthCandidates = oauthClientIdCandidates(appIdHints);
           const appId =
-            appIdMode === "legacy"
+            resolvedAppIdMode === "legacy"
               ? derivApiAppId("legacy", appIdHints)
               : oauthCandidates[0]?.value ?? "";
           if (!appId) {
-            console.error("[Deriv Accounts API] missing Deriv App ID");
-            return Response.json({ error: "Missing Deriv App ID" }, { status: 400 });
+            console.error("[Deriv Accounts API] missing Deriv OAuth client_id");
+            return Response.json({ error: "Missing Deriv OAuth client_id" }, { status: 400 });
           }
 
           if (legacyAccounts.length) {
@@ -736,9 +740,9 @@ export const Route = createFileRoute("/api/deriv-accounts")({
             method: "GET",
             hasAccessToken: Boolean(accessToken),
             appId,
-            appIdMode,
-            appIdSource: derivApiAppIdSource(appIdMode, appIdHints),
-            oauthAppIdCandidates: oauthCandidates.map((candidate) => candidate.source),
+            appIdMode: resolvedAppIdMode,
+            appIdSource: derivApiAppIdSource(resolvedAppIdMode, appIdHints),
+            oauthClientIdCandidates: oauthCandidates.map((candidate) => candidate.source),
           });
           const {
             response: accountsResponse,

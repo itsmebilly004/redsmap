@@ -9,7 +9,6 @@ type DerivAccountOtpRequest = {
   appIdMode?: "oauth" | "legacy";
   tokenSource?: "oauth_access_token" | "legacy_authorize_token";
   oauthClientId?: string;
-  oauthAppId?: string;
 };
 
 type TokenSource = NonNullable<DerivAccountOtpRequest["tokenSource"]>;
@@ -34,12 +33,12 @@ const DERIV_SESSION_EXPIRED = "DERIV_SESSION_EXPIRED";
 const RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
 
-function isLegacyNumericAppId(value: unknown) {
+function isNumericAppId(value: unknown) {
   const text = String(value ?? "").trim();
   return Boolean(text) && /^\d+$/.test(text);
 }
 
-function addAppIdCandidate(
+function addDerivAppIdCandidate(
   candidates: AppIdCandidate[],
   value: unknown,
   source: string,
@@ -49,45 +48,50 @@ function addAppIdCandidate(
   candidates.push({ value: text, source });
 }
 
-function oauthAppIdCandidates(
-  requestHints?: Pick<DerivAccountOtpRequest, "oauthClientId" | "oauthAppId">,
+function oauthClientIdCandidates(
+  requestHints?: Pick<DerivAccountOtpRequest, "oauthClientId">,
 ) {
-  const clientId = String(process.env.VITE_DERIV_CLIENT_ID ?? "").trim();
-  const appId = String(process.env.VITE_DERIV_APP_ID ?? "").trim();
   const candidates: AppIdCandidate[] = [];
-  addAppIdCandidate(candidates, requestHints?.oauthClientId, "request.oauthClientId");
-  if (requestHints?.oauthAppId && !isLegacyNumericAppId(requestHints.oauthAppId)) {
-    addAppIdCandidate(candidates, requestHints.oauthAppId, "request.oauthAppId");
-  }
-  addAppIdCandidate(candidates, clientId, "VITE_DERIV_CLIENT_ID");
-  if (appId && !isLegacyNumericAppId(appId)) {
-    addAppIdCandidate(candidates, appId, "VITE_DERIV_APP_ID");
-  }
+  addDerivAppIdCandidate(candidates, requestHints?.oauthClientId, "request.oauthClientId");
+  addDerivAppIdCandidate(candidates, process.env.VITE_DERIV_CLIENT_ID, "VITE_DERIV_CLIENT_ID");
   return candidates;
+}
+
+function legacyAppIdCandidate() {
+  const configuredLegacyAppId = String(process.env.VITE_DERIV_LEGACY_APP_ID ?? "").trim();
+  if (isNumericAppId(configuredLegacyAppId)) {
+    return {
+      value: configuredLegacyAppId,
+      source: "VITE_DERIV_LEGACY_APP_ID",
+    } satisfies AppIdCandidate;
+  }
+  return {
+    value: "1089",
+    source: configuredLegacyAppId
+      ? "invalid:VITE_DERIV_LEGACY_APP_ID->default:1089"
+      : "default:1089",
+  } satisfies AppIdCandidate;
 }
 
 function derivApiAppId(
   mode: DerivAccountOtpRequest["appIdMode"] = "oauth",
-  requestHints?: Pick<DerivAccountOtpRequest, "oauthClientId" | "oauthAppId">,
+  requestHints?: Pick<DerivAccountOtpRequest, "oauthClientId">,
 ) {
-  const oauthAppId = oauthAppIdCandidates(requestHints)[0]?.value ?? "";
-  const legacyAppId = process.env.VITE_DERIV_LEGACY_APP_ID ?? process.env.VITE_DERIV_APP_ID ?? "";
-  return mode === "legacy" ? legacyAppId || oauthAppId : oauthAppId;
+  return mode === "legacy"
+    ? legacyAppIdCandidate().value
+    : oauthClientIdCandidates(requestHints)[0]?.value ?? "";
 }
 
 function derivApiAppIdSource(
   mode: DerivAccountOtpRequest["appIdMode"] = "oauth",
-  requestHints?: Pick<DerivAccountOtpRequest, "oauthClientId" | "oauthAppId">,
+  requestHints?: Pick<DerivAccountOtpRequest, "oauthClientId">,
 ) {
-  const oauthCandidates = oauthAppIdCandidates(requestHints);
-  const hasLegacyAppId = Boolean(process.env.VITE_DERIV_LEGACY_APP_ID);
+  const oauthCandidates = oauthClientIdCandidates(requestHints);
   if (mode === "legacy") {
-    if (hasLegacyAppId) return "VITE_DERIV_LEGACY_APP_ID";
-    if (process.env.VITE_DERIV_APP_ID) return "VITE_DERIV_APP_ID";
-    return process.env.VITE_DERIV_CLIENT_ID ? "VITE_DERIV_CLIENT_ID" : "missing:VITE_DERIV_LEGACY_APP_ID";
+    return legacyAppIdCandidate().source;
   }
   if (oauthCandidates.length) return oauthCandidates[0].source;
-  return "missing:VITE_DERIV_CLIENT_ID_OR_VITE_DERIV_APP_ID";
+  return "missing:VITE_DERIV_CLIENT_ID";
 }
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
@@ -204,11 +208,7 @@ function numericAppId(...ids: Array<string | undefined>) {
 }
 
 function legacyWsUrl() {
-  const appId = numericAppId(
-    process.env.VITE_DERIV_LEGACY_APP_ID,
-    process.env.VITE_DERIV_APP_ID,
-    "1089",
-  );
+  const appId = numericAppId(process.env.VITE_DERIV_LEGACY_APP_ID, "1089");
   return `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`;
 }
 
@@ -356,7 +356,7 @@ async function requestOAuthOtp({
   authMode: "supabase-session" | "oauth-token-only";
   authenticatedUserId?: string | null;
   supabaseClient?: ReturnType<typeof createRouteSupabase> | null;
-  appIdHints?: Pick<DerivAccountOtpRequest, "oauthClientId" | "oauthAppId">;
+  appIdHints?: Pick<DerivAccountOtpRequest, "oauthClientId">;
   selectedAccountType: string;
   storedToken: string;
   tokenSourceLabel?: string;
@@ -364,9 +364,9 @@ async function requestOAuthOtp({
 }) {
   const appId = derivApiAppId("oauth", appIdHints);
   if (!appId) {
-    return errorResponse("DERIV_APP_ID_MISSING", "Missing Deriv App ID.", 500);
+    return errorResponse("DERIV_APP_ID_MISSING", "Missing Deriv OAuth client_id.", 500);
   }
-  const appIdCandidates = oauthAppIdCandidates(appIdHints);
+  const appIdCandidates = oauthClientIdCandidates(appIdHints);
   const primaryAppIdCandidate: AppIdCandidate = appIdCandidates[0] ?? {
     value: appId,
     source: derivApiAppIdSource("oauth", appIdHints),
@@ -644,7 +644,6 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
             appIdMode = "oauth",
             tokenSource,
             oauthClientId,
-            oauthAppId,
           } =
             await requestBody(request);
           if (!accountId) {
@@ -671,8 +670,7 @@ export const Route = createFileRoute("/api/deriv-account-otp")({
           const requestTokenSource: TokenSource = tokenSource;
           const appIdHints = {
             oauthClientId,
-            oauthAppId,
-          } satisfies Pick<DerivAccountOtpRequest, "oauthClientId" | "oauthAppId">;
+          } satisfies Pick<DerivAccountOtpRequest, "oauthClientId">;
           const finalAppIdMode: AppIdMode =
             requestTokenSource === "legacy_authorize_token" ? "legacy" : "oauth";
           const canUseOAuthTokenOnly =
