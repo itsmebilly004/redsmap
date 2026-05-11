@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
+import { TopShell } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,23 +37,18 @@ import { toast } from "sonner";
 import {
   BarChart3,
   Blocks,
-  Bot,
-  BookOpen,
   ChevronDown,
   ChevronRight,
-  CircleDot,
   CloudCheck,
   Copy,
   DollarSign,
   Download,
-  Expand,
   FileJson,
   FolderOpen,
-  Gift,
   GripVertical,
   Info,
-  LayoutDashboard,
   Maximize2,
+  Minimize2,
   PanelLeftClose,
   PanelLeftOpen,
   Play,
@@ -67,11 +63,7 @@ import {
   Square,
   Trash2,
   Undo2,
-  Upload,
-  Users,
   Wallet,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -148,16 +140,6 @@ const BLOCK_MENU = [
   { id: "utility", title: "Utility", blocks: ["Variables", "Logic", "Notifications"] },
 ];
 
-const NAV_TABS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/bot-builder", label: "Bot Builder", icon: Bot, active: true },
-  { href: "/charts", label: "Charts", icon: BarChart3 },
-  { href: "/strategies", label: "Tutorials", icon: BookOpen },
-  { href: "/copy-trading", label: "Copy Trading", icon: Users },
-  { href: "/analysis", label: "DCircles", icon: CircleDot },
-  { href: "/trading-bots", label: "Free Bots", icon: Gift },
-];
-
 const INITIAL_BLOCK_POSITIONS: Record<string, { x: number; y: number }> = {
   params: { x: 36, y: 40 },
   purchase: { x: 560, y: 42 },
@@ -177,6 +159,14 @@ const BLOCK_DIMENSIONS: Record<string, { height: number; width: number }> = {
 };
 
 type JournalEntry = { time: string; message: string; type: "info" | "success" | "error" };
+type BotStats = {
+  losses: number;
+  payout: number;
+  profit: number;
+  runs: number;
+  stake: number;
+  wins: number;
+};
 type BotBuilderSnapshot = {
   activeBlocks: string[];
   barrierOffset: string;
@@ -218,6 +208,8 @@ function BotBuilder() {
   const [draggingBlock, setDraggingBlock] = useState<string | null>(null);
   const [trashActive, setTrashActive] = useState(false);
   const [athenaEnabled, setAthenaEnabled] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [profitPanelCollapsed, setProfitPanelCollapsed] = useState(false);
   const [utcNow, setUtcNow] = useState(() => new Date());
 
   const [symbol, setSymbol] = useState("1HZ100V");
@@ -254,7 +246,7 @@ function BotBuilder() {
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [workspaceZoom, setWorkspaceZoom] = useState(1);
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<BotStats>({
     runs: 0,
     wins: 0,
     losses: 0,
@@ -904,479 +896,665 @@ function BotBuilder() {
     void document.documentElement.requestFullscreen?.();
   }
 
+  function setStakeAmount(value: number, message: string) {
+    const nextStake = Math.max(0.35, Number(value.toFixed(2)));
+    setInitialStake(nextStake);
+    setCurrentStake(nextStake);
+    toast.success(message);
+  }
+
+  function applyStakePercent(percent: number) {
+    const balance = Number(derivAccount?.balance ?? 0);
+    if (!Number.isFinite(balance) || balance <= 0) {
+      toast.error("No account balance available.");
+      return;
+    }
+    const nextStake = (balance * percent) / 100;
+    setStakeAmount(
+      nextStake,
+      `Stake set to ${percent}% (${Math.max(0.35, nextStake).toFixed(2)} ${
+        derivCurrency || "USD"
+      })`,
+    );
+  }
+
+  function showAnalysisBlock() {
+    addBlock("analysis");
+    setBlockPositions((positions) => ({
+      ...positions,
+      analysis: positions.analysis ?? INITIAL_BLOCK_POSITIONS.analysis,
+    }));
+    toast.success("Analysis block opened");
+  }
+
+  function openChartsPage() {
+    window.location.assign("/charts");
+  }
+
+  function toggleAthena() {
+    setAthenaEnabled((enabled) => {
+      const next = !enabled;
+      toast.message(next ? "Athena enabled" : "Athena disabled");
+      return next;
+    });
+  }
+
   return (
-    <div className="flex h-dvh min-w-0 flex-col overflow-hidden bg-[#f3f4f6] text-[#111827]">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-4 bg-[#1e3a8a] px-4 text-white shadow-sm">
-        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          {NAV_TABS.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <a
-                key={tab.label}
-                href={tab.href}
-                className={cn(
-                  "flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold text-white/90 transition hover:bg-white/10 hover:text-white",
-                  tab.active &&
-                    "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]",
-                )}
-              >
-                <Icon className="size-4" />
-                <span>{tab.label}</span>
-              </a>
-            );
-          })}
-        </nav>
-
-        <div className="flex shrink-0 items-center gap-3">
-          <Button
-            onClick={toggleBot}
-            className={cn(
-              "h-9 rounded-md px-4 text-sm font-bold text-white shadow-sm",
-              running ? "bg-[#dc2626] hover:bg-[#b91c1c]" : "bg-[#16a34a] hover:bg-[#15803d]",
-            )}
-          >
-            {running ? (
-              <Square className="mr-2 size-4 fill-current" />
-            ) : (
-              <Play className="mr-2 size-4 fill-current" />
-            )}
-            {running ? "Stop" : "Run"}
-          </Button>
-          <span className="rounded-full bg-white/12 px-3 py-1.5 text-xs font-semibold text-white/90 ring-1 ring-white/15">
-            {running ? "Bot is running" : "Bot is not running"}
-          </span>
-        </div>
-      </header>
-
-      <section className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-[#d6d8dc] bg-white px-4">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json,.xml"
-          className="hidden"
-          onChange={handleFileSelect}
-        />
-        <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-          <Button
-            onClick={quickStrategy}
-            className="h-8 shrink-0 rounded-full bg-[#0ea5e9] px-4 text-xs font-bold text-white shadow-sm hover:bg-[#0284c7]"
-          >
-            Quick strategy
-          </Button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]">
-                Tools <ChevronDown className="size-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-44 border-[#d6d8dc] bg-white text-[#111827] shadow-lg">
-              <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-                <FolderOpen className="size-4" /> Import
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void saveBotNow(true)}>
-                <Save className="size-4" /> Save
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={exportBot}>
-                <Download className="size-4" /> Export
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={undo} disabled={!undoStack.length}>
-                <Undo2 className="size-4" /> Undo
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={redo} disabled={!redoStack.length}>
-                <Redo2 className="size-4" /> Redo
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={resetWorkspace}>
-                <RotateCcw className="size-4" /> Reset stats
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <ToolbarPill icon={DollarSign} label="% Stake" />
-          <ToolbarPill icon={BarChart3} label="ChartLord" />
-          <ToolbarPill icon={FileJson} label="Strategy" />
-          <button
-            type="button"
-            onClick={() => setAthenaEnabled((value) => !value)}
-            className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]"
-          >
-            Athena
-            <span
-              className={cn(
-                "relative h-4 w-8 rounded-full transition",
-                athenaEnabled ? "bg-[#16a34a]" : "bg-[#cbd5e1]",
-              )}
+    <TopShell showAssistantButton={false}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#f3f4f6] text-[#111827]">
+        <section className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-[#d6d8dc] bg-white px-4">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,.xml"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+            <Button
+              onClick={quickStrategy}
+              className="h-8 shrink-0 rounded-full bg-[#0ea5e9] px-4 text-xs font-bold text-white shadow-sm hover:bg-[#0284c7]"
             >
+              Quick strategy
+            </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]">
+                  Tools <ChevronDown className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-44 border-[#d6d8dc] bg-white text-[#111827] shadow-lg">
+                <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                  <FolderOpen className="size-4" /> Import
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void saveBotNow(true)}>
+                  <Save className="size-4" /> Save
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={exportBot}>
+                  <Download className="size-4" /> Export
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={undo} disabled={!undoStack.length}>
+                  <Undo2 className="size-4" /> Undo
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={redo} disabled={!redoStack.length}>
+                  <Redo2 className="size-4" /> Redo
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={resetWorkspace}>
+                  <RotateCcw className="size-4" /> Reset stats
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <ToolbarPill icon={DollarSign} label="% Stake" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-48 border-[#d6d8dc] bg-white text-[#111827] shadow-lg">
+                <DropdownMenuItem onSelect={() => applyStakePercent(0.5)}>
+                  0.5% of balance
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => applyStakePercent(1)}>
+                  1% of balance
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => applyStakePercent(2)}>
+                  2% of balance
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setStakeAmount(1, `Stake reset to 1 ${derivCurrency || "USD"}`)}
+                >
+                  Fixed 1 {derivCurrency || "USD"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <ToolbarPill icon={BarChart3} label="ChartLord" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-48 border-[#d6d8dc] bg-white text-[#111827] shadow-lg">
+                <DropdownMenuItem onSelect={openChartsPage}>
+                  <BarChart3 className="size-4" /> Open charts
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={showAnalysisBlock}>
+                  <Blocks className="size-4" /> Show analysis block
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <ToolbarPill icon={FileJson} label="Strategy" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-64 border-[#d6d8dc] bg-white text-[#111827] shadow-lg">
+                <DropdownMenuItem onSelect={quickStrategy}>
+                  <Sparkles className="size-4" /> Quick strategy
+                </DropdownMenuItem>
+                {BOT_PRESETS.slice(0, 6).map((item) => (
+                  <DropdownMenuItem key={item.id} onSelect={() => loadPreset(item.id)}>
+                    {item.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              type="button"
+              onClick={toggleAthena}
+              className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]"
+            >
+              Athena
               <span
                 className={cn(
-                  "absolute top-0.5 size-3 rounded-full bg-white shadow transition",
-                  athenaEnabled ? "left-4" : "left-0.5",
+                  "relative h-4 w-8 rounded-full transition",
+                  athenaEnabled ? "bg-[#16a34a]" : "bg-[#cbd5e1]",
                 )}
-              />
-            </span>
-          </button>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2 rounded-full border border-[#d6d8dc] bg-[#f8fafc] px-3 py-1.5">
-          {saveStatus === "saving" ? (
-            <RefreshCw className="size-3.5 animate-spin text-[#2563eb]" />
-          ) : (
-            <CloudCheck className="size-3.5 text-[#16a34a]" />
-          )}
-          <span className="text-[11px] font-bold uppercase text-[#475569]">
-            {saveStatus === "saving" ? "Saving" : saveStatus === "saved" ? "Saved" : "Offline"}
-          </span>
-        </div>
-      </section>
-
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="flex w-[220px] shrink-0 flex-col border-r border-[#d6d8dc] bg-white">
-          <button
-            type="button"
-            onClick={() => setBlocksMenuCollapsed((value) => !value)}
-            className="flex h-11 items-center justify-between border-b border-[#e5e7eb] px-3 text-left text-sm font-bold text-[#111827]"
-          >
-            <span>Blocks menu</span>
-            {blocksMenuCollapsed ? (
-              <PanelLeftOpen className="size-4 text-[#64748b]" />
-            ) : (
-              <PanelLeftClose className="size-4 text-[#64748b]" />
-            )}
-          </button>
-
-          {!blocksMenuCollapsed && (
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#94a3b8]" />
-                <Input
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search"
-                  className="h-9 rounded-md border-[#d6d8dc] bg-[#f8fafc] pl-9 text-sm text-[#111827] placeholder:text-[#94a3b8]"
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 size-3 rounded-full bg-white shadow transition",
+                    athenaEnabled ? "left-4" : "left-0.5",
+                  )}
                 />
-              </div>
-
-              <div className="space-y-1">
-                {filteredMenu.map((group) => {
-                  const expandable = group.blocks.length > 0;
-                  const active = activeBlocks.includes(group.id);
-                  return (
-                    <div key={group.id} className="overflow-hidden rounded-md">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          expandable
-                            ? setOpenMenu(openMenu === group.id ? "" : group.id)
-                            : addBlock(group.id)
-                        }
-                        className={cn(
-                          "flex w-full items-center justify-between px-3 py-2 text-left text-sm font-semibold text-[#334155] hover:bg-[#f1f5f9]",
-                          active && "bg-[#e0f2fe] text-[#075985]",
-                        )}
-                      >
-                        <span className="truncate">{group.title}</span>
-                        {expandable ? (
-                          <ChevronRight
-                            className={cn(
-                              "size-4 shrink-0 transition-transform",
-                              openMenu === group.id && "rotate-90",
-                            )}
-                          />
-                        ) : (
-                          <Plus className="size-4 shrink-0" />
-                        )}
-                      </button>
-                      {expandable && openMenu === group.id && (
-                        <div className="space-y-1 bg-[#f8fafc] p-2">
-                          {group.blocks.map((block) => (
-                            <button
-                              key={block}
-                              type="button"
-                              onClick={() => addBlock(group.id)}
-                              className="flex w-full items-center justify-between rounded border border-[#e2e8f0] bg-white px-2 py-1.5 text-left text-xs font-medium text-[#475569] hover:border-[#38bdf8]"
-                            >
-                              <span>{block}</span>
-                              <Plus className="size-3.5 text-[#0284c7]" />
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </aside>
-
-        <main className="relative min-w-0 flex-1 overflow-auto bg-[#f3f4f6]">
-          <div
-            ref={workspaceRef}
-            className="relative"
-            style={{ height: workspaceSize.height, width: workspaceSize.width }}
-          >
-            <div className="absolute inset-0 opacity-70 [background-image:linear-gradient(#e5e7eb_1px,transparent_1px),linear-gradient(90deg,#e5e7eb_1px,transparent_1px)] [background-size:28px_28px]" />
-
-            {activeBlocks.includes("params") && (
-              <WorkspaceBlock
-                id="params"
-                isDragging={draggingBlock === "params"}
-                onDragStart={startBlockDrag}
-                onRemove={() => removeBlock("params")}
-                position={getBlockPosition("params")}
-                title="1. Trade parameters"
-                width={BLOCK_DIMENSIONS.params.width}
-              >
-                <div className="space-y-3">
-                  <Field label="Market">
-                    <div className="flex flex-wrap gap-2">
-                      <InlineSelect
-                        value="derived"
-                        options={["derived"]}
-                        labels={{ derived: "Derived" }}
-                      />
-                      <InlineSelect
-                        value="continuous"
-                        options={["continuous"]}
-                        labels={{ continuous: "Continuous Indices" }}
-                      />
-                      <InlineSelect
-                        value={symbol}
-                        options={Object.keys(MARKETS)}
-                        onChange={setSymbol}
-                      />
-                    </div>
-                  </Field>
-                  <Field label="Trade Type">
-                    <div className="flex flex-wrap gap-2">
-                      <InlineSelect
-                        value="up_down"
-                        options={["up_down"]}
-                        labels={{ up_down: "Up/Down" }}
-                      />
-                      <InlineSelect
-                        value={tradeType}
-                        options={Object.keys(TRADE_TYPE_LABELS)}
-                        labels={TRADE_TYPE_LABELS}
-                        onChange={(value) => setTradeType(value as TradeCategory)}
-                      />
-                    </div>
-                  </Field>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Contract Type">
-                      <InlineSelect value="both" options={["both"]} labels={{ both: "Both" }} />
-                    </Field>
-                    <Field label="Default Candle Interval">
-                      <InlineSelect value="1m" options={["1m"]} labels={{ "1m": "1 minute" }} />
-                    </Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <CheckOption label="Restart buy/sell on error" />
-                    <CheckOption defaultChecked label="Restart last trade on error" />
-                  </div>
-                  <BlockSection title="Run once at start">
-                    <div className="min-h-9 rounded-md border border-[#8fbec3] bg-[#d6eeee]" />
-                  </BlockSection>
-                  <BlockSection title="Trade options">
-                    <div className="grid grid-cols-2 gap-2">
-                      <Field label="Duration">
-                        <div className="flex flex-wrap gap-2">
-                          <InlineSelect
-                            value={durationUnit}
-                            options={["t", "s", "m"]}
-                            labels={{ t: "Ticks", s: "Seconds", m: "Minutes" }}
-                            onChange={setDurationUnit}
-                          />
-                          <NumberInput value={duration} min={1} step={1} onChange={setDuration} />
-                        </div>
-                      </Field>
-                      <Field label="Stake">
-                        <div className="flex flex-wrap gap-2">
-                          <InlineSelect
-                            value={derivCurrency || "USD"}
-                            options={[derivCurrency || "USD"]}
-                          />
-                          <NumberInput
-                            value={initialStake}
-                            min={0.35}
-                            step={0.01}
-                            onChange={setInitialStake}
-                          />
-                        </div>
-                      </Field>
-                    </div>
-                  </BlockSection>
-                </div>
-              </WorkspaceBlock>
-            )}
-
-            {activeBlocks.includes("purchase") && (
-              <WorkspaceBlock
-                id="purchase"
-                isDragging={draggingBlock === "purchase"}
-                onDragStart={startBlockDrag}
-                onRemove={() => removeBlock("purchase")}
-                position={getBlockPosition("purchase")}
-                title="2. Purchase conditions"
-                width={BLOCK_DIMENSIONS.purchase.width}
-              >
-                <Field label="Purchase">
-                  <InlineSelect
-                    value={purchaseSide}
-                    options={availableSides.map((side) => side.value)}
-                    labels={Object.fromEntries(
-                      availableSides.map((side) => [side.value, side.label]),
-                    )}
-                    onChange={setPurchaseSide}
-                  />
-                </Field>
-              </WorkspaceBlock>
-            )}
-
-            {activeBlocks.includes("sell") && (
-              <WorkspaceBlock
-                id="sell"
-                isDragging={draggingBlock === "sell"}
-                onDragStart={startBlockDrag}
-                onRemove={() => removeBlock("sell")}
-                position={getBlockPosition("sell")}
-                title="3. Sell conditions"
-                width={BLOCK_DIMENSIONS.sell.width}
-              >
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#0f3f47]">
-                    <span>if</span>
-                    <InlineSelect
-                      value="sell_available"
-                      options={["sell_available"]}
-                      labels={{ sell_available: "Sell is available" }}
-                    />
-                    <span>then</span>
-                  </div>
-                  <NestedSlot />
-                </div>
-              </WorkspaceBlock>
-            )}
-
-            {activeBlocks.includes("restart") && (
-              <WorkspaceBlock
-                id="restart"
-                isDragging={draggingBlock === "restart"}
-                onDragStart={startBlockDrag}
-                onRemove={() => removeBlock("restart")}
-                position={getBlockPosition("restart")}
-                title="4. Restart trading conditions"
-                width={BLOCK_DIMENSIONS.restart.width}
-              >
-                <div className="inline-flex h-10 items-center rounded-md border border-[#8fbec3] bg-[#e8f6f6] px-3 text-sm font-bold text-[#0f3f47]">
-                  Trade again
-                </div>
-              </WorkspaceBlock>
-            )}
-
-            {activeBlocks.includes("analysis") && (
-              <WorkspaceBlock
-                id="analysis"
-                isDragging={draggingBlock === "analysis"}
-                onDragStart={startBlockDrag}
-                onRemove={() => removeBlock("analysis")}
-                position={getBlockPosition("analysis")}
-                title="5. Analysis"
-                width={BLOCK_DIMENSIONS.analysis.width}
-              >
-                <div className="grid grid-cols-3 gap-2">
-                  <Metric
-                    label="Win rate"
-                    value={`${stats.runs ? ((stats.wins / stats.runs) * 100).toFixed(1) : "0.0"}%`}
-                  />
-                  <Metric
-                    label="Total P/L"
-                    value={`${stats.profit >= 0 ? "+" : ""}${stats.profit.toFixed(2)}`}
-                  />
-                  <Metric label="Payout" value={stats.payout.toFixed(2)} />
-                </div>
-              </WorkspaceBlock>
-            )}
-
-            {activeBlocks.includes("utility") && (
-              <WorkspaceBlock
-                id="utility"
-                isDragging={draggingBlock === "utility"}
-                onDragStart={startBlockDrag}
-                onRemove={() => removeBlock("utility")}
-                position={getBlockPosition("utility")}
-                title="6. Utility"
-                width={BLOCK_DIMENSIONS.utility.width}
-              >
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      void navigator.clipboard?.writeText(JSON.stringify(snapshot, null, 2));
-                      toast.success("Configuration copied");
-                    }}
-                    className="h-9 rounded-md border-[#8fbec3] bg-white text-xs font-bold text-[#0f3f47]"
-                  >
-                    <Copy className="mr-2 size-4" />
-                    Copy config
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setJournal([]);
-                      toast.success("Journal cleared");
-                    }}
-                    className="h-9 rounded-md border-[#8fbec3] bg-white text-xs font-bold text-[#0f3f47]"
-                  >
-                    <Trash2 className="mr-2 size-4" />
-                    Clear journal
-                  </Button>
-                </div>
-              </WorkspaceBlock>
-            )}
+              </span>
+            </button>
           </div>
 
-          <div className="pointer-events-none fixed bottom-12 right-6 z-40 flex flex-col items-center gap-3">
-            <button
-              type="button"
-              className="pointer-events-auto flex size-[60px] items-center justify-center rounded-full bg-[#16a34a] text-base font-black text-white shadow-[0_0_28px_rgba(22,163,74,0.42)] transition hover:scale-105"
-              aria-label="AI assistant"
-            >
-              AI
-            </button>
-            <button
-              ref={trashRef}
-              type="button"
-              onClick={() => {
-                setActiveBlocks([]);
-                toast.success("Workspace cleared");
-              }}
-              className={cn(
-                "pointer-events-auto flex size-10 items-center justify-center rounded-full border bg-white text-[#64748b] shadow-md transition",
-                trashActive
-                  ? "border-[#ef4444] bg-[#fee2e2] text-[#dc2626] scale-110"
-                  : "border-[#cbd5e1] hover:border-[#ef4444] hover:text-[#dc2626]",
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex items-center gap-2 rounded-full border border-[#d6d8dc] bg-[#f8fafc] px-3 py-1.5">
+              {saveStatus === "saving" ? (
+                <RefreshCw className="size-3.5 animate-spin text-[#2563eb]" />
+              ) : (
+                <CloudCheck className="size-3.5 text-[#16a34a]" />
               )}
-              aria-label="Delete blocks"
-              title="Delete blocks"
+              <span className="text-[11px] font-bold uppercase text-[#475569]">
+                {saveStatus === "saving" ? "Saving" : saveStatus === "saved" ? "Saved" : "Offline"}
+              </span>
+            </div>
+            <Button
+              onClick={toggleBot}
+              className={cn(
+                "h-8 rounded-full px-4 text-xs font-bold text-white shadow-sm",
+                running ? "bg-[#dc2626] hover:bg-[#b91c1c]" : "bg-[#16a34a] hover:bg-[#15803d]",
+              )}
             >
-              <Trash2 className="size-5" />
-            </button>
+              {running ? (
+                <Square className="mr-2 size-3.5 fill-current" />
+              ) : (
+                <Play className="mr-2 size-3.5 fill-current" />
+              )}
+              {running ? "Stop" : "Run"}
+            </Button>
+            <span className="hidden rounded-full border border-[#d6d8dc] bg-[#f8fafc] px-3 py-1.5 text-[11px] font-bold uppercase text-[#475569] xl:inline-flex">
+              {running ? "Bot is running" : "Bot is not running"}
+            </span>
           </div>
-        </main>
-      </div>
+        </section>
 
-      <footer className="flex h-8 shrink-0 items-center justify-between border-t border-[#d6d8dc] bg-white px-4 text-xs text-[#475569]">
-        <div className="flex items-center gap-2">
-          <span className="size-2.5 rounded-full bg-[#16a34a]" />
-          <span className="font-medium">{derivAccount?.account_id ?? "Ready"}</span>
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <aside className="flex w-[220px] shrink-0 flex-col border-r border-[#d6d8dc] bg-white">
+            <button
+              type="button"
+              onClick={() => setBlocksMenuCollapsed((value) => !value)}
+              className="flex h-11 items-center justify-between border-b border-[#e5e7eb] px-3 text-left text-sm font-bold text-[#111827]"
+            >
+              <span>Blocks menu</span>
+              {blocksMenuCollapsed ? (
+                <PanelLeftOpen className="size-4 text-[#64748b]" />
+              ) : (
+                <PanelLeftClose className="size-4 text-[#64748b]" />
+              )}
+            </button>
+
+            {!blocksMenuCollapsed && (
+              <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                <div className="relative mb-3">
+                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#94a3b8]" />
+                  <Input
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Search"
+                    className="h-9 rounded-md border-[#d6d8dc] bg-[#f8fafc] pl-9 text-sm text-[#111827] placeholder:text-[#94a3b8]"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  {filteredMenu.map((group) => {
+                    const expandable = group.blocks.length > 0;
+                    const active = activeBlocks.includes(group.id);
+                    return (
+                      <div key={group.id} className="overflow-hidden rounded-md">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            expandable
+                              ? setOpenMenu(openMenu === group.id ? "" : group.id)
+                              : addBlock(group.id)
+                          }
+                          className={cn(
+                            "flex w-full items-center justify-between px-3 py-2 text-left text-sm font-semibold text-[#334155] hover:bg-[#f1f5f9]",
+                            active && "bg-[#e0f2fe] text-[#075985]",
+                          )}
+                        >
+                          <span className="truncate">{group.title}</span>
+                          {expandable ? (
+                            <ChevronRight
+                              className={cn(
+                                "size-4 shrink-0 transition-transform",
+                                openMenu === group.id && "rotate-90",
+                              )}
+                            />
+                          ) : (
+                            <Plus className="size-4 shrink-0" />
+                          )}
+                        </button>
+                        {expandable && openMenu === group.id && (
+                          <div className="space-y-1 bg-[#f8fafc] p-2">
+                            {group.blocks.map((block) => (
+                              <button
+                                key={block}
+                                type="button"
+                                onClick={() => addBlock(group.id)}
+                                className="flex w-full items-center justify-between rounded border border-[#e2e8f0] bg-white px-2 py-1.5 text-left text-xs font-medium text-[#475569] hover:border-[#38bdf8]"
+                              >
+                                <span>{block}</span>
+                                <Plus className="size-3.5 text-[#0284c7]" />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </aside>
+
+          <main className="relative min-w-0 flex-1 overflow-auto bg-[#f3f4f6]">
+            <div
+              ref={workspaceRef}
+              className="relative"
+              style={{ height: workspaceSize.height, width: workspaceSize.width }}
+            >
+              <div className="absolute inset-0 opacity-70 [background-image:linear-gradient(#e5e7eb_1px,transparent_1px),linear-gradient(90deg,#e5e7eb_1px,transparent_1px)] [background-size:28px_28px]" />
+
+              {activeBlocks.includes("params") && (
+                <WorkspaceBlock
+                  id="params"
+                  isDragging={draggingBlock === "params"}
+                  onDragStart={startBlockDrag}
+                  onRemove={() => removeBlock("params")}
+                  position={getBlockPosition("params")}
+                  title="1. Trade parameters"
+                  width={BLOCK_DIMENSIONS.params.width}
+                >
+                  <div className="space-y-3">
+                    <Field label="Market">
+                      <div className="flex flex-wrap gap-2">
+                        <InlineSelect
+                          value="derived"
+                          options={["derived"]}
+                          labels={{ derived: "Derived" }}
+                        />
+                        <InlineSelect
+                          value="continuous"
+                          options={["continuous"]}
+                          labels={{ continuous: "Continuous Indices" }}
+                        />
+                        <InlineSelect
+                          value={symbol}
+                          options={Object.keys(MARKETS)}
+                          onChange={setSymbol}
+                        />
+                      </div>
+                    </Field>
+                    <Field label="Trade Type">
+                      <div className="flex flex-wrap gap-2">
+                        <InlineSelect
+                          value="up_down"
+                          options={["up_down"]}
+                          labels={{ up_down: "Up/Down" }}
+                        />
+                        <InlineSelect
+                          value={tradeType}
+                          options={Object.keys(TRADE_TYPE_LABELS)}
+                          labels={TRADE_TYPE_LABELS}
+                          onChange={(value) => setTradeType(value as TradeCategory)}
+                        />
+                      </div>
+                    </Field>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label="Contract Type">
+                        <InlineSelect value="both" options={["both"]} labels={{ both: "Both" }} />
+                      </Field>
+                      <Field label="Default Candle Interval">
+                        <InlineSelect value="1m" options={["1m"]} labels={{ "1m": "1 minute" }} />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <CheckOption label="Restart buy/sell on error" />
+                      <CheckOption defaultChecked label="Restart last trade on error" />
+                    </div>
+                    <BlockSection title="Run once at start">
+                      <div className="min-h-9 rounded-md border border-[#8fbec3] bg-[#d6eeee]" />
+                    </BlockSection>
+                    <BlockSection title="Trade options">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="Duration">
+                          <div className="flex flex-wrap gap-2">
+                            <InlineSelect
+                              value={durationUnit}
+                              options={["t", "s", "m"]}
+                              labels={{ t: "Ticks", s: "Seconds", m: "Minutes" }}
+                              onChange={setDurationUnit}
+                            />
+                            <NumberInput value={duration} min={1} step={1} onChange={setDuration} />
+                          </div>
+                        </Field>
+                        <Field label="Stake">
+                          <div className="flex flex-wrap gap-2">
+                            <InlineSelect
+                              value={derivCurrency || "USD"}
+                              options={[derivCurrency || "USD"]}
+                            />
+                            <NumberInput
+                              value={initialStake}
+                              min={0.35}
+                              step={0.01}
+                              onChange={setInitialStake}
+                            />
+                          </div>
+                        </Field>
+                      </div>
+                    </BlockSection>
+                  </div>
+                </WorkspaceBlock>
+              )}
+
+              {activeBlocks.includes("purchase") && (
+                <WorkspaceBlock
+                  id="purchase"
+                  isDragging={draggingBlock === "purchase"}
+                  onDragStart={startBlockDrag}
+                  onRemove={() => removeBlock("purchase")}
+                  position={getBlockPosition("purchase")}
+                  title="2. Purchase conditions"
+                  width={BLOCK_DIMENSIONS.purchase.width}
+                >
+                  <Field label="Purchase">
+                    <InlineSelect
+                      value={purchaseSide}
+                      options={availableSides.map((side) => side.value)}
+                      labels={Object.fromEntries(
+                        availableSides.map((side) => [side.value, side.label]),
+                      )}
+                      onChange={setPurchaseSide}
+                    />
+                  </Field>
+                </WorkspaceBlock>
+              )}
+
+              {activeBlocks.includes("sell") && (
+                <WorkspaceBlock
+                  id="sell"
+                  isDragging={draggingBlock === "sell"}
+                  onDragStart={startBlockDrag}
+                  onRemove={() => removeBlock("sell")}
+                  position={getBlockPosition("sell")}
+                  title="3. Sell conditions"
+                  width={BLOCK_DIMENSIONS.sell.width}
+                >
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#0f3f47]">
+                      <span>if</span>
+                      <InlineSelect
+                        value="sell_available"
+                        options={["sell_available"]}
+                        labels={{ sell_available: "Sell is available" }}
+                      />
+                      <span>then</span>
+                    </div>
+                    <NestedSlot />
+                  </div>
+                </WorkspaceBlock>
+              )}
+
+              {activeBlocks.includes("restart") && (
+                <WorkspaceBlock
+                  id="restart"
+                  isDragging={draggingBlock === "restart"}
+                  onDragStart={startBlockDrag}
+                  onRemove={() => removeBlock("restart")}
+                  position={getBlockPosition("restart")}
+                  title="4. Restart trading conditions"
+                  width={BLOCK_DIMENSIONS.restart.width}
+                >
+                  <div className="inline-flex h-10 items-center rounded-md border border-[#8fbec3] bg-[#e8f6f6] px-3 text-sm font-bold text-[#0f3f47]">
+                    Trade again
+                  </div>
+                </WorkspaceBlock>
+              )}
+
+              {activeBlocks.includes("analysis") && (
+                <WorkspaceBlock
+                  id="analysis"
+                  isDragging={draggingBlock === "analysis"}
+                  onDragStart={startBlockDrag}
+                  onRemove={() => removeBlock("analysis")}
+                  position={getBlockPosition("analysis")}
+                  title="5. Analysis"
+                  width={BLOCK_DIMENSIONS.analysis.width}
+                >
+                  <div className="grid grid-cols-3 gap-2">
+                    <Metric
+                      label="Win rate"
+                      value={`${stats.runs ? ((stats.wins / stats.runs) * 100).toFixed(1) : "0.0"}%`}
+                    />
+                    <Metric
+                      label="Total P/L"
+                      value={`${stats.profit >= 0 ? "+" : ""}${stats.profit.toFixed(2)}`}
+                    />
+                    <Metric label="Payout" value={stats.payout.toFixed(2)} />
+                  </div>
+                </WorkspaceBlock>
+              )}
+
+              {activeBlocks.includes("utility") && (
+                <WorkspaceBlock
+                  id="utility"
+                  isDragging={draggingBlock === "utility"}
+                  onDragStart={startBlockDrag}
+                  onRemove={() => removeBlock("utility")}
+                  position={getBlockPosition("utility")}
+                  title="6. Utility"
+                  width={BLOCK_DIMENSIONS.utility.width}
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(JSON.stringify(snapshot, null, 2));
+                        toast.success("Configuration copied");
+                      }}
+                      className="h-9 rounded-md border-[#8fbec3] bg-white text-xs font-bold text-[#0f3f47]"
+                    >
+                      <Copy className="mr-2 size-4" />
+                      Copy config
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setJournal([]);
+                        toast.success("Journal cleared");
+                      }}
+                      className="h-9 rounded-md border-[#8fbec3] bg-white text-xs font-bold text-[#0f3f47]"
+                    >
+                      <Trash2 className="mr-2 size-4" />
+                      Clear journal
+                    </Button>
+                  </div>
+                </WorkspaceBlock>
+              )}
+            </div>
+
+            {(running || stats.runs > 0) && (
+              <ProfitLossPanel
+                collapsed={profitPanelCollapsed}
+                currency={derivCurrency || "USD"}
+                running={running}
+                stats={stats}
+                onToggle={() => setProfitPanelCollapsed((value) => !value)}
+              />
+            )}
+
+            <div className="pointer-events-none fixed bottom-12 right-6 z-40 flex flex-col items-center gap-3">
+              {assistantOpen && (
+                <div className="pointer-events-auto w-72 rounded-lg border border-[#cbd5e1] bg-white p-3 text-sm text-[#334155] shadow-xl">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="font-bold text-[#111827]">Bot assistant</div>
+                    <button
+                      type="button"
+                      onClick={() => setAssistantOpen(false)}
+                      className="rounded p-1 text-[#64748b] hover:bg-[#f1f5f9] hover:text-[#111827]"
+                      aria-label="Close bot assistant"
+                    >
+                      <Minimize2 className="size-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={quickStrategy}
+                      className="h-8 rounded-md border-[#cbd5e1] text-xs font-bold text-[#334155]"
+                    >
+                      Quick
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={showAnalysisBlock}
+                      className="h-8 rounded-md border-[#cbd5e1] text-xs font-bold text-[#334155]"
+                    >
+                      Analysis
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setAssistantOpen((value) => !value)}
+                className="pointer-events-auto flex size-[60px] items-center justify-center rounded-full bg-[#16a34a] text-base font-black text-white shadow-[0_0_28px_rgba(22,163,74,0.42)] transition hover:scale-105"
+                aria-label="AI assistant"
+              >
+                AI
+              </button>
+              <button
+                ref={trashRef}
+                type="button"
+                onClick={() => {
+                  setActiveBlocks([]);
+                  toast.success("Workspace cleared");
+                }}
+                className={cn(
+                  "pointer-events-auto flex size-10 items-center justify-center rounded-full border bg-white text-[#64748b] shadow-md transition",
+                  trashActive
+                    ? "border-[#ef4444] bg-[#fee2e2] text-[#dc2626] scale-110"
+                    : "border-[#cbd5e1] hover:border-[#ef4444] hover:text-[#dc2626]",
+                )}
+                aria-label="Delete blocks"
+                title="Delete blocks"
+              >
+                <Trash2 className="size-5" />
+              </button>
+            </div>
+          </main>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="font-mono">{formatUtcTimestamp(utcNow)}</span>
-          <IconButton icon={Download} label="Export" onClick={exportBot} />
-          <IconButton icon={Maximize2} label="Fullscreen" onClick={toggleFullscreen} />
+
+        <footer className="flex h-8 shrink-0 items-center justify-between border-t border-[#d6d8dc] bg-white px-4 text-xs text-[#475569]">
+          <div className="flex items-center gap-2">
+            <span className="size-2.5 rounded-full bg-[#16a34a]" />
+            <span className="font-medium">{derivAccount?.account_id ?? "Ready"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono">{formatUtcTimestamp(utcNow)}</span>
+            <IconButton icon={Download} label="Export" onClick={exportBot} />
+            <IconButton icon={Maximize2} label="Fullscreen" onClick={toggleFullscreen} />
+          </div>
+        </footer>
+      </div>
+    </TopShell>
+  );
+}
+
+function ProfitLossPanel({
+  collapsed,
+  currency,
+  onToggle,
+  running,
+  stats,
+}: {
+  collapsed: boolean;
+  currency: string;
+  onToggle: () => void;
+  running: boolean;
+  stats: BotStats;
+}) {
+  const profitPositive = stats.profit >= 0;
+  const winRate = stats.runs ? ((stats.wins / stats.runs) * 100).toFixed(1) : "0.0";
+
+  return (
+    <div className="fixed bottom-12 left-[236px] z-40 w-[320px] overflow-hidden rounded-lg border border-[#cbd5e1] bg-white shadow-xl">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between bg-[#0f4c5c] px-3 py-2 text-left text-xs font-bold uppercase text-white"
+      >
+        <span>Profit / Loss</span>
+        <span className="flex items-center gap-2">
+          <span className="size-2 rounded-full bg-[#22c55e]" />
+          {running ? "Running" : "Stopped"}
+          {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
+        </span>
+      </button>
+
+      {!collapsed && (
+        <div className="space-y-3 p-3">
+          <div
+            className={cn(
+              "rounded-md border p-3",
+              profitPositive
+                ? "border-[#bbf7d0] bg-[#f0fdf4] text-[#166534]"
+                : "border-[#fecaca] bg-[#fef2f2] text-[#991b1b]",
+            )}
+          >
+            <div className="text-[10px] font-bold uppercase opacity-70">Total P/L</div>
+            <div className="mt-1 font-mono text-2xl font-black">
+              {profitPositive ? "+" : ""}
+              {stats.profit.toFixed(2)} {currency}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
+            <PanelMetric label="Runs" value={stats.runs} />
+            <PanelMetric label="Wins" value={stats.wins} />
+            <PanelMetric label="Losses" value={stats.losses} />
+            <PanelMetric label="Win %" value={`${winRate}%`} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <PanelMetric label="Stake" value={stats.stake.toFixed(2)} />
+            <PanelMetric label="Payout" value={stats.payout.toFixed(2)} />
+          </div>
         </div>
-      </footer>
+      )}
+    </div>
+  );
+}
+
+function PanelMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md border border-[#e2e8f0] bg-[#f8fafc] p-2">
+      <div className="text-[9px] font-bold uppercase text-[#64748b]">{label}</div>
+      <div className="mt-1 truncate font-mono text-sm font-bold text-[#111827]">{value}</div>
     </div>
   );
 }
@@ -1438,15 +1616,23 @@ function WorkspaceBlock({
   );
 }
 
-function ToolbarPill({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
-  return (
-    <button className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]">
-      <Icon className="size-4" />
-      <span>{label}</span>
-      <ChevronDown className="size-3.5" />
-    </button>
-  );
-}
+const ToolbarPill = forwardRef<HTMLButtonElement, { icon: LucideIcon; label: string }>(
+  ({ icon: Icon, label, ...props }, ref) => {
+    return (
+      <button
+        ref={ref}
+        type="button"
+        className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]"
+        {...props}
+      >
+        <Icon className="size-4" />
+        <span>{label}</span>
+        <ChevronDown className="size-3.5" />
+      </button>
+    );
+  },
+);
+ToolbarPill.displayName = "ToolbarPill";
 
 function IconButton({
   icon: Icon,
