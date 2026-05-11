@@ -67,6 +67,11 @@ const SESSION_COLUMNS = [
   "is_active",
   "expires_at",
   "created_at",
+  "token_source",
+  "trading_adapter",
+  "trading_authorized",
+  "trading_authorized_at",
+  "last_trading_error",
 ] as const;
 
 function activeAccountStorageKey(userId: string) {
@@ -173,8 +178,11 @@ function parseLegacyCallbackAccounts(params: URLSearchParams): DerivAccount[] {
     .sort((a, b) => a - b)
     .map((index) => {
       const accountId =
-        indexedCallbackParam(params, ["acct", "account", "account_id", "loginid", "login_id"], index) ||
-        getCallbackParam(params, "acct", "account", "account_id", "loginid", "login_id");
+        indexedCallbackParam(
+          params,
+          ["acct", "account", "account_id", "loginid", "login_id"],
+          index,
+        ) || getCallbackParam(params, "acct", "account", "account_id", "loginid", "login_id");
       const token =
         indexedCallbackParam(params, ["token", "deriv_token"], index) ||
         getCallbackParam(params, "token", "deriv_token");
@@ -509,7 +517,9 @@ function DerivCallback() {
                   "Deriv is rate limiting account requests. Please wait a moment, then start login again.",
               );
             }
-            throw new Error(accountsData.detail ?? accountsData.error ?? "Could not load Deriv accounts");
+            throw new Error(
+              accountsData.detail ?? accountsData.error ?? "Could not load Deriv accounts",
+            );
           }
           markStage("accounts fetch success", accountsLog);
           rawAccounts = accountsData.data ?? [];
@@ -590,7 +600,9 @@ function DerivCallback() {
         if (unknownAccounts.length) {
           console.warn("[Deriv Accounts] callback unknown accounts excluded", unknownAccounts);
         }
-        const accounts = normalizedAccounts.filter((account) => account.normalizedType !== "unknown");
+        const accounts = normalizedAccounts.filter(
+          (account) => account.normalizedType !== "unknown",
+        );
         if (!accounts.length) throw new Error("No Deriv accounts returned");
         markStage("normalized accounts", {
           accounts: accounts.map(accountLogSummary),
@@ -666,6 +678,7 @@ function DerivCallback() {
         });
         const savedAccounts: string[] = [];
         const tokenSource = tokenSourceForFetchMode(accountFetchMode);
+        const tradingAdapter = adapterForTokenSource(tokenSource);
         const connectedAt = new Date().toISOString();
         for (const account of accounts) {
           const accountId = String(account.loginid ?? account.account_id);
@@ -687,38 +700,45 @@ function DerivCallback() {
             is_demo: isVirtual,
             is_virtual: isVirtual,
             tokenSource,
-            adapter: adapterForTokenSource(tokenSource),
+            adapter: tradingAdapter,
             websocketMode: tradingWebSocketMode(tokenSource),
           });
           localStorage.setItem(tokenSourceStorageKey(sessionUser.id, accountId), tokenSource);
-          localStorage.setItem(
-            tradingAdapterStorageKey(sessionUser.id, accountId),
-            adapterForTokenSource(tokenSource),
-          );
+          localStorage.setItem(tradingAdapterStorageKey(sessionUser.id, accountId), tradingAdapter);
           markStage("Deriv token source saved", {
             account_id: accountId,
             storageKey: tokenSourceStorageKey(sessionUser.id, accountId),
             tokenSource,
             adapterStorageKey: tradingAdapterStorageKey(sessionUser.id, accountId),
-            adapter: adapterForTokenSource(tokenSource),
+            adapter: tradingAdapter,
             websocketMode: tradingWebSocketMode(tokenSource),
           });
-          const { data: savedSession, error: upsertErr } = await supabase.from("sessions").upsert(
-            {
-              user_id: sessionUser.id,
-              account_id: accountId,
-              loginid: accountId,
-              deriv_token: accountToken,
-              currency: accountCurrency,
-              balance: Number(account.balance ?? 0),
-              is_demo: isVirtual,
-              is_virtual: isVirtual,
-              is_active: true,
-              expires_at: expiresAt,
-              created_at: connectedAt,
-            },
-            { onConflict: "user_id,account_id" },
-          ).select("id, account_id, loginid, is_demo, is_virtual, currency, balance, is_active, expires_at")
+          const { data: savedSession, error: upsertErr } = await supabase
+            .from("sessions")
+            .upsert(
+              {
+                user_id: sessionUser.id,
+                account_id: accountId,
+                loginid: accountId,
+                deriv_token: accountToken,
+                currency: accountCurrency,
+                balance: Number(account.balance ?? 0),
+                is_demo: isVirtual,
+                is_virtual: isVirtual,
+                is_active: true,
+                expires_at: expiresAt,
+                created_at: connectedAt,
+                token_source: tokenSource,
+                trading_adapter: tradingAdapter,
+                trading_authorized: false,
+                trading_authorized_at: null,
+                last_trading_error: null,
+              },
+              { onConflict: "user_id,account_id" },
+            )
+            .select(
+              "id, account_id, loginid, is_demo, is_virtual, currency, balance, is_active, expires_at, token_source, trading_adapter, trading_authorized, trading_authorized_at, last_trading_error",
+            )
             .maybeSingle();
           if (upsertErr) {
             markStage("Supabase upsert failure", {
@@ -771,22 +791,13 @@ function DerivCallback() {
         }
         localStorage.setItem(activeAccountStorageKey(sessionUser.id), selectedAccountId);
         localStorage.setItem(selectedAccountIdStorageKey(sessionUser.id), selectedAccountId);
-        localStorage.setItem(
-          selectedAccountTypeStorageKey(sessionUser.id),
-          primary.normalizedType,
-        );
+        localStorage.setItem(selectedAccountTypeStorageKey(sessionUser.id), primary.normalizedType);
         localStorage.setItem(selectedTokenSourceStorageKey(sessionUser.id), tokenSource);
-        localStorage.setItem(
-          selectedAdapterStorageKey(sessionUser.id),
-          adapterForTokenSource(tokenSource),
-        );
-        localStorage.setItem(
-          tokenSourceStorageKey(sessionUser.id, selectedAccountId),
-          tokenSource,
-        );
+        localStorage.setItem(selectedAdapterStorageKey(sessionUser.id), tradingAdapter);
+        localStorage.setItem(tokenSourceStorageKey(sessionUser.id, selectedAccountId), tokenSource);
         localStorage.setItem(
           tradingAdapterStorageKey(sessionUser.id, selectedAccountId),
-          adapterForTokenSource(tokenSource),
+          tradingAdapter,
         );
         sessionStorage.removeItem("deriv_oauth_trade_preconnect_account");
         setAuthenticatedAccount(
@@ -799,7 +810,7 @@ function DerivCallback() {
           selectedAccountId,
           selectedAccountType: primary.normalizedType,
           token_source: tokenSource,
-          adapter: adapterForTokenSource(tokenSource),
+          adapter: tradingAdapter,
           websocketMode: tradingWebSocketMode(tokenSource),
         });
         markStage("account connection success", {
@@ -807,13 +818,13 @@ function DerivCallback() {
           selectedAccountType: primary.normalizedType,
           savedAccountIds: savedAccounts,
           token_source: tokenSource,
-          adapter: adapterForTokenSource(tokenSource),
+          adapter: tradingAdapter,
         });
         markStage("selected account set", {
           selectedAccountId,
           selectedAccountType: primary.normalizedType,
           selectedTokenSource: tokenSource,
-          selectedAdapter: adapterForTokenSource(tokenSource),
+          selectedAdapter: tradingAdapter,
           websocketMode: tradingWebSocketMode(tokenSource),
           storageKey: activeAccountStorageKey(sessionUser.id),
           selectedAccountIdStorageKey: selectedAccountIdStorageKey(sessionUser.id),
@@ -830,7 +841,7 @@ function DerivCallback() {
         let tradingAuthorization: TradingAuthorizationState = {
           account_id: selectedAccountId,
           trading_authorized: false,
-          trading_adapter: adapterForTokenSource(tokenSource),
+          trading_adapter: tradingAdapter,
           token_source: tokenSource,
           trading_authorized_at: null,
           last_trading_error: null,
@@ -886,16 +897,19 @@ function DerivCallback() {
               last_trading_error: lastTradingError,
             });
           } catch (readinessPersistError) {
-            console.warn("[Deriv Callback] trading readiness persistence failed but login allowed", {
-              selectedAccountId,
-              token_source: tokenSource,
-              adapter: tradingAuthorization.trading_adapter,
-              last_trading_error: lastTradingError,
-              persistenceError:
-                readinessPersistError instanceof Error
-                  ? readinessPersistError.message
-                  : readinessPersistError,
-            });
+            console.warn(
+              "[Deriv Callback] trading readiness persistence failed but login allowed",
+              {
+                selectedAccountId,
+                token_source: tokenSource,
+                adapter: tradingAuthorization.trading_adapter,
+                last_trading_error: lastTradingError,
+                persistenceError:
+                  readinessPersistError instanceof Error
+                    ? readinessPersistError.message
+                    : readinessPersistError,
+              },
+            );
           }
           console.warn("[Deriv Callback] trading readiness failed but login allowed", {
             selectedAccountId,

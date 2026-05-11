@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-
-const DERIV_REDIRECT_URI =
-  process.env.VITE_DERIV_REDIRECT_URI ?? "https://www.arktradershub.com/deriv-callback";
+import {
+  DERIV_OAUTH_CLIENT_ID,
+  DERIV_OAUTH_TOKEN_ENDPOINT,
+  DERIV_REDIRECT_URI,
+} from "@/lib/deriv-config";
 
 type TokenExchangeRequest = {
   code?: string;
@@ -22,13 +24,7 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
             return Response.json({ error: "Missing code or codeVerifier" }, { status: 400 });
           }
 
-          const clientId = process.env.VITE_DERIV_CLIENT_ID ?? "";
-          const rawClientSecret =
-            process.env.DERIV_CLIENT_SECRET ?? process.env.VITE_DERIV_CLIENT_SECRET;
-          const clientSecret =
-            rawClientSecret && rawClientSecret !== "your_oauth_client_secret"
-              ? rawClientSecret
-              : undefined;
+          const clientId = DERIV_OAUTH_CLIENT_ID;
           if (!clientId) {
             console.error("[Deriv Token Exchange] missing client_id");
             return Response.json({ error: "Missing Deriv OAuth client_id" }, { status: 400 });
@@ -45,19 +41,17 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
             code_verifier: codeVerifier,
             redirect_uri: DERIV_REDIRECT_URI,
           });
-          if (clientSecret) body.set("client_secret", clientSecret);
           console.log("Deriv token exchange request", {
-            endpoint: "https://auth.deriv.com/oauth2/token",
+            endpoint: DERIV_OAUTH_TOKEN_ENDPOINT,
             method: "POST",
             grant_type: "authorization_code",
             client_id: clientId,
             redirect_uri: DERIV_REDIRECT_URI,
             hasCode: Boolean(code),
             hasCodeVerifier: Boolean(codeVerifier),
-            hasClientSecret: Boolean(clientSecret),
           });
 
-          const tokenResponse = await fetch("https://auth.deriv.com/oauth2/token", {
+          const tokenResponse = await fetch(DERIV_OAUTH_TOKEN_ENDPOINT, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body,

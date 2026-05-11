@@ -177,14 +177,14 @@ function AuthPage() {
                   Expected endpoint:{" "}
                   <span className="font-mono text-foreground">{DERIV_OAUTH_ENDPOINT_VALUE}</span>
                 </div>
-                <div>OAuth mode: client_id + optional legacy app_id</div>
+                <div>OAuth mode: client_id-only OAuth2 PKCE</div>
                 <div>
                   Legacy app_id:{" "}
                   <span className="font-mono text-foreground">
                     {DERIV_LEGACY_APP_ID_VALUE || "(not configured)"}
                   </span>
                 </div>
-                <div>Legacy fallback enabled: no</div>
+                <div>Legacy token callbacks accepted: yes</div>
               </div>
               {debugUrl && (
                 <div className="mt-3 space-y-2">
@@ -255,7 +255,9 @@ function AuthPage() {
               <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2">
                 <div className="mb-1 font-semibold text-foreground">Production env snapshot</div>
                 <div className="space-y-1 break-all font-mono text-[11px] text-muted-foreground">
-                  <div>OAuth app_id query param included: {oauthDiagnostics.hasAppId ? "yes" : "no"}</div>
+                  <div>
+                    OAuth app_id query param included: {oauthDiagnostics.hasAppId ? "yes" : "no"}
+                  </div>
                   <div>legacy app_id: {oauthDiagnostics.appId ?? "(not configured)"}</div>
                 </div>
               </div>
@@ -384,7 +386,9 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
     },
     {
       label: "code_challenge",
-      actual: diagnostics.codeChallenge ? `${diagnostics.codeChallenge.slice(0, 12)}...` : "(missing)",
+      actual: diagnostics.codeChallenge
+        ? `${diagnostics.codeChallenge.slice(0, 12)}...`
+        : "(missing)",
       expected: "present",
       ok: Boolean(diagnostics.codeChallenge),
     },
@@ -396,7 +400,9 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
     },
     {
       label: "redirect_uri encoding",
-      actual: diagnostics.hasDoubleEncodedRedirectUri ? "double-encoded" : "normal URLSearchParams encoding",
+      actual: diagnostics.hasDoubleEncodedRedirectUri
+        ? "double-encoded"
+        : "normal URLSearchParams encoding",
       expected: "encoded once in the final URL",
       ok: !diagnostics.hasDoubleEncodedRedirectUri,
     },
