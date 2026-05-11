@@ -41,7 +41,16 @@ function Index() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if ((params.get("code") && params.get("state")) || hasLegacyDerivCallback(params)) {
+    const hasOAuthCallback =
+      (params.get("code") && params.get("state")) || (params.get("error") && params.get("state"));
+    if (hasOAuthCallback) {
+      console.warn("[Deriv OAuth] OAuth callback landed on root; forwarding to callback route", {
+        searchKeys: Array.from(params.keys()),
+        hasCode: Boolean(params.get("code")),
+        hasState: Boolean(params.get("state")),
+        hasError: Boolean(params.get("error")),
+        referrer: document.referrer || null,
+      });
       window.location.replace(`/deriv-callback${window.location.search}`);
       return;
     }
@@ -111,13 +120,4 @@ function Index() {
       </div>
     </TopShell>
   );
-}
-
-function hasLegacyDerivCallback(params: URLSearchParams) {
-  const keys = Array.from(params.keys()).map((key) => key.toLowerCase());
-  const hasAccount = keys.some((key) =>
-    /^(acct|account|account_id|loginid|login_id)\d*$/.test(key),
-  );
-  const hasToken = keys.some((key) => /^(token|deriv_token)\d*$/.test(key));
-  return hasAccount && hasToken;
 }

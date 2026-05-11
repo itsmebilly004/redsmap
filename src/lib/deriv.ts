@@ -18,6 +18,9 @@ const DERIV_APP_ID = DERIV_OAUTH_CLIENT_ID;
 const DERIV_CLIENT_ID = DERIV_OAUTH_CLIENT_ID;
 const DERIV_OAUTH_ENDPOINT = DERIV_OAUTH_AUTHORIZE_ENDPOINT;
 const DERIV_SCOPE = DERIV_OAUTH_SCOPE;
+const DERIV_OAUTH_CANONICAL_ORIGIN = new URL(DERIV_REDIRECT_URI).origin;
+const DERIV_OAUTH_TRACE_KEY = "deriv_oauth_trace";
+const DERIV_OAUTH_TRACE_LIMIT = 40;
 const PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public";
 const FORBIDDEN_OAUTH_ROUTE_MARKERS = [
   "oauth.deriv.com",
@@ -47,9 +50,18 @@ export type DerivOAuthDiagnostics = {
   finalUrl: string;
   endpoint: string;
   decodedRedirectUri: string;
+  rawRedirectUriParam: string;
+  redirectUriOrigin: string;
+  redirectUriPathname: string;
+  redirectUriHasTrailingSlash: boolean;
+  redirectUriCasingMatchesRegisteredUrl: boolean;
   clientId: string;
   appId: string | null;
   scopes: string;
+  rawScopeParam: string;
+  scopeTokens: string[];
+  scopeHasTrade: boolean;
+  scopeHasAccountManage: boolean;
   responseType: string;
   state: string;
   codeChallenge: string;
@@ -1815,6 +1827,88 @@ function logOAuthDebug(label: string, payload: unknown) {
   if (oauthDebugEnabled()) console.info(label, payload);
 }
 
+function rawQueryParam(url: string, name: string) {
+  const query = url.split("#", 1)[0].split("?", 2)[1] ?? "";
+  const prefix = `${name}=`;
+  const entry = query.split("&").find((part) => part.startsWith(prefix));
+  return entry ? entry.slice(prefix.length) : "";
+}
+
+function safeSessionStorageSet(key: string, value: string) {
+  if (!isBrowser) return;
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
+export function getDerivOAuthCanonicalOrigin() {
+  return DERIV_OAUTH_CANONICAL_ORIGIN;
+}
+
+export function ensureDerivOAuthCanonicalOrigin() {
+  if (!isBrowser) return true;
+  const expected = new URL(DERIV_REDIRECT_URI);
+  const currentHost = window.location.hostname.toLowerCase();
+  const expectedHost = expected.hostname.toLowerCase();
+  const isProductionHost =
+    currentHost === expectedHost || currentHost === expectedHost.replace(/^www\./, "");
+  if (!isProductionHost || window.location.origin === expected.origin) return true;
+
+  const target = `${expected.origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
+  recordDerivOAuthTrace("oauth-canonical-origin-redirect", {
+    currentOrigin: window.location.origin,
+    expectedOrigin: expected.origin,
+    currentHref: window.location.href,
+    target,
+    reason:
+      "OAuth PKCE state/code_verifier are origin-scoped. The auth origin must match the registered callback origin.",
+  });
+  console.warn("[Deriv OAuth] Redirecting to canonical OAuth origin", {
+    currentOrigin: window.location.origin,
+    expectedOrigin: expected.origin,
+    target,
+  });
+  window.location.replace(target);
+  return false;
+}
+
+export function recordDerivOAuthTrace(event: string, details: Record<string, unknown> = {}) {
+  if (!isBrowser) return;
+  const entry = {
+    event,
+    at: new Date().toISOString(),
+    href: window.location.href,
+    origin: window.location.origin,
+    pathname: window.location.pathname,
+    referrer: document.referrer || null,
+    details,
+  };
+  try {
+    const previous = JSON.parse(sessionStorage.getItem(DERIV_OAUTH_TRACE_KEY) ?? "[]");
+    const entries = Array.isArray(previous) ? previous : [];
+    entries.push(entry);
+    sessionStorage.setItem(
+      DERIV_OAUTH_TRACE_KEY,
+      JSON.stringify(entries.slice(-DERIV_OAUTH_TRACE_LIMIT)),
+    );
+  } catch {
+    safeSessionStorageSet(DERIV_OAUTH_TRACE_KEY, JSON.stringify([entry]));
+  }
+  console.info("[Deriv OAuth Trace]", entry);
+}
+
+export function readDerivOAuthTrace() {
+  if (!isBrowser) return [];
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(DERIV_OAUTH_TRACE_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function forbiddenOAuthMarkers(url: string) {
   const parsed = safeParseUrl(url);
   const lower = url.toLowerCase();
@@ -1876,8 +1970,14 @@ export function getDerivOAuthRedirectFailure(url: string | null | undefined) {
 export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
   const parsed = new URL(url);
   const decodedRedirectUri = parsed.searchParams.get("redirect_uri") ?? "";
+  const redirectUri = safeParseUrl(decodedRedirectUri);
   const clientId = parsed.searchParams.get("client_id") ?? "";
   const appId = parsed.searchParams.get("app_id");
+  const rawScopeParam = rawQueryParam(url, "scope");
+  const scopeTokens = (parsed.searchParams.get("scope") ?? "")
+    .split(/\s+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
   const forbiddenMarkers = forbiddenOAuthMarkers(url);
   const requiredParams = [
     "response_type",
@@ -1897,9 +1997,18 @@ export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
     finalUrl: url,
     endpoint: `${parsed.origin}${parsed.pathname}`,
     decodedRedirectUri,
+    rawRedirectUriParam: rawQueryParam(url, "redirect_uri"),
+    redirectUriOrigin: redirectUri?.origin ?? "",
+    redirectUriPathname: redirectUri?.pathname ?? "",
+    redirectUriHasTrailingSlash: decodedRedirectUri.endsWith("/"),
+    redirectUriCasingMatchesRegisteredUrl: decodedRedirectUri === DERIV_REDIRECT_URI,
     clientId,
     appId,
     scopes: parsed.searchParams.get("scope") ?? "",
+    rawScopeParam,
+    scopeTokens,
+    scopeHasTrade: scopeTokens.includes("trade"),
+    scopeHasAccountManage: scopeTokens.includes("account_manage"),
     responseType: parsed.searchParams.get("response_type") ?? "",
     state: parsed.searchParams.get("state") ?? "",
     codeChallenge: parsed.searchParams.get("code_challenge") ?? "",
@@ -1992,6 +2101,19 @@ export function redirectToDerivOAuth(url: string) {
     return;
   }
   const diagnostics = getDerivOAuthDiagnostics(url);
+  recordDerivOAuthTrace("oauth-redirect-start", {
+    currentHref: window.location.href,
+    endpoint: diagnostics.endpoint,
+    client_id: diagnostics.clientId,
+    redirect_uri: diagnostics.decodedRedirectUri,
+    rawRedirectUriParam: diagnostics.rawRedirectUriParam,
+    redirectUriMatchesRegisteredUrl: diagnostics.redirectUriMatchesRegisteredUrl,
+    scope: diagnostics.scopes,
+    scopeTokens: diagnostics.scopeTokens,
+    hasRequiredScopes: diagnostics.scopeHasTrade && diagnostics.scopeHasAccountManage,
+    app_id_param: diagnostics.appId ?? "(not included)",
+    finalOAuthUrl: url,
+  });
   logOAuthDebug("[Deriv OAuth Debug] Exact final URL before redirect", url);
   logOAuthDebug("[Deriv OAuth Debug] Final URL diagnostics before redirect", diagnostics);
   console.info("[Deriv OAuth] Redirecting to authorization endpoint", {
@@ -2004,6 +2126,8 @@ export function redirectToDerivOAuth(url: string) {
     forbiddenMarkers: diagnostics.forbiddenMarkers,
   });
   sessionStorage.setItem("deriv_oauth_last_authorization_url", url);
+  sessionStorage.setItem("deriv_oauth_last_app_url", window.location.href);
+  sessionStorage.setItem("deriv_oauth_expected_callback", DERIV_REDIRECT_URI);
   sessionStorage.setItem("deriv_oauth_started_at", new Date().toISOString());
   sessionStorage.setItem("deriv_oauth_redirecting", "true");
   window.location.href = url;
@@ -2017,6 +2141,9 @@ export async function buildOAuthUrl(
   } = {},
 ) {
   if (!isBrowser) return "";
+  if (!ensureDerivOAuthCanonicalOrigin()) {
+    throw new Error("Redirecting to the canonical OAuth origin. Please continue from there.");
+  }
   const debugOAuth =
     options.debug === true ||
     new URLSearchParams(window.location.search).get("debug_oauth") === "1";
@@ -2096,6 +2223,29 @@ export async function buildOAuthUrl(
       "Invalid Deriv OAuth URL. Authorization must use client_id only; app_id is not used.",
     );
   }
+  recordDerivOAuthTrace("oauth-url-generated", {
+    attemptId,
+    mode: options.mode ?? "signin",
+    currentOrigin: window.location.origin,
+    canonicalOrigin: DERIV_OAUTH_CANONICAL_ORIGIN,
+    endpoint: diagnostics.endpoint,
+    client_id: DERIV_CLIENT_ID,
+    app_id_param: diagnostics.appId ?? "(not included)",
+    redirect_uri: diagnostics.decodedRedirectUri,
+    rawRedirectUriParam: diagnostics.rawRedirectUriParam,
+    redirectUriMatchesRegisteredUrl: diagnostics.redirectUriMatchesRegisteredUrl,
+    redirectUriHasTrailingSlash: diagnostics.redirectUriHasTrailingSlash,
+    redirectUriCasingMatchesRegisteredUrl: diagnostics.redirectUriCasingMatchesRegisteredUrl,
+    scope: diagnostics.scopes,
+    rawScopeParam: diagnostics.rawScopeParam,
+    scopeTokens: diagnostics.scopeTokens,
+    hasRequiredScopes: diagnostics.scopeHasTrade && diagnostics.scopeHasAccountManage,
+    prompt: prompt ?? "standard-login",
+    finalOAuthUrl: url,
+    stateStored: sessionStorage.getItem("deriv_oauth_state") === state,
+    codeVerifierStored: sessionStorage.getItem("deriv_code_verifier") === codeVerifier,
+    returnTo: sessionStorage.getItem("deriv_oauth_return_to"),
+  });
   logOAuthDebug("[Deriv OAuth Debug] Exact final authorization URL", url);
   logOAuthDebug("[Deriv OAuth Debug] Authorization diagnostics", {
     attemptId,

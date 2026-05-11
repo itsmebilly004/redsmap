@@ -6,6 +6,8 @@ import {
   DERIV_CLIENT_ID_VALUE,
   DERIV_REDIRECT_URI_VALUE,
   adapterForTokenSource,
+  readDerivOAuthTrace,
+  recordDerivOAuthTrace,
   tradingWebSocketMode,
   type DerivTokenSource,
 } from "@/lib/deriv";
@@ -98,6 +100,30 @@ function tradingAdapterStorageKey(userId: string, accountId: string) {
 
 function sessionStorageKeys() {
   return Object.keys(sessionStorage).filter((key) => key.startsWith("deriv_"));
+}
+
+function navigationSummary() {
+  const navigation = performance.getEntriesByType("navigation")[0] as
+    | PerformanceNavigationTiming
+    | undefined;
+  return {
+    type: navigation?.type ?? null,
+    redirectCount: navigation?.redirectCount ?? null,
+  };
+}
+
+function callbackStorageSummary() {
+  return {
+    stateExists: Boolean(sessionStorage.getItem("deriv_oauth_state")),
+    codeVerifierExists: Boolean(sessionStorage.getItem("deriv_code_verifier")),
+    startedAt: sessionStorage.getItem("deriv_oauth_started_at"),
+    redirecting: sessionStorage.getItem(OAUTH_REDIRECTING_KEY),
+    expectedCallback: sessionStorage.getItem("deriv_oauth_expected_callback"),
+    lastAuthorizationUrl: sessionStorage.getItem("deriv_oauth_last_authorization_url"),
+    lastAppUrl: sessionStorage.getItem("deriv_oauth_last_app_url"),
+    returnTo: sessionStorage.getItem("deriv_oauth_return_to"),
+    keys: sessionStorageKeys(),
+  };
 }
 
 function logCallbackStage(stage: string, details: Record<string, unknown> = {}) {
@@ -232,11 +258,28 @@ function DerivCallback() {
     const errorDescription = params.get("error_description");
     const code = params.get("code");
     const state = params.get("state");
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    recordDerivOAuthTrace("oauth-callback-arrived", {
+      href: window.location.href,
+      origin: window.location.origin,
+      pathname: window.location.pathname,
+      searchKeys: Array.from(params.keys()),
+      hashKeys: Array.from(hashParams.keys()),
+      hasCode: Boolean(code),
+      hasState: Boolean(state),
+      hasError: Boolean(error),
+      referrer: document.referrer || null,
+      navigation: navigationSummary(),
+      storage: callbackStorageSummary(),
+    });
     markStage("callback URL received", {
       origin: window.location.origin,
       pathname: window.location.pathname,
       searchKeys: Array.from(params.keys()),
+      hashKeys: Array.from(hashParams.keys()),
       referrer: document.referrer || null,
+      navigation: navigationSummary(),
+      storage: callbackStorageSummary(),
     });
     markStage("has code", {
       hasCode: Boolean(code),
@@ -283,6 +326,8 @@ function DerivCallback() {
           errorDescription,
           redirect_uri: DERIV_REDIRECT_URI_VALUE,
           client_id: DERIV_CLIENT_ID_VALUE,
+          storage: callbackStorageSummary(),
+          trace: readDerivOAuthTrace(),
         });
         if (error) {
           const detail = errorDescription ? `${error}: ${errorDescription}` : error;
@@ -317,8 +362,16 @@ function DerivCallback() {
             storedStateExists: Boolean(expectedState),
             matches: expectedState === state,
             storageKey: "deriv_oauth_state",
+            returnedStatePrefix: state ? `${state.slice(0, 8)}...` : null,
+            storedStatePrefix: expectedState ? `${expectedState.slice(0, 8)}...` : null,
           });
           if (!expectedState || expectedState !== state) {
+            recordDerivOAuthTrace("oauth-state-verification-failed", {
+              returnedStateExists: Boolean(state),
+              storedStateExists: Boolean(expectedState),
+              matches: expectedState === state,
+              storage: callbackStorageSummary(),
+            });
             throw new Error("State mismatch. Please restart the Deriv authorization flow.");
           }
 
@@ -331,12 +384,14 @@ function DerivCallback() {
           if (!codeVerifier) {
             logCallbackFailure("missing code_verifier", {
               sessionStorageKeys: sessionStorageKeys(),
+              storage: callbackStorageSummary(),
+              trace: readDerivOAuthTrace(),
+            });
+            recordDerivOAuthTrace("oauth-code-verifier-missing", {
+              storage: callbackStorageSummary(),
             });
             throw new Error("Expired login session. Please sign in with Deriv again.");
           }
-
-          sessionStorage.removeItem("deriv_oauth_state");
-          sessionStorage.removeItem("deriv_code_verifier");
 
           setStatus("Exchanging Deriv authorization code...");
           markStage("token exchange started", {
@@ -369,6 +424,7 @@ function DerivCallback() {
           };
           if (!tokenResponse.ok) {
             markStage("token exchange failure", tokenLog);
+            recordDerivOAuthTrace("oauth-token-exchange-failed", tokenLog);
             if (tokenResponse.status === 403) {
               throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
             }
@@ -381,6 +437,9 @@ function DerivCallback() {
             );
           }
           markStage("token exchange success", tokenLog);
+          recordDerivOAuthTrace("oauth-token-exchange-succeeded", tokenLog);
+          sessionStorage.removeItem("deriv_oauth_state");
+          sessionStorage.removeItem("deriv_code_verifier");
 
           accessToken = tokenData.access_token ?? "";
           expiresIn = Number(tokenData.expires_in ?? 0);
@@ -419,6 +478,7 @@ function DerivCallback() {
           };
           if (!accountsResponse.ok) {
             markStage("accounts fetch failure", accountsLog);
+            recordDerivOAuthTrace("oauth-accounts-fetch-failed", accountsLog);
             if (accountsResponse.status === 403) {
               throw new Error(DERIV_RAPID_APPROVAL_MESSAGE);
             }
@@ -433,8 +493,15 @@ function DerivCallback() {
             );
           }
           markStage("accounts fetch success", accountsLog);
+          recordDerivOAuthTrace("oauth-accounts-fetch-succeeded", accountsLog);
           rawAccounts = accountsData.data ?? [];
         } else {
+          recordDerivOAuthTrace("oauth-callback-missing-code", {
+            hasState: Boolean(state),
+            searchKeys: Array.from(params.keys()),
+            hashKeys: Array.from(hashParams.keys()),
+            storage: callbackStorageSummary(),
+          });
           throw new Error("Missing authorization code");
         }
 
@@ -713,6 +780,12 @@ function DerivCallback() {
           savedCount: savedAccounts.length,
           selectedAccountId,
         });
+        recordDerivOAuthTrace("oauth-app-redirect-selected", {
+          returnTo,
+          storedReturnTo,
+          savedCount: savedAccounts.length,
+          selectedAccountId,
+        });
         callbackInFlight = false;
         sessionStorage.removeItem(CALLBACK_PROCESSING_KEY);
         sessionStorage.removeItem(OAUTH_PROCESSING_KEY);
@@ -726,6 +799,13 @@ function DerivCallback() {
           message,
           error: e,
           sessionStorageKeys: sessionStorageKeys(),
+          storage: callbackStorageSummary(),
+          trace: readDerivOAuthTrace(),
+        });
+        recordDerivOAuthTrace("oauth-callback-failed", {
+          stage: currentStage,
+          message,
+          storage: callbackStorageSummary(),
         });
         callbackInFlight = false;
         sessionStorage.removeItem(CALLBACK_PROCESSING_KEY);

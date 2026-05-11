@@ -19,6 +19,10 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
           console.log("[Deriv Token Exchange] request received", {
             hasCode: Boolean(code),
             hasCodeVerifier: Boolean(codeVerifier),
+            redirect_uri: DERIV_REDIRECT_URI,
+            client_id: DERIV_OAUTH_CLIENT_ID,
+            redirectUriExactMatch:
+              DERIV_REDIRECT_URI === "https://www.arktradershub.com/deriv-callback",
           });
           if (!code || !codeVerifier) {
             return Response.json({ error: "Missing code or codeVerifier" }, { status: 400 });
@@ -47,6 +51,8 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
             grant_type: "authorization_code",
             client_id: clientId,
             redirect_uri: DERIV_REDIRECT_URI,
+            redirectUriExactMatch:
+              DERIV_REDIRECT_URI === "https://www.arktradershub.com/deriv-callback",
             hasCode: Boolean(code),
             hasCodeVerifier: Boolean(codeVerifier),
           });

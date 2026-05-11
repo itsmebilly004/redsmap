@@ -5,8 +5,11 @@ import { Button } from "@/components/ui/button";
 import {
   DERIV_OAUTH_ENDPOINT_VALUE,
   buildOAuthUrl,
+  ensureDerivOAuthCanonicalOrigin,
   getDerivOAuthRedirectFailure,
   getDerivOAuthDiagnostics,
+  readDerivOAuthTrace,
+  recordDerivOAuthTrace,
   redirectToDerivOAuth,
   type DerivOAuthRedirectFailure,
   type DerivOAuthDiagnostics,
@@ -41,6 +44,13 @@ function AuthPage() {
     if (typeof window === "undefined") return;
     const checkDashboardRedirectReturn = () => {
       const attemptedAt = sessionStorage.getItem("deriv_oauth_started_at");
+      recordDerivOAuthTrace("auth-page-visible", {
+        attemptedAt,
+        currentHref: window.location.href,
+        referrer: document.referrer || null,
+        lastAuthorizationUrl: sessionStorage.getItem("deriv_oauth_last_authorization_url"),
+        expectedCallback: sessionStorage.getItem("deriv_oauth_expected_callback"),
+      });
       if (!attemptedAt) return;
       const rapidApprovalUrl =
         getUnsupportedApprovalUrl(window.location.href) ??
@@ -51,6 +61,7 @@ function AuthPage() {
         console.warn("[Deriv OAuth] Deriv reported rapid repeated approval", {
           url: rapidApprovalUrl,
           attemptedAt,
+          trace: readDerivOAuthTrace(),
         });
         return;
       }
@@ -64,6 +75,9 @@ function AuthPage() {
         reason: failure.reason,
         url: failure.url,
         attemptedAt,
+        lastAuthorizationUrl: sessionStorage.getItem("deriv_oauth_last_authorization_url"),
+        expectedCallback: sessionStorage.getItem("deriv_oauth_expected_callback"),
+        trace: readDerivOAuthTrace(),
       });
     };
     checkDashboardRedirectReturn();
@@ -82,6 +96,7 @@ function AuthPage() {
     setDebugUrl(null);
     setOauthDiagnostics(null);
     try {
+      if (!ensureDerivOAuthCanonicalOrigin()) return;
       const url = await buildOAuthUrl({
         debug: showOAuthDebug,
         mode,
@@ -125,6 +140,10 @@ function AuthPage() {
     if (!debugUrl) return;
     try {
       console.info("[Deriv OAuth Debug] Redirecting to exact URL", debugUrl);
+      recordDerivOAuthTrace("oauth-debug-continue-clicked", {
+        finalOAuthUrl: debugUrl,
+        diagnostics: oauthDiagnostics,
+      });
       redirectToDerivOAuth(debugUrl);
     } catch (error) {
       console.error("Could not redirect to Deriv OAuth URL", error);
@@ -363,10 +382,36 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
       ok: diagnostics.redirectUriMatchesRegisteredUrl,
     },
     {
+      label: "redirect_uri raw",
+      actual: diagnostics.rawRedirectUriParam || "(missing)",
+      expected: "encoded exactly once",
+      ok: Boolean(diagnostics.rawRedirectUriParam) && !diagnostics.hasDoubleEncodedRedirectUri,
+    },
+    {
+      label: "callback origin",
+      actual: diagnostics.redirectUriOrigin || "(missing)",
+      expected: "https://www.arktradershub.com",
+      ok: diagnostics.redirectUriOrigin === "https://www.arktradershub.com",
+    },
+    {
+      label: "callback path",
+      actual: diagnostics.redirectUriPathname || "(missing)",
+      expected: "/deriv-callback with no trailing slash",
+      ok:
+        diagnostics.redirectUriPathname === "/deriv-callback" &&
+        !diagnostics.redirectUriHasTrailingSlash,
+    },
+    {
       label: "scope",
       actual: diagnostics.scopes || "(missing)",
       expected: "trade account_manage",
       ok: diagnostics.scopes === "trade account_manage",
+    },
+    {
+      label: "scope permissions",
+      actual: diagnostics.scopeTokens.join(", ") || "(missing)",
+      expected: "trade and account_manage",
+      ok: diagnostics.scopeHasTrade && diagnostics.scopeHasAccountManage,
     },
     {
       label: "state",
