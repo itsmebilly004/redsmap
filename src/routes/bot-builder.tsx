@@ -46,7 +46,9 @@ import {
   FileJson,
   FolderOpen,
   GripVertical,
+  History,
   Info,
+  ListChecks,
   Maximize2,
   Minimize2,
   PanelLeftClose,
@@ -64,6 +66,7 @@ import {
   Trash2,
   Undo2,
   Wallet,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -167,6 +170,21 @@ type BotStats = {
   stake: number;
   wins: number;
 };
+type TradePanelMode = "hidden" | "collapsed" | "expanded";
+type TradeRecord = {
+  closedAt?: string;
+  contractId: string;
+  contractType: string;
+  currency: string;
+  id: string;
+  market: string;
+  openedAt: string;
+  payout?: number;
+  profit?: number;
+  side: string;
+  stake: number;
+  status: "open" | "won" | "lost";
+};
 type BotBuilderSnapshot = {
   activeBlocks: string[];
   barrierOffset: string;
@@ -209,7 +227,8 @@ function BotBuilder() {
   const [trashActive, setTrashActive] = useState(false);
   const [athenaEnabled, setAthenaEnabled] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
-  const [profitPanelCollapsed, setProfitPanelCollapsed] = useState(false);
+  const [tradePanelMode, setTradePanelMode] = useState<TradePanelMode>("hidden");
+  const [tradePanelDismissed, setTradePanelDismissed] = useState(false);
   const [utcNow, setUtcNow] = useState(() => new Date());
 
   const [symbol, setSymbol] = useState("1HZ100V");
@@ -238,6 +257,13 @@ function BotBuilder() {
     offsetX: number;
     offsetY: number;
   } | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const pendingDragRef = useRef<{
+    id: string;
+    overTrash: boolean;
+    x: number;
+    y: number;
+  } | null>(null);
   const lastSnapshotRef = useRef<string>("");
   const applyingHistoryRef = useRef(false);
   const saveBotNowRef = useRef<(showToast?: boolean) => Promise<void>>(async () => {});
@@ -257,6 +283,7 @@ function BotBuilder() {
   const statsRef = useRef(stats);
   const currentStakeRef = useRef(currentStake);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [tradeRecords, setTradeRecords] = useState<TradeRecord[]>([]);
 
   const availableSides = SIDE_OPTIONS[tradeType];
   const snapshot = useMemo<BotBuilderSnapshot>(
@@ -354,14 +381,27 @@ function BotBuilder() {
       const dragState = dragStateRef.current;
       const point = pointerToWorkspace(event);
       if (!dragState || !point) return;
-      setBlockPositions((positions) => ({
-        ...positions,
-        [dragState.id]: {
-          x: Math.max(0, Math.round(point.x - dragState.offsetX)),
-          y: Math.max(0, Math.round(point.y - dragState.offsetY)),
-        },
-      }));
-      setTrashActive(pointerIsOverTrash(event));
+      pendingDragRef.current = {
+        id: dragState.id,
+        overTrash: pointerIsOverTrash(event),
+        x: Math.max(0, Math.round(point.x - dragState.offsetX)),
+        y: Math.max(0, Math.round(point.y - dragState.offsetY)),
+      };
+      if (dragFrameRef.current !== null) return;
+      dragFrameRef.current = window.requestAnimationFrame(() => {
+        const pending = pendingDragRef.current;
+        dragFrameRef.current = null;
+        if (!pending) return;
+        setBlockPositions((positions) => {
+          const current = positions[pending.id];
+          if (current?.x === pending.x && current.y === pending.y) return positions;
+          return {
+            ...positions,
+            [pending.id]: { x: pending.x, y: pending.y },
+          };
+        });
+        setTrashActive(pending.overTrash);
+      });
     }
 
     function handlePointerUp(event: PointerEvent) {
@@ -372,6 +412,11 @@ function BotBuilder() {
         toast.success("Block removed");
       }
       dragStateRef.current = null;
+      pendingDragRef.current = null;
+      if (dragFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
+      }
       setDraggingBlock(null);
       setTrashActive(false);
     }
@@ -383,6 +428,10 @@ function BotBuilder() {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
+      if (dragFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
+      }
     };
   }, [draggingBlock]);
 
@@ -534,6 +583,9 @@ function BotBuilder() {
     runningRef.current = false;
     setStats({ runs: 0, wins: 0, losses: 0, profit: 0, stake: 0, payout: 0 });
     setJournal([]);
+    setTradeRecords([]);
+    setTradePanelMode("hidden");
+    setTradePanelDismissed(false);
     setCurrentStake(initialStake);
     toast.success("Workspace reset");
   }
@@ -713,6 +765,32 @@ function BotBuilder() {
     );
   }
 
+  function showTradePanel(mode: Exclude<TradePanelMode, "hidden"> = "expanded") {
+    setTradePanelDismissed(false);
+    setTradePanelMode(mode);
+  }
+
+  function closeTradePanel() {
+    setTradePanelDismissed(true);
+    setTradePanelMode("hidden");
+  }
+
+  function recordTradeOpened(trade: TradeRecord) {
+    setTradeRecords((records) => [trade, ...records].slice(0, 120));
+    if (!tradePanelDismissed) {
+      setTradePanelMode((mode) => (mode === "hidden" ? "collapsed" : mode));
+    }
+  }
+
+  function recordTradeClosed(
+    id: string,
+    updates: Pick<TradeRecord, "closedAt" | "payout" | "profit" | "status">,
+  ) {
+    setTradeRecords((records) =>
+      records.map((record) => (record.id === id ? { ...record, ...updates } : record)),
+    );
+  }
+
   function toggleBot() {
     if (!token) {
       toast.error("Connect Deriv first.");
@@ -722,6 +800,8 @@ function BotBuilder() {
     setRunning(next);
     runningRef.current = next;
     if (next) {
+      if (!tradePanelDismissed)
+        setTradePanelMode((mode) => (mode === "hidden" ? "collapsed" : mode));
       logJournal("Trading engine started", "success");
       void runCycle();
     } else {
@@ -828,6 +908,18 @@ function BotBuilder() {
       });
       const contractId = String(buy.buy?.contract_id ?? "");
       if (!contractId) throw new Error("No contract id returned");
+      const tradeRecordId = `${contractId}-${Date.now()}`;
+      recordTradeOpened({
+        contractId,
+        contractType,
+        currency: derivCurrency || "USD",
+        id: tradeRecordId,
+        market: symbol,
+        openedAt: new Date().toISOString(),
+        side: availableSides.find((side) => side.value === purchaseSide)?.label ?? purchaseSide,
+        stake: stakeForTrade,
+        status: "open",
+      });
       logJournal(`Purchased ${contractType} on ${symbol}`, "success");
 
       const poll = setInterval(async () => {
@@ -842,6 +934,12 @@ function BotBuilder() {
         clearInterval(poll);
         const pnl = Number(contract.profit ?? 0);
         const won = pnl > 0;
+        recordTradeClosed(tradeRecordId, {
+          closedAt: new Date().toISOString(),
+          payout: Number(contract.payout ?? 0),
+          profit: pnl,
+          status: won ? "won" : "lost",
+        });
         setStats((current) => ({
           runs: current.runs + 1,
           wins: current.wins + (won ? 1 : 0),
@@ -1037,6 +1135,20 @@ function BotBuilder() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            <button
+              type="button"
+              onClick={() => showTradePanel("expanded")}
+              className="flex h-8 shrink-0 items-center gap-2 rounded-full border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#334155] hover:bg-[#f8fafc]"
+            >
+              <ListChecks className="size-4" />
+              Trades
+              {tradeRecords.length > 0 && (
+                <span className="rounded-full bg-[#e0f2fe] px-1.5 py-0.5 text-[10px] font-black text-[#0369a1]">
+                  {tradeRecords.length}
+                </span>
+              )}
+            </button>
             <button
               type="button"
               onClick={toggleAthena}
@@ -1397,13 +1509,16 @@ function BotBuilder() {
               )}
             </div>
 
-            {(running || stats.runs > 0) && (
+            {tradePanelMode !== "hidden" && (
               <ProfitLossPanel
-                collapsed={profitPanelCollapsed}
                 currency={derivCurrency || "USD"}
+                journal={journal}
+                mode={tradePanelMode}
+                records={tradeRecords}
                 running={running}
                 stats={stats}
-                onToggle={() => setProfitPanelCollapsed((value) => !value)}
+                onClose={closeTradePanel}
+                onModeChange={setTradePanelMode}
               />
             )}
 
@@ -1486,67 +1601,232 @@ function BotBuilder() {
 }
 
 function ProfitLossPanel({
-  collapsed,
   currency,
-  onToggle,
+  journal,
+  mode,
+  onClose,
+  onModeChange,
+  records,
   running,
   stats,
 }: {
-  collapsed: boolean;
   currency: string;
-  onToggle: () => void;
+  journal: JournalEntry[];
+  mode: Exclude<TradePanelMode, "hidden">;
+  onClose: () => void;
+  onModeChange: (mode: TradePanelMode) => void;
+  records: TradeRecord[];
   running: boolean;
   stats: BotStats;
 }) {
   const profitPositive = stats.profit >= 0;
   const winRate = stats.runs ? ((stats.wins / stats.runs) * 100).toFixed(1) : "0.0";
+  const openRecords = records.filter((record) => record.status === "open");
+  const closedRecords = records.filter((record) => record.status !== "open");
 
-  return (
-    <div className="fixed bottom-12 left-[236px] z-40 w-[320px] overflow-hidden rounded-lg border border-[#cbd5e1] bg-white shadow-xl">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between bg-[#0f4c5c] px-3 py-2 text-left text-xs font-bold uppercase text-white"
-      >
-        <span>Profit / Loss</span>
-        <span className="flex items-center gap-2">
-          <span className="size-2 rounded-full bg-[#22c55e]" />
-          {running ? "Running" : "Stopped"}
-          {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
-        </span>
-      </button>
-
-      {!collapsed && (
-        <div className="space-y-3 p-3">
-          <div
+  if (mode === "collapsed") {
+    return (
+      <div className="fixed bottom-10 left-[236px] z-40 flex items-center overflow-hidden rounded-full border border-[#cbd5e1] bg-white shadow-lg">
+        <button
+          type="button"
+          onClick={() => onModeChange("expanded")}
+          className="flex items-center gap-3 px-3 py-2 text-left"
+        >
+          <span
+            className={cn("size-2.5 rounded-full", running ? "bg-[#22c55e]" : "bg-[#94a3b8]")}
+          />
+          <span className="text-xs font-bold text-[#334155]">Trades</span>
+          <span
             className={cn(
-              "rounded-md border p-3",
-              profitPositive
-                ? "border-[#bbf7d0] bg-[#f0fdf4] text-[#166534]"
-                : "border-[#fecaca] bg-[#fef2f2] text-[#991b1b]",
+              "font-mono text-xs font-black",
+              profitPositive ? "text-[#166534]" : "text-[#991b1b]",
             )}
           >
-            <div className="text-[10px] font-bold uppercase opacity-70">Total P/L</div>
-            <div className="mt-1 font-mono text-2xl font-black">
-              {profitPositive ? "+" : ""}
-              {stats.profit.toFixed(2)} {currency}
+            {profitPositive ? "+" : ""}
+            {stats.profit.toFixed(2)} {currency}
+          </span>
+          <Maximize2 className="size-4 text-[#64748b]" />
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="border-l border-[#e2e8f0] px-2 py-2 text-[#64748b] hover:bg-[#f8fafc] hover:text-[#111827]"
+          aria-label="Hide trade panel"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed bottom-10 right-4 top-[118px] z-40 flex w-[min(440px,calc(100vw-1rem))] flex-col overflow-hidden rounded-lg border border-[#cbd5e1] bg-white shadow-2xl">
+      <div className="flex shrink-0 items-center justify-between bg-[#0f4c5c] px-3 py-2 text-white">
+        <div className="flex min-w-0 items-center gap-2">
+          <History className="size-4 shrink-0" />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-bold">Trades and transactions</div>
+            <div className="text-[10px] font-bold uppercase text-white/70">
+              {running ? "Bot running" : "Bot stopped"}
             </div>
           </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onModeChange("collapsed")}
+            className="rounded p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
+            aria-label="Collapse trade panel"
+          >
+            <Minimize2 className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
+            aria-label="Hide trade panel"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      </div>
 
-          <div className="grid grid-cols-4 gap-2">
-            <PanelMetric label="Runs" value={stats.runs} />
-            <PanelMetric label="Wins" value={stats.wins} />
-            <PanelMetric label="Losses" value={stats.losses} />
-            <PanelMetric label="Win %" value={`${winRate}%`} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <PanelMetric label="Stake" value={stats.stake.toFixed(2)} />
-            <PanelMetric label="Payout" value={stats.payout.toFixed(2)} />
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <div
+          className={cn(
+            "rounded-md border p-3",
+            profitPositive
+              ? "border-[#bbf7d0] bg-[#f0fdf4] text-[#166534]"
+              : "border-[#fecaca] bg-[#fef2f2] text-[#991b1b]",
+          )}
+        >
+          <div className="text-[10px] font-bold uppercase opacity-70">Total profit / loss</div>
+          <div className="mt-1 font-mono text-2xl font-black">
+            {profitPositive ? "+" : ""}
+            {stats.profit.toFixed(2)} {currency}
           </div>
         </div>
-      )}
+
+        <div className="mt-3 grid grid-cols-4 gap-2">
+          <PanelMetric label="Runs" value={stats.runs} />
+          <PanelMetric label="Wins" value={stats.wins} />
+          <PanelMetric label="Losses" value={stats.losses} />
+          <PanelMetric label="Win %" value={`${winRate}%`} />
+        </div>
+
+        <TradeList emptyText="No open trades." records={openRecords} title="Placed trades" />
+        <TradeList
+          emptyText="No completed trades yet."
+          records={closedRecords}
+          title="Closed trades"
+        />
+
+        <section className="mt-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase text-[#475569]">
+            <ListChecks className="size-4" />
+            Bot transaction history
+          </div>
+          {journal.length === 0 ? (
+            <div className="rounded-md border border-[#e2e8f0] bg-[#f8fafc] p-3 text-sm text-[#64748b]">
+              Transactions appear when the bot runs.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {journal.slice(0, 24).map((entry, index) => (
+                <div
+                  key={`${entry.time}-${index}`}
+                  className={cn(
+                    "rounded-md border bg-white p-2 text-xs",
+                    entry.type === "success" && "border-[#bbf7d0] text-[#166534]",
+                    entry.type === "error" && "border-[#fecaca] text-[#991b1b]",
+                    entry.type === "info" && "border-[#e2e8f0] text-[#475569]",
+                  )}
+                >
+                  <div className="mb-1 font-mono text-[10px] font-bold opacity-70">
+                    {entry.time}
+                  </div>
+                  {entry.message}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
+  );
+}
+
+function TradeList({
+  emptyText,
+  records,
+  title,
+}: {
+  emptyText: string;
+  records: TradeRecord[];
+  title: string;
+}) {
+  return (
+    <section className="mt-4">
+      <div className="mb-2 text-xs font-black uppercase text-[#475569]">{title}</div>
+      {records.length === 0 ? (
+        <div className="rounded-md border border-[#e2e8f0] bg-[#f8fafc] p-3 text-sm text-[#64748b]">
+          {emptyText}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {records.map((record) => (
+            <div
+              key={record.id}
+              className="rounded-md border border-[#e2e8f0] bg-white p-3 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-bold text-[#111827]">
+                    {record.contractType} / {record.market}
+                  </div>
+                  <div className="mt-1 text-xs text-[#64748b]">
+                    {record.side} / {formatTradeDate(record.openedAt)}
+                  </div>
+                </div>
+                <TradeStatusBadge status={record.status} />
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <PanelMetric
+                  label="Stake"
+                  value={`${record.stake.toFixed(2)} ${record.currency}`}
+                />
+                <PanelMetric
+                  label="Payout"
+                  value={record.payout === undefined ? "..." : record.payout.toFixed(2)}
+                />
+                <PanelMetric
+                  label="P/L"
+                  value={record.profit === undefined ? "..." : record.profit.toFixed(2)}
+                />
+              </div>
+              <div className="mt-2 truncate font-mono text-[10px] text-[#94a3b8]">
+                Contract {record.contractId}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TradeStatusBadge({ status }: { status: TradeRecord["status"] }) {
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2 py-1 text-[10px] font-black uppercase",
+        status === "open" && "bg-[#e0f2fe] text-[#0369a1]",
+        status === "won" && "bg-[#dcfce7] text-[#166534]",
+        status === "lost" && "bg-[#fee2e2] text-[#991b1b]",
+      )}
+    >
+      {status}
+    </span>
   );
 }
 
@@ -1755,6 +2035,14 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <div className="mt-1 font-mono text-sm font-bold text-[#0f3f47]">{value}</div>
     </div>
   );
+}
+
+function formatTradeDate(value: string) {
+  return new Date(value).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function formatUtcTimestamp(date: Date) {
