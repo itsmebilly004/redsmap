@@ -1,15 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import {
-  Bot,
-  Crosshair,
-  Globe,
-  HelpCircle,
-  Maximize2,
-  Settings,
-  Shield,
-  Sun,
-} from "lucide-react";
+import { Bot, Crosshair, Globe, HelpCircle, Maximize2, Settings, Shield, Sun } from "lucide-react";
 import { DerivChart } from "@/components/deriv-chart";
 import { SignalsPanel } from "@/components/signals-panel";
 import { TopShell } from "@/components/top-shell";

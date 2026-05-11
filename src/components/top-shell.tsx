@@ -112,13 +112,16 @@ export function TopShell({ children }: { children: ReactNode }) {
   }, [account?.account_id, account?.normalizedType, dropdownOpen]);
 
   useEffect(() => {
-    console.info("[Deriv Accounts] dropdown normalized account placement", accounts.map((item) => ({
-      raw_account_id: item.account_id,
-      raw_loginid: item.loginid,
-      detected_prefix: item.detected_prefix,
-      normalizedType: item.normalizedType,
-      final_tab_placement: item.final_tab_placement,
-    })));
+    console.info(
+      "[Deriv Accounts] dropdown normalized account placement",
+      accounts.map((item) => ({
+        raw_account_id: item.account_id,
+        raw_loginid: item.loginid,
+        detected_prefix: item.detected_prefix,
+        normalizedType: item.normalizedType,
+        final_tab_placement: item.final_tab_placement,
+      })),
+    );
     console.info("[Deriv Accounts] dropdown realAccounts", realAccounts);
     console.info("[Deriv Accounts] dropdown demoAccounts", demoAccounts);
     console.info("[Deriv Accounts] dropdown selectedAccount", account);
@@ -144,7 +147,10 @@ export function TopShell({ children }: { children: ReactNode }) {
     );
     const unknownAccounts = accounts.filter((item) => item.normalizedType === "unknown");
     if (unknownAccounts.length) {
-      console.warn("[Deriv Accounts] unknown accounts not rendered in account tabs", unknownAccounts);
+      console.warn(
+        "[Deriv Accounts] unknown accounts not rendered in account tabs",
+        unknownAccounts,
+      );
     }
   }, [account, accounts, demoAccounts, realAccounts]);
 

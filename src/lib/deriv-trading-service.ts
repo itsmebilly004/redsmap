@@ -48,10 +48,7 @@ function assertNoRejectedProposalProperties(payload: DerivRecord, adapter?: Trad
   }
 }
 
-export async function requestProposal(
-  payload: DerivRecord,
-  context: TradeRequestContext = {},
-) {
+export async function requestProposal(payload: DerivRecord, context: TradeRequestContext = {}) {
   assertNoRejectedProposalProperties(payload, context.adapter);
   console.info("[Deriv Trading] Proposal request", {
     adapter: context.adapter ?? "unknown",

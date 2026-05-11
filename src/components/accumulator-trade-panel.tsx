@@ -15,10 +15,10 @@ import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { isDemoAccount } from "@/lib/deriv-account";
 import {
   buildOAuthUrl,
+  ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
   getTradingSocketAccountId,
   onStatus,
-  prepareDerivTradingSession,
   redirectToDerivOAuth,
 } from "@/lib/deriv";
 import { SYNTHETIC_MARKETS } from "@/lib/deriv";
@@ -181,7 +181,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     try {
       validateAccount();
       if (!account || !token) throw new Error("Connect and select your Deriv account first.");
-      const tradingSession = await prepareDerivTradingSession(account, {
+      const tradingSession = await ensureDerivTradingConnection(account, {
         context: "accumulator-buy",
       });
       console.info("[Accumulator] Trading session prepared", {
@@ -307,7 +307,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     setBusy(true);
     try {
       if (account) {
-        await prepareDerivTradingSession(account, { context: "accumulator-sell" });
+        await ensureDerivTradingConnection(account, { context: "accumulator-sell" });
       }
       const response = await sellContract(state.contractId, state.sellPrice);
       const sold = response.sell ?? {};
@@ -525,7 +525,9 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
           </span>
         </div>
 
-        {state.error && <div className="mt-2 text-xs font-medium text-[#cc2f39]">{state.error}</div>}
+        {state.error && (
+          <div className="mt-2 text-xs font-medium text-[#cc2f39]">{state.error}</div>
+        )}
       </div>
 
       <Button
@@ -550,7 +552,9 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         disabled={busy || (state.status === "active" && !canSell)}
         className={cn(
           "h-12 w-full rounded-md text-base font-semibold text-white",
-          state.status === "active" ? "bg-[#ff444f] hover:bg-[#eb3e48]" : "bg-[#13a883] hover:bg-[#119875]",
+          state.status === "active"
+            ? "bg-[#ff444f] hover:bg-[#eb3e48]"
+            : "bg-[#13a883] hover:bg-[#119875]",
         )}
       >
         {busy

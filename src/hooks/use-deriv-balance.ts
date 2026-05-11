@@ -6,9 +6,6 @@ import {
   DERIV_APP_ID_VALUE,
   DERIV_CLIENT_ID_VALUE,
   adapterForTokenSource,
-  getActiveDerivTradingSession,
-  getDerivTradingErrorMessage,
-  prepareTradingAuthorization,
   readStoredTradingAuthorizationState,
   tradingAuthorizationIsFresh,
   tradingWebSocketMode,
@@ -16,7 +13,11 @@ import {
   type TradingAdapter,
   type TradingAuthorizationState,
 } from "@/lib/deriv";
-import { normalizeDerivAccount, type NormalizedDerivAccount } from "@/lib/deriv-account";
+import {
+  normalizeDerivAccount,
+  type DerivAccountLike,
+  type NormalizedDerivAccount,
+} from "@/lib/deriv-account";
 
 export type DerivAccount = NormalizedDerivAccount & {
   id?: string;
@@ -116,7 +117,7 @@ type DerivAccountsApiResponse = {
 
 function tokenSourceFromText(value: unknown): DerivTokenSource | null {
   const text = String(value ?? "").trim();
-  if (text === "oauth_access_token" || text === "legacy_authorize_token") return text;
+  if (text === "oauth_access_token") return text;
   return null;
 }
 
@@ -136,8 +137,7 @@ function tradingAuthorizationFromRaw(
   tokenSource: DerivTokenSource | undefined,
 ): TradingAuthorizationState | null {
   const adapter =
-    raw.trading_adapter === "newOAuthTradingAdapter" ||
-    raw.trading_adapter === "legacyTradingAdapter"
+    raw.trading_adapter === "oauth2PkceTradingAdapter"
       ? raw.trading_adapter
       : tokenSource
         ? adapterForTokenSource(tokenSource)
@@ -181,14 +181,6 @@ function applyTradingAuthorizationState(
   };
 }
 
-function isLikelyLegacyToken(
-  account: Pick<DerivAccount, "account_id" | "deriv_token" | "token_source">,
-) {
-  return Boolean(
-    account.deriv_token && tokenSourceForAccount(account) === "legacy_authorize_token",
-  );
-}
-
 function isOAuthTokenAccount(
   account: Pick<DerivAccount, "account_id" | "deriv_token" | "token_source">,
 ) {
@@ -202,16 +194,13 @@ function readTokenSource(
 ): DerivTokenSource | undefined {
   try {
     const saved = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
-    if (saved === "oauth_access_token" || saved === "legacy_authorize_token") return saved;
+    if (saved === "oauth_access_token") return saved;
     const selectedAccountId =
       localStorage.getItem(selectedAccountIdStorageKey(userId)) ??
       localStorage.getItem(accountStorageKey(userId));
     if (selectedAccountId?.toUpperCase() === accountId.toUpperCase()) {
       const selectedTokenSource = localStorage.getItem(selectedTokenSourceStorageKey(userId));
-      if (
-        selectedTokenSource === "oauth_access_token" ||
-        selectedTokenSource === "legacy_authorize_token"
-      ) {
+      if (selectedTokenSource === "oauth_access_token") {
         return selectedTokenSource;
       }
     }
@@ -322,12 +311,13 @@ function normalizeFreshAccount(
   const normalized = normalizeDerivAccount(
     {
       ...account,
-      deriv_token: account.deriv_token ?? fallbackToken,
+      deriv_token: typeof account.deriv_token === "string" ? account.deriv_token : fallbackToken,
     },
     { trustVirtualFlags: false },
   );
   if (!normalized?.deriv_token) return null;
   const tokenSource = fallbackTokenSource ?? fallbackTokenSourceForRaw(account);
+  if (tokenSource !== "oauth_access_token") return null;
   const tradingAuthorization = tradingAuthorizationFromRaw(
     account,
     normalized.account_id,
@@ -352,7 +342,7 @@ export function useDerivBalance(): LiveBalance {
   const [refreshing, setRefreshing] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const lastWebSocketAccountKeyRef = useRef<string | null>(null);
-  const legacyAutoRefreshKeysRef = useRef<Set<string>>(new Set());
+  const balanceAutoRefreshKeysRef = useRef<Set<string>>(new Set());
   const loadedUserIdRef = useRef<string | null>(null);
   const accountsRef = useRef<DerivAccount[]>([]);
   const sessionRefreshReasonRef = useRef<string | null>(null);
@@ -400,7 +390,7 @@ export function useDerivBalance(): LiveBalance {
       setBalance(null);
       setCurrency("");
       lastWebSocketAccountKeyRef.current = null;
-      legacyAutoRefreshKeysRef.current.clear();
+      balanceAutoRefreshKeysRef.current.clear();
       loadedUserIdRef.current = user.id;
     }
     console.info("[Deriv Accounts] loading sessions for active Supabase user", {
@@ -422,7 +412,7 @@ export function useDerivBalance(): LiveBalance {
         return;
       }
 
-      const rawAccounts = (data ?? []) as DerivAccount[];
+      const rawAccounts = (data ?? []) as DerivAccountLike[];
       console.info("[Deriv Accounts] raw session accounts before normalization", rawAccounts);
       const normalized = dedupeAccountsByLogin(
         rawAccounts
@@ -432,6 +422,16 @@ export function useDerivBalance(): LiveBalance {
             const tokenSource =
               fallbackTokenSourceForRaw(account) ??
               readTokenSource(user.id, normalized.account_id, normalized.deriv_token);
+            if (tokenSource !== "oauth_access_token") {
+              console.warn("[Deriv Accounts] stale non-OAuth session excluded", {
+                account_id: normalized.account_id,
+                loginid: normalized.loginid,
+                token_source: account.token_source ?? null,
+                reason:
+                  "Only OAuth2 PKCE sessions created with the owned client_id are valid after the Deriv integration refactor.",
+              });
+              return null;
+            }
             const storedAuthorization = readStoredTradingAuthorizationState(
               user.id,
               normalized.account_id,
@@ -575,9 +575,7 @@ export function useDerivBalance(): LiveBalance {
         const previousAccounts = accountsRef.current;
         const reason = sessionRefreshReasonRef.current;
         const shouldClearForExplicitSessionEnd =
-          reason === "deriv-invalid-token" ||
-          reason === "legacy-authorize-invalid-token" ||
-          reason === "deriv-session-expired";
+          reason === "deriv-invalid-token" || reason === "deriv-session-expired";
         if (previousAccounts.length && !shouldClearForExplicitSessionEnd) {
           console.warn("[Deriv Accounts] empty session refresh preserved existing accounts", {
             userId: user.id,
@@ -683,15 +681,6 @@ export function useDerivBalance(): LiveBalance {
           });
         }
 
-        const legacyAccounts = accounts.filter(isLikelyLegacyToken);
-        if (legacyAccounts.length) {
-          console.warn("[Deriv Balance] legacy authorize-token accounts skipped", {
-            accountIds: legacyAccounts.map((account) => account.account_id),
-            reason:
-              "ArkTrader uses OAuth2 client_id 33dF8d2wwjIpeFDBvNkln for all account types. Reconnect these accounts through Deriv OAuth2.",
-          });
-        }
-
         if (!freshAccountsById.size) return;
 
         for (const account of freshAccountsById.values()) {
@@ -725,9 +714,6 @@ export function useDerivBalance(): LiveBalance {
         }
 
         setAccounts((previous) => {
-          const previousLegacyIds = new Set(
-            previous.filter(isLikelyLegacyToken).map((account) => account.account_id),
-          );
           const next = previous.map(
             (account) => freshAccountsById.get(account.account_id) ?? account,
           );
@@ -738,7 +724,6 @@ export function useDerivBalance(): LiveBalance {
 
           console.info("[Deriv Balance] React account state refreshed", {
             reason,
-            previousLegacyIds: Array.from(previousLegacyIds),
             freshAccountIds: Array.from(freshAccountsById.keys()),
             nextAccounts: next.map(accountSummary),
           });
@@ -812,19 +797,6 @@ export function useDerivBalance(): LiveBalance {
       return;
     }
 
-    if (activeTokenSource === "legacy_authorize_token") {
-      console.warn("[Deriv Balance] legacy authorize-token account requires OAuth2 reconnect", {
-        account_id: active.account_id,
-        loginid: active.loginid,
-        normalizedType: active.normalizedType,
-        token_source: activeTokenSource,
-        adapter: adapterForTokenSource(activeTokenSource),
-        websocketMode: tradingWebSocketMode(activeTokenSource),
-        reason:
-          "ArkTrader uses OAuth2 client_id 33dF8d2wwjIpeFDBvNkln for all account types and no longer opens direct legacy trading sockets.",
-      });
-      return;
-    }
     return;
   }, [
     active,
@@ -845,8 +817,8 @@ export function useDerivBalance(): LiveBalance {
       .map((account) => `${account.account_id}:${account.deriv_token.slice(-6)}`)
       .sort()
       .join("|")}`;
-    if (legacyAutoRefreshKeysRef.current.has(refreshKey)) return;
-    legacyAutoRefreshKeysRef.current.add(refreshKey);
+    if (balanceAutoRefreshKeysRef.current.has(refreshKey)) return;
+    balanceAutoRefreshKeysRef.current.add(refreshKey);
     void refreshBalances("initial-account-load").catch((error) => {
       console.warn("[Deriv Balance] initial account balance refresh failed", error);
     });
@@ -873,63 +845,13 @@ export function useDerivBalance(): LiveBalance {
         if (user) persistSelectedAccount(user.id, target);
         setBalance(target.balance != null ? Number(target.balance) : null);
         setCurrency(target.currency ?? "");
-        void (async () => {
-          try {
-            console.info("[Deriv Balance] account-switch trading authorization prepare started", {
-              accountId,
-              token_source: target.token_source ?? null,
-              adapter: target.token_source ? adapterForTokenSource(target.token_source) : null,
-              websocketMode: target.token_source ? tradingWebSocketMode(target.token_source) : null,
-            });
-            const tradingSession = await getActiveDerivTradingSession(target, {
-              context: "account-switch",
-            });
-            const tradingAuthorization = await prepareTradingAuthorization(tradingSession, {
-              context: "account-switch",
-            });
-            setAccounts((previous) =>
-              previous.map((account) =>
-                account.account_id === accountId
-                  ? {
-                      ...account,
-                      trading_authorized: tradingAuthorization.trading_authorized,
-                      trading_adapter: tradingAuthorization.trading_adapter,
-                      trading_authorized_at: tradingAuthorization.trading_authorized_at,
-                      last_trading_error: tradingAuthorization.last_trading_error,
-                    }
-                  : account,
-              ),
-            );
-            console.info("[Deriv Balance] account-switch trading authorization ready", {
-              accountId,
-              token_source: tradingAuthorization.token_source,
-              adapter: tradingAuthorization.trading_adapter,
-              trading_authorized: tradingAuthorization.trading_authorized,
-              trading_authorized_at: tradingAuthorization.trading_authorized_at,
-            });
-          } catch (error) {
-            const message = getDerivTradingErrorMessage(error);
-            setAccounts((previous) =>
-              previous.map((account) =>
-                account.account_id === accountId
-                  ? {
-                      ...account,
-                      trading_authorized: false,
-                      trading_authorized_at: null,
-                      last_trading_error: message,
-                    }
-                  : account,
-              ),
-            );
-            console.warn("[Deriv Balance] account-switch trading authorization failed", {
-              accountId,
-              token_source: target.token_source ?? null,
-              adapter: target.token_source ? adapterForTokenSource(target.token_source) : null,
-              last_trading_error: message,
-              error,
-            });
-          }
-        })();
+        console.info("[Deriv Balance] account switch persisted without OTP preflight", {
+          accountId,
+          token_source: target.token_source ?? null,
+          adapter: target.token_source ? adapterForTokenSource(target.token_source) : null,
+          websocketMode: target.token_source ? tradingWebSocketMode(target.token_source) : null,
+          reason: "Trading readiness is refreshed lazily from trading pages/actions.",
+        });
         void refreshBalances("account-switch", accountId).catch((error) => {
           console.warn("[Deriv Balance] account switch balance refresh failed", {
             accountId,

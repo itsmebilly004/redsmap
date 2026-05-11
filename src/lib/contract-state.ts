@@ -77,7 +77,8 @@ export function normalizeOpenContract(
       previous.entrySpot,
     ),
     expiryTime: numberFrom(contract.date_expiry, contract.expiry_time, previous.expiryTime),
-    isValidToSell: booleanFrom(contract.is_valid_to_sell) && sellPrice != null && status === "active",
+    isValidToSell:
+      booleanFrom(contract.is_valid_to_sell) && sellPrice != null && status === "active",
     payout: numberFrom(contract.payout, contract.bid_price, contract.sell_price, previous.payout),
     sellPrice,
     status,

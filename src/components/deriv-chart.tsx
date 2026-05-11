@@ -14,6 +14,7 @@ import {
   CandlestickSeries,
   LineSeries,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type LineData,
   type CandlestickData,
@@ -37,11 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import {
-  clearBarrierLines,
-  renderBarrierLines,
-  type BarrierLineRefs,
-} from "@/lib/chart-barriers";
+import { clearBarrierLines, renderBarrierLines, type BarrierLineRefs } from "@/lib/chart-barriers";
 
 type ChartType = "area" | "candle";
 type AnalysisTool = "sma" | "ema" | "bollinger" | "highlow";
@@ -336,7 +333,11 @@ export function DerivChart({
             value: point.value,
           }));
           historyRef.current = data;
-          updateDigitStatsFromPrices(data.map((point) => point.value), digitHistoryRef, setDigitStats);
+          updateDigitStatsFromPrices(
+            data.map((point) => point.value),
+            digitHistoryRef,
+            setDigitStats,
+          );
           areaSeriesRef.current?.setData(data);
         } else if (candleSeriesRef.current) {
           const candleGranularity = granularity || 60;
@@ -553,10 +554,7 @@ export function DerivChart({
       <div className="relative w-full max-w-full overflow-hidden rounded-lg border border-glass-border bg-foreground/[0.02]">
         <div ref={containerRef} style={{ height }} className="w-full" />
         {showDigitStats && (
-          <DigitStatsOverlay
-            latest={digitStats.latest}
-            percentages={digitStats.percentages}
-          />
+          <DigitStatsOverlay latest={digitStats.latest} percentages={digitStats.percentages} />
         )}
       </div>
     </div>
@@ -643,7 +641,10 @@ function pushDigit(
 
 function calculateDigitStats(digits: number[]) {
   const total = Math.max(digits.length, 1);
-  const counts = Array.from({ length: 10 }, (_, digit) => digits.filter((item) => item === digit).length);
+  const counts = Array.from(
+    { length: 10 },
+    (_, digit) => digits.filter((item) => item === digit).length,
+  );
   return {
     latest: digits.at(-1) ?? null,
     percentages: counts.map((count) => (count / total) * 100),

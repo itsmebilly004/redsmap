@@ -43,8 +43,8 @@ function AuthPage() {
       const attemptedAt = sessionStorage.getItem("deriv_oauth_started_at");
       if (!attemptedAt) return;
       const rapidApprovalUrl =
-        getDerivLegacyApprovalUrl(window.location.href) ??
-        getDerivLegacyApprovalUrl(document.referrer);
+        getUnsupportedApprovalUrl(window.location.href) ??
+        getUnsupportedApprovalUrl(document.referrer);
       if (rapidApprovalUrl) {
         setOauthFailure(null);
         setErrorMessage(DERIV_RAPID_APPROVAL_MESSAGE);
@@ -177,8 +177,8 @@ function AuthPage() {
                   <span className="font-mono text-foreground">{DERIV_OAUTH_ENDPOINT_VALUE}</span>
                 </div>
                 <div>OAuth mode: client_id-only OAuth2 PKCE</div>
-                <div>Legacy app_id: not used</div>
-                <div>Legacy Deriv users are handled by the OAuth2 client_id infrastructure.</div>
+                <div>OAuth app_id query param: not used</div>
+                <div>Older Deriv accounts are handled by the OAuth2 client_id infrastructure.</div>
               </div>
               {debugUrl && (
                 <div className="mt-3 space-y-2">
@@ -397,16 +397,16 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
       ok: !diagnostics.hasDoubleEncodedRedirectUri,
     },
     {
-      label: "legacy OAuth host",
+      label: "unsupported OAuth host",
       actual: diagnostics.hasOAuthDerivHost ? "oauth.deriv.com present" : "absent",
       expected: "absent",
       ok: !diagnostics.hasOAuthDerivHost,
     },
     {
-      label: "legacy authorize path",
-      actual: diagnostics.hasLegacyAuthorizeEndpoint ? "/oauth2/authorize present" : "absent",
+      label: "unsupported authorize path",
+      actual: diagnostics.hasUnsupportedAuthorizeEndpoint ? "/oauth2/authorize present" : "absent",
       expected: "absent",
-      ok: !diagnostics.hasLegacyAuthorizeEndpoint,
+      ok: !diagnostics.hasUnsupportedAuthorizeEndpoint,
     },
     {
       label: "app.deriv.com dashboard",
@@ -437,7 +437,7 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
   ];
 }
 
-function getDerivLegacyApprovalUrl(url: string | null | undefined) {
+function getUnsupportedApprovalUrl(url: string | null | undefined) {
   if (!url) return null;
   try {
     const parsed = new URL(url);

@@ -14,7 +14,12 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { buildOAuthUrl, redirectToDerivOAuth, subscribeTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
+import {
+  buildOAuthUrl,
+  redirectToDerivOAuth,
+  subscribeTicks,
+  SYNTHETIC_MARKETS,
+} from "@/lib/deriv";
 import { Link } from "@tanstack/react-router";
 import type { Tables } from "@/integrations/supabase/types";
 import { toast } from "sonner";
@@ -189,7 +194,10 @@ function DashboardHome() {
                 const win = t.status === "won";
                 const loss = t.status === "lost";
                 return (
-                  <li key={t.id} className="flex min-w-0 items-center justify-between gap-3 py-3 text-sm">
+                  <li
+                    key={t.id}
+                    className="flex min-w-0 items-center justify-between gap-3 py-3 text-sm"
+                  >
                     <div className="flex min-w-0 items-center gap-3">
                       {win ? (
                         <ArrowUpRight className="size-4 text-[oklch(0.55_0.17_150)]" />

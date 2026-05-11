@@ -17,18 +17,15 @@ import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
   send,
+  ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
   getStatus,
   getTradingSocketAccountId,
-  prepareDerivTradingSession,
   tradingAuthorizationIsFresh,
   type TradeCategory,
 } from "@/lib/deriv";
 import { buildAccumulatorProposalPayload } from "@/lib/accumulator-engine";
-import {
-  buildStandardProposalPayload,
-  type ProposalInput,
-} from "@/lib/trade-proposal-builder";
+import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import { buyProposal, requestProposal } from "@/lib/deriv-trading-service";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -526,7 +523,12 @@ function BotBuilder() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${botName.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "arktrader-bot"}.json`;
+    link.download = `${
+      botName
+        .trim()
+        .replace(/[^a-z0-9]+/gi, "-")
+        .replace(/^-|-$/g, "") || "arktrader-bot"
+    }.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -630,7 +632,7 @@ function BotBuilder() {
     }
 
     try {
-      const tradingSession = await prepareDerivTradingSession(derivAccount, {
+      const tradingSession = await ensureDerivTradingConnection(derivAccount, {
         context: "bot-builder-trade",
       });
       const normalizedDurationUnit =
@@ -858,28 +860,34 @@ function BotBuilder() {
                 label="Upload"
                 onClick={() => fileInputRef.current?.click()}
               />
-              <ToolbarButton
-                icon={Save}
-                label="Save"
-                onClick={() => void saveBotNow(true)}
-              />
-              <ToolbarButton
-                icon={Download}
-                label="Download"
-                onClick={exportBot}
-              />
+              <ToolbarButton icon={Save} label="Save" onClick={() => void saveBotNow(true)} />
+              <ToolbarButton icon={Download} label="Download" onClick={exportBot} />
               <div className="mx-1 hidden h-6 w-px bg-[#e1e1e1] sm:block" />
-              <ToolbarButton icon={Undo2} label="Undo" onClick={undo} disabled={!undoStack.length} />
-              <ToolbarButton icon={Redo2} label="Redo" onClick={redo} disabled={!redoStack.length} />
+              <ToolbarButton
+                icon={Undo2}
+                label="Undo"
+                onClick={undo}
+                disabled={!undoStack.length}
+              />
+              <ToolbarButton
+                icon={Redo2}
+                label="Redo"
+                onClick={redo}
+                disabled={!redoStack.length}
+              />
               <ToolbarButton
                 icon={ZoomIn}
                 label="Zoom in"
-                onClick={() => setWorkspaceZoom((value) => Math.min(1.5, Number((value + 0.1).toFixed(2))))}
+                onClick={() =>
+                  setWorkspaceZoom((value) => Math.min(1.5, Number((value + 0.1).toFixed(2))))
+                }
               />
               <ToolbarButton
                 icon={ZoomOut}
                 label="Zoom out"
-                onClick={() => setWorkspaceZoom((value) => Math.max(0.7, Number((value - 0.1).toFixed(2))))}
+                onClick={() =>
+                  setWorkspaceZoom((value) => Math.max(0.7, Number((value - 0.1).toFixed(2))))
+                }
               />
               <ToolbarButton icon={RotateCcw} label="Reset" onClick={resetWorkspace} />
             </div>
@@ -1077,8 +1085,14 @@ function BotBuilder() {
                   width="560px"
                 >
                   <div className="grid gap-3 md:grid-cols-3">
-                    <Metric label="Win rate" value={`${stats.runs ? ((stats.wins / stats.runs) * 100).toFixed(1) : "0.0"}%`} />
-                    <Metric label="Total P/L" value={`${stats.profit >= 0 ? "+" : ""}${stats.profit.toFixed(2)}`} />
+                    <Metric
+                      label="Win rate"
+                      value={`${stats.runs ? ((stats.wins / stats.runs) * 100).toFixed(1) : "0.0"}%`}
+                    />
+                    <Metric
+                      label="Total P/L"
+                      value={`${stats.profit >= 0 ? "+" : ""}${stats.profit.toFixed(2)}`}
+                    />
                     <Metric label="Payout" value={stats.payout.toFixed(2)} />
                   </div>
                 </WorkspaceBlock>

@@ -6,14 +6,8 @@ import {
   DERIV_CLIENT_ID_VALUE,
   DERIV_REDIRECT_URI_VALUE,
   adapterForTokenSource,
-  getActiveDerivTradingSession,
-  getDerivTradingErrorMessage,
-  prepareTradingAuthorization,
-  persistTradingAuthorizationState,
-  setAuthenticatedAccount,
   tradingWebSocketMode,
   type DerivTokenSource,
-  type TradingAuthorizationState,
 } from "@/lib/deriv";
 import { normalizeDerivAccount } from "@/lib/deriv-account";
 import { derivCredentials } from "@/lib/deriv-credentials";
@@ -138,73 +132,6 @@ function accountLogSummary(account: ReturnType<typeof normalizeDerivAccount>) {
   };
 }
 
-function getCallbackParam(params: URLSearchParams, ...names: string[]) {
-  for (const name of names) {
-    const direct = params.get(name);
-    if (direct) return direct;
-    const lowerName = name.toLowerCase();
-    const entry = Array.from(params.entries()).find(([key]) => key.toLowerCase() === lowerName);
-    if (entry?.[1]) return entry[1];
-  }
-  return "";
-}
-
-function indexedCallbackParam(params: URLSearchParams, prefixes: string[], index: number) {
-  return getCallbackParam(params, ...prefixes.map((prefix) => `${prefix}${index}`));
-}
-
-function parseLegacyCallbackAccounts(params: URLSearchParams): DerivAccount[] {
-  const indexes = new Set<number>();
-  for (const key of params.keys()) {
-    const match = key
-      .toLowerCase()
-      .match(/^(acct|account|account_id|loginid|login_id|token|deriv_token|cur|currency)(\d+)$/);
-    if (match) indexes.add(Number(match[2]));
-  }
-
-  if (
-    !indexes.size &&
-    getCallbackParam(params, "acct", "account", "account_id", "loginid", "login_id") &&
-    getCallbackParam(params, "token", "deriv_token")
-  ) {
-    indexes.add(1);
-  }
-
-  return Array.from(indexes)
-    .sort((a, b) => a - b)
-    .map((index) => {
-      const accountId =
-        indexedCallbackParam(
-          params,
-          ["acct", "account", "account_id", "loginid", "login_id"],
-          index,
-        ) || getCallbackParam(params, "acct", "account", "account_id", "loginid", "login_id");
-      const token =
-        indexedCallbackParam(params, ["token", "deriv_token"], index) ||
-        getCallbackParam(params, "token", "deriv_token");
-      const currency =
-        indexedCallbackParam(params, ["cur", "currency"], index) ||
-        getCallbackParam(params, "cur", "currency");
-      if (!accountId || !token) return null;
-      return {
-        account_id: accountId,
-        loginid: accountId,
-        deriv_token: token,
-        currency: currency || "USD",
-        balance: 0,
-      } satisfies DerivAccount;
-    })
-    .filter((account): account is DerivAccount => Boolean(account));
-}
-
-function tokenLogValue(token: string | null | undefined) {
-  if (!token) return null;
-  return {
-    length: token.length,
-    prefix: `${token.slice(0, 4)}...`,
-  };
-}
-
 function derivTokenExpiresAt(expiresIn: number) {
   const providerTtlMs = Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn * 1000 : 0;
   const ttlMs = providerTtlMs || DEFAULT_DERIV_TOKEN_TTL_MS;
@@ -305,7 +232,6 @@ function DerivCallback() {
     const errorDescription = params.get("error_description");
     const code = params.get("code");
     const state = params.get("state");
-    const legacyCallbackAccounts = parseLegacyCallbackAccounts(params);
     markStage("callback URL received", {
       origin: window.location.origin,
       pathname: window.location.pathname,
@@ -320,13 +246,6 @@ function DerivCallback() {
       hasState: Boolean(state),
       statePrefix: state ? `${state.slice(0, 8)}...` : null,
     });
-    if (legacyCallbackAccounts.length) {
-      markStage("legacy callback account tokens received", {
-        accountCount: legacyCallbackAccounts.length,
-        accountIds: legacyCallbackAccounts.map((account) => account.account_id),
-        tokenShapes: legacyCallbackAccounts.map((account) => tokenLogValue(account.deriv_token)),
-      });
-    }
 
     if (callbackInFlight) {
       markStage("duplicate callback blocked", {
@@ -389,7 +308,6 @@ function DerivCallback() {
         if (code) {
           markStage("new OAuth callback selected", {
             appIdMode: "oauth",
-            hasLegacyCallbackAccounts: Boolean(legacyCallbackAccounts.length),
           });
           if (!state) throw new Error("State mismatch");
 
@@ -517,11 +435,7 @@ function DerivCallback() {
           markStage("accounts fetch success", accountsLog);
           rawAccounts = accountsData.data ?? [];
         } else {
-          throw new Error(
-            legacyCallbackAccounts.length
-              ? "Deriv returned a legacy token callback instead of an OAuth2 authorization code. Restart login through the OAuth2 client_id flow."
-              : "Missing authorization code",
-          );
+          throw new Error("Missing authorization code");
         }
 
         markStage("accounts count", {
@@ -739,12 +653,6 @@ function DerivCallback() {
           tradingAdapter,
         );
         sessionStorage.removeItem("deriv_oauth_trade_preconnect_account");
-        setAuthenticatedAccount(
-          selectedAccessToken,
-          selectedAccountId,
-          primary.normalizedType === "demo",
-          tokenSource,
-        );
         markStage("callback account selected", {
           selectedAccountId,
           selectedAccountType: primary.normalizedType,
@@ -774,98 +682,8 @@ function DerivCallback() {
           tradingAdapterStorageKey: tradingAdapterStorageKey(sessionUser.id, selectedAccountId),
           tradePreconnectRequested: false,
           reason:
-            "Callback performs one non-fatal readiness check; dashboard account load will not retry OTP.",
+            "Callback only persists the OAuth session. Trading readiness is prepared lazily from trading pages/actions.",
         });
-        setStatus("Preparing Deriv trading authorization...");
-        let tradingAuthorization: TradingAuthorizationState = {
-          account_id: selectedAccountId,
-          trading_authorized: false,
-          trading_adapter: tradingAdapter,
-          token_source: tokenSource,
-          trading_authorized_at: null,
-          last_trading_error: null,
-        };
-        try {
-          const selectedTradingSession = await getActiveDerivTradingSession(
-            {
-              ...primary,
-              account_id: selectedAccountId,
-              loginid: selectedAccountId,
-              deriv_token: selectedAccessToken,
-              token_source: tokenSource,
-              expires_at: expiresAt,
-              created_at: connectedAt,
-            },
-            { context: "deriv-callback-selected-account" },
-          );
-          markStage("trading authorization started", {
-            selectedAccountId,
-            token_source: selectedTradingSession.token_source,
-            adapter: selectedTradingSession.adapter,
-            websocketMode: selectedTradingSession.websocketMode,
-          });
-          tradingAuthorization = await prepareTradingAuthorization(selectedTradingSession, {
-            context: "deriv-callback",
-            force: true,
-          });
-          markStage("trading authorization passed", {
-            selectedAccountId,
-            token_source: tradingAuthorization.token_source,
-            adapter: tradingAuthorization.trading_adapter,
-            trading_authorized: tradingAuthorization.trading_authorized,
-            trading_authorized_at: tradingAuthorization.trading_authorized_at,
-            last_trading_error: tradingAuthorization.last_trading_error,
-          });
-        } catch (tradingAuthorizationError) {
-          const lastTradingError = getDerivTradingErrorMessage(tradingAuthorizationError);
-          tradingAuthorization = {
-            account_id: selectedAccountId,
-            trading_authorized: false,
-            trading_adapter: adapterForTokenSource(tokenSource),
-            token_source: tokenSource,
-            trading_authorized_at: null,
-            last_trading_error: lastTradingError,
-          };
-          try {
-            await persistTradingAuthorizationState(sessionUser.id, tradingAuthorization);
-            markStage("stored trading_authorized=false", {
-              selectedAccountId,
-              token_source: tokenSource,
-              adapter: tradingAuthorization.trading_adapter,
-              trading_authorized: false,
-              last_trading_error: lastTradingError,
-            });
-          } catch (readinessPersistError) {
-            console.warn(
-              "[Deriv Callback] trading readiness persistence failed but login allowed",
-              {
-                selectedAccountId,
-                token_source: tokenSource,
-                adapter: tradingAuthorization.trading_adapter,
-                last_trading_error: lastTradingError,
-                persistenceError:
-                  readinessPersistError instanceof Error
-                    ? readinessPersistError.message
-                    : readinessPersistError,
-              },
-            );
-          }
-          console.warn("[Deriv Callback] trading readiness failed but login allowed", {
-            selectedAccountId,
-            token_source: tokenSource,
-            adapter: tradingAuthorization.trading_adapter,
-            trading_authorized: false,
-            last_trading_error: lastTradingError,
-            error: tradingAuthorizationError,
-          });
-          markStage("trading readiness failed but login allowed", {
-            selectedAccountId,
-            token_source: tokenSource,
-            adapter: tradingAuthorization.trading_adapter,
-            trading_authorized: false,
-            last_trading_error: lastTradingError,
-          });
-        }
         window.dispatchEvent(
           new CustomEvent("deriv:sessions-updated", {
             detail: {
@@ -875,8 +693,8 @@ function DerivCallback() {
               tokenSource,
               adapter: adapterForTokenSource(tokenSource),
               websocketMode: tradingWebSocketMode(tokenSource),
-              trading_authorized: tradingAuthorization.trading_authorized,
-              trading_authorized_at: tradingAuthorization.trading_authorized_at,
+              trading_authorized: false,
+              trading_authorized_at: null,
             },
           }),
         );

@@ -7,8 +7,8 @@ import type { Database } from "@/integrations/supabase/types";
 type DerivAccountOtpRequest = {
   accessToken?: string;
   accountId?: string;
-  appIdMode?: "oauth" | "legacy";
-  tokenSource?: "oauth_access_token" | "legacy_authorize_token";
+  appIdMode?: "oauth";
+  tokenSource?: "oauth_access_token";
   oauthClientId?: string;
   oauthAppId?: string;
 };
@@ -162,6 +162,7 @@ function effectiveTokenExpiryState(
       ...tokenExpiryState(expiresAt),
       storedExpiresAt: expiresAt ?? null,
       platformExpiresAt: null,
+      shortProviderExpiresAt: null,
       expiryPolicy: "stored",
     };
   }
@@ -380,6 +381,22 @@ async function requestOAuthOtp({
       appIdSource: result.appIdCandidate.source,
       status: result.response.status,
     });
+    if ([429, 500, 502, 503, 504].includes(result.response.status)) {
+      console.warn("[Deriv OTP API] transient OTP failure; retrying once", {
+        requestedAccountId: accountId,
+        authenticatedUserId: authenticatedUserId ?? null,
+        authMode,
+        tokenSourceLabel: sourceLabel,
+        appIdSource: result.appIdCandidate.source,
+        status: result.response.status,
+      });
+      result = await requestOtp(token, sourceLabel, result.appIdCandidate);
+      attemptedAppIds.push({
+        appId: result.appIdCandidate.value,
+        appIdSource: result.appIdCandidate.source,
+        status: result.response.status,
+      });
+    }
     for (let index = 1; index < otpAppIdCandidates.length; index += 1) {
       if (result.response.status !== 401 && result.response.status !== 403) break;
       const nextCandidate = otpAppIdCandidates[index];

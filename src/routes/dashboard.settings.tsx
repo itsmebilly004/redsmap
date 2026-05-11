@@ -38,9 +38,17 @@ function SettingsPage() {
       toast.error("Could not load settings");
       return;
     }
-    const normalizedAccounts = (accs ?? []).map((account) => {
+    const normalizedAccounts = (accs ?? []).map((account): AccountSession => {
       const normalized = normalizeDerivAccount(account);
-      return normalized ? { ...account, ...normalized } : account;
+      return normalized
+        ? {
+            ...account,
+            ...normalized,
+            id: account.id,
+            balance: account.balance,
+            deriv_token: account.deriv_token,
+          }
+        : account;
     });
     setAccounts(normalizedAccounts);
     setSettings(

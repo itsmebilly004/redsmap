@@ -102,32 +102,23 @@ export function accountLoginId(account: DerivAccountLike) {
   return (
     derivId ??
     tokenId ??
-    stringFrom(
-      account.loginid,
-      account.account_id,
-      account.login_id,
-      account.accountId,
-      account.id,
-    )
+    stringFrom(account.loginid, account.account_id, account.login_id, account.accountId, account.id)
   );
 }
 
 function accountIdentityIds(account: DerivAccountLike) {
-  return [
-    account.loginid,
-    account.account_id,
-    account.login_id,
-    account.accountId,
-    account.id,
-  ]
-    .map((value) => String(value ?? "").trim().toUpperCase())
+  return [account.loginid, account.account_id, account.login_id, account.accountId, account.id]
+    .map((value) =>
+      String(value ?? "")
+        .trim()
+        .toUpperCase(),
+    )
     .filter(Boolean);
 }
 
 function detectAccountPrefix(id: string): DerivAccountPrefix | null {
-  return (DERIV_PREFIXES.find((prefix) => id.startsWith(prefix)) ?? null) as
-    | DerivAccountPrefix
-    | null;
+  return (DERIV_PREFIXES.find((prefix) => id.startsWith(prefix)) ??
+    null) as DerivAccountPrefix | null;
 }
 
 function isDemoAccountId(id: string) {
@@ -172,14 +163,15 @@ function classification(
 
 function classifyDerivAccount(account: DerivAccountLike): DerivAccountClassification {
   const accountIds = accountIdentityIds(account);
+  const virtualFlag = booleanFrom(account.is_virtual);
+  const demoFlag = booleanFrom(account.is_demo);
   const prefixMatches = accountIds
     .map((accountId) => ({
       accountId,
       prefix: detectAccountPrefix(accountId),
     }))
-    .filter(
-      (match): match is { accountId: string; prefix: DerivAccountPrefix } =>
-        Boolean(match.prefix),
+    .filter((match): match is { accountId: string; prefix: DerivAccountPrefix } =>
+      Boolean(match.prefix),
     );
   const demoPrefix = prefixMatches.find((match) => isDemoAccountId(match.accountId));
   const realPrefix = prefixMatches.find((match) => isRealAccountId(match.accountId));
@@ -209,6 +201,14 @@ function classifyDerivAccount(account: DerivAccountLike): DerivAccountClassifica
       realPrefix.prefix,
       realPrefix.accountId,
     );
+  }
+
+  if (virtualFlag === true || demoFlag === true) {
+    return classification("demo", "Deriv virtual/demo account flag", null, accountIds[0] ?? null);
+  }
+
+  if (virtualFlag === false || demoFlag === false) {
+    return classification("real", "Deriv non-virtual account flag", null, accountIds[0] ?? null);
   }
 
   return classification("unknown", "no recognized Deriv account id prefix", null, null);
@@ -264,7 +264,7 @@ export function normalizeDerivAccount(
   const label = demo
     ? "Demo"
     : real
-      ? CURRENCY_LABELS[currency ?? ""] ?? currency ?? "Real"
+      ? (CURRENCY_LABELS[currency ?? ""] ?? currency ?? "Real")
       : "Unknown";
   const normalized = {
     ...account,

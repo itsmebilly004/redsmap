@@ -18,8 +18,8 @@ const DERIV_APP_ID = DERIV_OAUTH_CLIENT_ID;
 const DERIV_CLIENT_ID = DERIV_OAUTH_CLIENT_ID;
 const DERIV_OAUTH_ENDPOINT = DERIV_OAUTH_AUTHORIZE_ENDPOINT;
 const DERIV_SCOPE = DERIV_OAUTH_SCOPE;
-const PUBLIC_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
-const LEGACY_OAUTH_MARKERS = [
+const PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public";
+const FORBIDDEN_OAUTH_ROUTE_MARKERS = [
   "oauth.deriv.com",
   "/oauth2/authorize",
   "redirect=home",
@@ -27,8 +27,8 @@ const LEGACY_OAUTH_MARKERS = [
 ];
 export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
   "Deriv redirected to dashboard instead of authorization. This account may not support the new OAuth app flow or the OAuth app configuration must be checked.";
-const DERIV_LEGACY_OAUTH_ROUTE_MESSAGE =
-  "Blocked legacy Deriv OAuth route. Use the OAuth2 PKCE authorization endpoint.";
+const DERIV_FORBIDDEN_OAUTH_ROUTE_MESSAGE =
+  "Blocked unsupported Deriv OAuth route. Use the OAuth2 PKCE authorization endpoint.";
 const DERIV_OAUTH_ONLY_RECONNECT_MESSAGE =
   "Reconnect this Deriv account through OAuth2. ArkTrader uses client_id 33dF8d2wwjIpeFDBvNkln for all account types.";
 const DERIV_SESSION_EXPIRED_CODE = "DERIV_SESSION_EXPIRED";
@@ -62,7 +62,7 @@ export type DerivOAuthDiagnostics = {
   hasAppDerivDashboardRedirect: boolean;
   hasBrandDeriv: boolean;
   hasHomeDashboardLoginRedirect: boolean;
-  hasLegacyAuthorizeEndpoint: boolean;
+  hasUnsupportedAuthorizeEndpoint: boolean;
   hasOAuthDerivHost: boolean;
   hasRedirectHome: boolean;
   redirectUriMatchesRegisteredUrl: boolean;
@@ -116,10 +116,10 @@ export type DerivMessage = DerivRecord & {
 };
 export type DerivBalance = { balance: number; currency: string; loginid: string };
 export type ActiveSymbol = { symbol: string; display_name: string; market: string };
-type DerivAppIdMode = "oauth" | "legacy";
-export type TradingAdapter = "newOAuthTradingAdapter" | "legacyTradingAdapter";
+type DerivAppIdMode = "oauth";
+export type TradingAdapter = "oauth2PkceTradingAdapter";
 export type TradingWebSocketMode = "oauth-otp";
-export type DerivTokenSource = "oauth_access_token" | "legacy_authorize_token";
+export type DerivTokenSource = "oauth_access_token";
 export type TradingAuthorizationState = {
   account_id: string;
   trading_authorized: boolean;
@@ -179,6 +179,7 @@ let reqId = 1;
 let connecting: Promise<WebSocket> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
 let reconnectAttempts = 0;
+const tradingAuthorizationRequests = new Map<string, Promise<TradingAuthorizationState>>();
 let authenticatedAccount: {
   accessToken: string;
   accountId: string;
@@ -210,7 +211,9 @@ function setStatus(s: ConnectionStatus) {
 export function onStatus(fn: StatusListener) {
   statusListeners.add(fn);
   fn(status);
-  return () => statusListeners.delete(fn);
+  return () => {
+    statusListeners.delete(fn);
+  };
 }
 
 export function getStatus() {
@@ -229,7 +232,7 @@ export function setAuthenticatedAccount(
   accessToken: string,
   accountId: string,
   isDemo?: boolean | null,
-  tokenSource: DerivTokenSource,
+  tokenSource: DerivTokenSource = "oauth_access_token",
 ) {
   const accountIdentity = { account_id: accountId, loginid: accountId };
   const normalizedType = getDerivAccountType(accountIdentity);
@@ -716,6 +719,42 @@ export async function prepareTradingAuthorization(
     return cached;
   }
 
+  const requestKey = tradingAuthorizationRequestKey(session);
+  const existingRequest = tradingAuthorizationRequests.get(requestKey);
+  if (!options.force && existingRequest) {
+    console.info("[Deriv Trading] trading authorization joined in-flight request", {
+      context: options.context ?? "trade",
+      selectedAccountId: session.account_id,
+      token_source: session.token_source,
+      adapter: session.adapter,
+      websocketMode: session.websocketMode,
+    });
+    return existingRequest;
+  }
+
+  const request = runTradingAuthorization(session, userId, cached, options).finally(() => {
+    if (tradingAuthorizationRequests.get(requestKey) === request) {
+      tradingAuthorizationRequests.delete(requestKey);
+    }
+  });
+  tradingAuthorizationRequests.set(requestKey, request);
+  return request;
+}
+
+function tradingAuthorizationRequestKey(session: DerivTradingSession) {
+  return [
+    session.account_id.toUpperCase(),
+    session.token_source,
+    session.deriv_token.slice(-12),
+  ].join(":");
+}
+
+async function runTradingAuthorization(
+  session: DerivTradingSession,
+  userId: string | null,
+  cached: TradingAuthorizationState | null,
+  options: { context?: string; force?: boolean },
+): Promise<TradingAuthorizationState> {
   console.info("[Deriv Trading] trading authorization started", {
     context: options.context ?? "trade",
     selectedAccountId: session.account_id,
@@ -738,12 +777,28 @@ export async function prepareTradingAuthorization(
         false,
       );
     }
-    const authenticatedWsUrl = await getAuthenticatedWsUrl(
-      session.deriv_token,
-      session.account_id,
+
+    const expiry = effectiveTokenExpiryState(
+      session.expires_at,
+      session.createdAt,
       session.token_source,
     );
-    await verifyOAuthOtpTradingSocket(authenticatedWsUrl, session);
+    if (expiry.expired || expiry.invalidExpiry) {
+      throw createDerivSocketError(
+        "Your Deriv OAuth token is stale. Please reconnect your Deriv account.",
+        DERIV_SESSION_EXPIRED_CODE,
+        401,
+        false,
+      );
+    }
+
+    setAuthenticatedAccount(
+      session.deriv_token,
+      session.account_id,
+      session.normalizedType === "demo",
+      session.token_source,
+    );
+    await connect();
 
     const state: TradingAuthorizationState = {
       account_id: session.account_id,
@@ -760,6 +815,8 @@ export async function prepareTradingAuthorization(
       token_source: session.token_source,
       adapter: session.adapter,
       websocketMode: session.websocketMode,
+      connectionStatus: getStatus(),
+      websocketAccountId: getTradingSocketAccountId(),
       trading_authorized_at: state.trading_authorized_at,
     });
     return state;
@@ -788,87 +845,6 @@ export async function prepareTradingAuthorization(
   }
 }
 
-function verifyOAuthOtpTradingSocket(
-  authenticatedWsUrl: string,
-  session: DerivTradingSession,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let ws: WebSocket | null = null;
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        ws?.close();
-      } catch {
-        /* ignore */
-      }
-      reject(
-        createDerivSocketError(
-          "OAuth trading WebSocket verification timed out.",
-          "DERIV_OAUTH_TRADING_AUTH_FAILED",
-          408,
-          false,
-        ),
-      );
-    }, 15000);
-
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        ws?.close(1000, "OAuth trading authorization verified");
-      } catch {
-        /* ignore */
-      }
-      if (error) reject(error);
-      else resolve();
-    };
-
-    try {
-      ws = new WebSocket(authenticatedWsUrl);
-      ws.onopen = () => {
-        console.info("[Deriv Trading] OAuth OTP trading socket verification opened", {
-          selectedAccountId: session.account_id,
-          token_source: session.token_source,
-          adapter: session.adapter,
-          websocketMode: session.websocketMode,
-          authorizationResult: "oauth-otp-socket-open",
-        });
-        finish();
-      };
-      ws.onerror = () => {
-        finish(
-          createDerivSocketError(
-            "OAuth trading WebSocket verification failed.",
-            "DERIV_OAUTH_TRADING_AUTH_FAILED",
-            401,
-            false,
-          ),
-        );
-      };
-      ws.onclose = (event) => {
-        if (settled) return;
-        finish(
-          createDerivSocketError(
-            event.reason
-              ? `OAuth trading WebSocket closed: ${event.reason}`
-              : `OAuth trading WebSocket closed with code ${event.code}`,
-            "DERIV_OAUTH_TRADING_AUTH_FAILED",
-            401,
-            false,
-          ),
-        );
-      };
-    } catch (error) {
-      finish(
-        error instanceof Error ? error : new Error("OAuth trading WebSocket verification failed."),
-      );
-    }
-  });
-}
-
 function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticatedAccount>) {
   if (account.isDemo === true) return "demo";
   if (account.isDemo === false) return "real";
@@ -877,7 +853,7 @@ function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticated
 
 function tokenSourceFromText(value: unknown): DerivTokenSource | null {
   const text = textFrom(value);
-  if (text === "oauth_access_token" || text === "legacy_authorize_token") return text;
+  if (text === "oauth_access_token") return text;
   return null;
 }
 
@@ -945,11 +921,11 @@ function tradingAuthorizationStorageKey(userId: string, accountId: string) {
 }
 
 function tokenSourceIsValid(value: unknown): value is DerivTokenSource {
-  return value === "oauth_access_token" || value === "legacy_authorize_token";
+  return value === "oauth_access_token";
 }
 
 function adapterIsValid(value: unknown): value is TradingAdapter {
-  return value === "newOAuthTradingAdapter" || value === "legacyTradingAdapter";
+  return value === "oauth2PkceTradingAdapter";
 }
 
 function accountTypeIsValid(value: unknown): value is DerivTradingSession["normalizedType"] {
@@ -1183,16 +1159,13 @@ function readStoredTokenSource(userId: string, accountId: string): DerivTokenSou
   if (!isBrowser) return null;
   try {
     const saved = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
-    if (saved === "oauth_access_token" || saved === "legacy_authorize_token") return saved;
+    if (saved === "oauth_access_token") return saved;
     const selectedAccountId =
       localStorage.getItem(selectedAccountIdStorageKey(userId)) ??
       localStorage.getItem(activeAccountStorageKey(userId));
     if (sameDerivId(selectedAccountId, accountId)) {
       const selectedTokenSource = localStorage.getItem(selectedTokenSourceStorageKey(userId));
-      if (
-        selectedTokenSource === "oauth_access_token" ||
-        selectedTokenSource === "legacy_authorize_token"
-      ) {
+      if (selectedTokenSource === "oauth_access_token") {
         return selectedTokenSource;
       }
     }
@@ -1259,6 +1232,7 @@ function effectiveTokenExpiryState(
       ...tokenExpiryState(expiresAt),
       storedExpiresAt: expiresAt ?? null,
       platformExpiresAt: null,
+      shortProviderExpiresAt: null,
       expiryPolicy: "stored",
     };
   }
@@ -1302,25 +1276,9 @@ function isInvalidDerivTokenMessage(message: string | undefined, code?: string) 
 function derivMessageError(error: DerivError | undefined) {
   const message = textFrom(error?.message, "Deriv request failed.");
   if (isInvalidDerivTokenMessage(message)) {
-    if (authenticatedAccount?.tokenSource === "legacy_authorize_token") {
-      void deactivateInvalidDerivSession("deriv-invalid-token");
-    } else {
-      console.warn("[Deriv Trading] OAuth invalid-token response did not deactivate session", {
-        accountId: authenticatedAccount?.accountId ?? null,
-        tokenSource: authenticatedAccount?.tokenSource ?? null,
-        reason:
-          "OAuth sessions are kept active until their stored expiry or manual logout to avoid false immediate disconnects after reconnect.",
-      });
-      return createDerivSocketError(
-        "Trading authorization failed for this account. Please switch account or reconnect if it continues.",
-        "DERIV_OAUTH_TRADING_AUTH_FAILED",
-        401,
-        false,
-      );
-    }
     return createDerivSocketError(
-      "Your Deriv session expired. Please reconnect your Deriv account.",
-      DERIV_SESSION_EXPIRED_CODE,
+      "Trading authorization failed for this account. Please switch account or reconnect if it continues.",
+      "DERIV_OAUTH_TRADING_AUTH_FAILED",
       401,
       false,
     );
@@ -1328,45 +1286,12 @@ function derivMessageError(error: DerivError | undefined) {
   return createDerivSocketError(message, "DERIV_REQUEST_FAILED", undefined, true);
 }
 
-async function deactivateInvalidDerivSession(reason: string) {
-  if (!isBrowser || !authenticatedAccount?.accountId) return;
-  try {
-    const { data } = await supabase.auth.getSession();
-    const userId = data.session?.user?.id;
-    if (!userId) return;
-    console.warn("[Deriv Trading] deactivating invalid Deriv session", {
-      reason,
-      userId,
-      accountId: authenticatedAccount.accountId,
-    });
-    await supabase
-      .from("sessions")
-      .update({ is_active: false })
-      .eq("user_id", userId)
-      .eq("account_id", authenticatedAccount.accountId);
-    window.dispatchEvent(
-      new CustomEvent("deriv:sessions-updated", {
-        detail: {
-          userId,
-          selectedAccountId: authenticatedAccount.accountId,
-          reason,
-        },
-      }),
-    );
-  } catch (error) {
-    console.warn("[Deriv Trading] could not deactivate invalid Deriv session", {
-      reason,
-      error,
-    });
-  }
-}
-
 function explicitTokenSourceForAccount(account: DerivAccountLike): DerivTokenSource | null {
   return tokenSourceFromText(account.token_source) ?? tokenSourceFromText(account.tokenSource);
 }
 
 export function adapterForTokenSource(tokenSource: DerivTokenSource): TradingAdapter {
-  return tokenSource === "oauth_access_token" ? "newOAuthTradingAdapter" : "legacyTradingAdapter";
+  return "oauth2PkceTradingAdapter";
 }
 
 export function tradingWebSocketMode(tokenSource: DerivTokenSource): TradingWebSocketMode {
@@ -1434,6 +1359,10 @@ function connect(): Promise<WebSocket> {
   return connecting;
 }
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 function openAuthenticatedSocket(
   account: NonNullable<typeof authenticatedAccount>,
   retried: boolean,
@@ -1499,18 +1428,21 @@ function openAuthenticatedSocket(
       stopKeepalive();
       setStatus("disconnected");
       if (!retried && isRetryableSocketError(error)) {
+        const retryDelayMs = Math.min(500 * 2 ** Math.max(reconnectAttempts, 0), 5000);
         console.warn("[Deriv WS] Socket failed. Retrying once.", {
           accountId: account.accountId,
           accountType: authenticatedAccountTypeLabel(account),
           mode: websocketMode,
           tokenSource: account.tokenSource,
           adapter: adapterForTokenSource(account.tokenSource),
+          retryDelayMs,
           disconnectReason: error.message,
           error: error.message,
           code: (error as DerivSocketError).code ?? null,
           status: (error as DerivSocketError).status ?? null,
         });
         setStatus("reconnecting");
+        await delay(retryDelayMs);
         connecting = openAuthenticatedSocket(account, true);
         try {
           resolve(await connecting);
@@ -1602,7 +1534,7 @@ function openAuthenticatedSocket(
             accountId: account.accountId,
             mode: websocketMode,
             tokenSource: account.tokenSource,
-            readyState: ws.readyState,
+            readyState: ws?.readyState ?? null,
           });
 
           console.info("[Deriv WS] OAuth OTP socket authorization ready", {
@@ -1860,9 +1792,9 @@ async function sha256(value: string) {
   return crypto.subtle.digest("SHA-256", data);
 }
 
-function legacyOAuthMarker(url: string) {
+function forbiddenOAuthRouteMarker(url: string) {
   const lower = url.toLowerCase();
-  return LEGACY_OAUTH_MARKERS.find((item) => lower.includes(item)) ?? null;
+  return FORBIDDEN_OAUTH_ROUTE_MARKERS.find((item) => lower.includes(item)) ?? null;
 }
 
 function safeParseUrl(url: string) {
@@ -1913,9 +1845,8 @@ export function getDerivOAuthRedirectFailure(url: string | null | undefined) {
   if (!parsed) return null;
 
   // This detects Deriv returning the browser to a dashboard instead of the
-  // OAuth callback. Legacy OAuth URL blocking is outbound-only in
-  // assertValidDerivOAuthRedirectUrl so Deriv's internal compatibility routing
-  // after consent is not treated as an app-started legacy login.
+  // registered OAuth callback. Outbound URL blocking is intentionally separate
+  // so provider-side failures can be logged as authentication failures.
   if (
     parsed.origin === "https://app.deriv.com" &&
     parsed.pathname === "/" &&
@@ -1984,7 +1915,7 @@ export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
     hasBrandDeriv: parsed.searchParams.get("brand") === "deriv",
     hasHomeDashboardLoginRedirect:
       parsed.origin === "https://home.deriv.com" && parsed.pathname.startsWith("/dashboard/login"),
-    hasLegacyAuthorizeEndpoint: parsed.pathname === "/oauth2/authorize",
+    hasUnsupportedAuthorizeEndpoint: parsed.pathname === "/oauth2/authorize",
     hasOAuthDerivHost: parsed.origin === "https://oauth.deriv.com",
     hasRedirectHome: parsed.searchParams.get("redirect") === "home",
     redirectUriMatchesRegisteredUrl: decodedRedirectUri === DERIV_REDIRECT_URI,
@@ -1999,10 +1930,10 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
     throw new Error(redirectFailure.message);
   }
 
-  const marker = legacyOAuthMarker(url);
+  const marker = forbiddenOAuthRouteMarker(url);
   if (marker) {
-    console.error("Blocked legacy Deriv OAuth URL", { marker, url });
-    throw new Error(DERIV_LEGACY_OAUTH_ROUTE_MESSAGE);
+    console.error("Blocked unsupported Deriv OAuth URL", { marker, url });
+    throw new Error(DERIV_FORBIDDEN_OAUTH_ROUTE_MESSAGE);
   }
 
   let parsed: URL;
@@ -2016,11 +1947,11 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
     throw new Error("Invalid Deriv OAuth endpoint. Refusing to redirect to a non-OAuth URL.");
   }
   if (parsed.searchParams.has("redirect") || parsed.searchParams.has("brand")) {
-    console.error("Blocked legacy Deriv OAuth URL", {
+    console.error("Blocked unsupported Deriv OAuth URL", {
       marker: parsed.searchParams.has("redirect") ? "redirect" : "brand",
       url,
     });
-    throw new Error("Blocked legacy Deriv OAuth URL");
+    throw new Error("Blocked unsupported Deriv OAuth URL");
   }
   if (parsed.searchParams.has("app_id")) {
     throw new Error(
@@ -2272,7 +2203,9 @@ export async function getAuthenticatedWsUrl(
   if (!response.ok) {
     const code = textFrom(
       otpData?.error,
-      response.status === 401 ? DERIV_SESSION_EXPIRED_CODE : "DERIV_OTP_FAILED",
+      response.status === 401 || response.status === 403
+        ? "DERIV_OAUTH_TRADING_AUTH_FAILED"
+        : "DERIV_OTP_FAILED",
     );
     const message = textFrom(
       otpData?.message,

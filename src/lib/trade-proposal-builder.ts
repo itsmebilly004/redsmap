@@ -48,21 +48,11 @@ const STANDARD_PROPOSAL_KEYS = new Set([
   "limit_order",
 ]);
 
-export function buildLegacyProposalPayload(input: ProposalInput): StandardProposalPayload {
-  return buildDerivWsProposalPayload(input, "legacyTradingAdapter");
-}
-
-export function buildOptionsApiProposalPayload(input: ProposalInput): StandardProposalPayload {
-  return buildDerivWsProposalPayload(input, "newOAuthTradingAdapter");
-}
-
 export function buildStandardProposalPayload(
   input: ProposalInput,
-  adapter: TradingAdapter = "legacyTradingAdapter",
+  adapter: TradingAdapter = "oauth2PkceTradingAdapter",
 ): StandardProposalPayload {
-  return adapter === "newOAuthTradingAdapter"
-    ? buildOptionsApiProposalPayload(input)
-    : buildLegacyProposalPayload(input);
+  return buildDerivWsProposalPayload(input, adapter);
 }
 
 export function validateProposalPayload(
@@ -70,9 +60,7 @@ export function validateProposalPayload(
   adapter: TradingAdapter,
 ): asserts payload is StandardProposalPayload {
   if ("underlying_symbol" in payload) {
-    throw new Error(
-      `Invalid ${adapter} proposal payload: use symbol, not underlying_symbol.`,
-    );
+    throw new Error(`Invalid ${adapter} proposal payload: use symbol, not underlying_symbol.`);
   }
   for (const key of Object.keys(payload)) {
     if (!STANDARD_PROPOSAL_KEYS.has(key)) {

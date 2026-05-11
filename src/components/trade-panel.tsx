@@ -32,17 +32,30 @@ import {
   getTradingSocketAccountId,
   isDerivTradingAuthorizationFailure,
   onStatus,
-  prepareDerivTradingSession,
   redirectToDerivOAuth,
   tradingAuthorizationIsFresh,
   type ConnectionStatus,
   type TradeCategory,
   type TradingAdapter,
 } from "@/lib/deriv";
-import { normalizeOpenContract, EMPTY_CONTRACT_STATE, type ActiveContractState } from "@/lib/contract-state";
+import {
+  normalizeOpenContract,
+  EMPTY_CONTRACT_STATE,
+  type ActiveContractState,
+} from "@/lib/contract-state";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
-import { isDigitTrade, tradeTypeConfig, TRADE_TYPE_CONFIGS, type TradeSide } from "@/lib/trade-types";
-import { buyProposal, requestProposal, sellContract, subscribeOpenContract } from "@/lib/deriv-trading-service";
+import {
+  isDigitTrade,
+  tradeTypeConfig,
+  TRADE_TYPE_CONFIGS,
+  type TradeSide,
+} from "@/lib/trade-types";
+import {
+  buyProposal,
+  requestProposal,
+  sellContract,
+  subscribeOpenContract,
+} from "@/lib/deriv-trading-service";
 import { supabase } from "@/integrations/supabase/client";
 
 type ChartOverlay = {
@@ -107,7 +120,12 @@ function TradingConnectionBadge({
     <div className="rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <span className="font-semibold text-[#495057]">Trading connection</span>
-        <span className={["rounded px-2 py-1 text-[10px] font-semibold tracking-wide", statusMeta.chip].join(" ")}>
+        <span
+          className={[
+            "rounded px-2 py-1 text-[10px] font-semibold tracking-wide",
+            statusMeta.chip,
+          ].join(" ")}
+        >
           {statusMeta.label}
         </span>
       </div>
@@ -145,8 +163,9 @@ export function TradePanel({
   const [busy, setBusy] = useState(false);
   const [activeContract, setActiveContract] = useState<ActiveContractState>(EMPTY_CONTRACT_STATE);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [tradingConnectionStatus, setTradingConnectionStatus] =
-    useState<ConnectionStatus>(() => getStatus());
+  const [tradingConnectionStatus, setTradingConnectionStatus] = useState<ConnectionStatus>(() =>
+    getStatus(),
+  );
   const [tradingConnectionError, setTradingConnectionError] = useState<string | null>(null);
 
   const unsubscribeRef = useRef<null | (() => Promise<void>)>(null);
@@ -222,12 +241,13 @@ export function TradePanel({
       tradingAuthorizationFresh: preparedAuthorizationFresh,
       last_trading_error: account.last_trading_error ?? null,
     });
-    if (!preparedAuthorizationFresh && pageLoadAuthorizationAttemptRef.current === pageLoadAttemptKey) {
+    if (
+      !preparedAuthorizationFresh &&
+      pageLoadAuthorizationAttemptRef.current === pageLoadAttemptKey
+    ) {
       setTradingConnectionStatus("connected");
       setTradingConnectionError(
-        account.last_trading_error
-          ? DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE
-          : null,
+        account.last_trading_error ? DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE : null,
       );
       console.info("[Manual Trader] page-load trading authorization retry skipped", {
         selectedAccountId: account.account_id,
@@ -310,9 +330,11 @@ export function TradePanel({
     if (activeContract.status === "active") {
       onAccumulatorBarriers?.({
         entry: activeContract.entrySpot,
-        high: config.needsBarrier ? barrierLineFromInput(barrier, activeContract.entrySpot ?? lastPrice) : null,
+        high: config.needsBarrier
+          ? barrierLineFromInput(barrier, activeContract.entrySpot ?? lastPrice)
+          : null,
         low: null,
-        breached: activeContract.status === "lost",
+        breached: false,
       });
       return;
     }
@@ -346,7 +368,7 @@ export function TradePanel({
       setQuotesLoading(true);
       const next: Record<string, ProposalQuote> = {};
       try {
-        const tradingSession = await prepareDerivTradingSession(account, {
+        const tradingSession = await ensureDerivTradingConnection(account, {
           context: "proposal-quotes",
         });
         console.info("[Deriv Trade] Proposal trading session prepared", {
@@ -446,7 +468,7 @@ export function TradePanel({
   function buildPayload(
     side: string,
     basis: "stake" | "payout" = "stake",
-    adapter: TradingAdapter = "legacyTradingAdapter",
+    adapter: TradingAdapter = "oauth2PkceTradingAdapter",
   ) {
     const input: ProposalInput = {
       barrier,
@@ -539,8 +561,9 @@ export function TradePanel({
     closedRef.current = false;
     try {
       validateAccount();
-      if (!account || !token || !user) throw new Error("Connect and select your Deriv account first.");
-      const tradingSession = await prepareDerivTradingSession(account, {
+      if (!account || !token || !user)
+        throw new Error("Connect and select your Deriv account first.");
+      const tradingSession = await ensureDerivTradingConnection(account, {
         context: "standard-buy",
       });
       console.info("[Deriv Trade] Trading session prepared", {
@@ -643,14 +666,18 @@ export function TradePanel({
   }
 
   async function handleSell() {
-    if (!activeContract.contractId || !activeContract.isValidToSell || activeContract.sellPrice == null) {
+    if (
+      !activeContract.contractId ||
+      !activeContract.isValidToSell ||
+      activeContract.sellPrice == null
+    ) {
       toast.error("No sell price available for this contract.");
       return;
     }
     setBusy(true);
     try {
       if (account) {
-        await prepareDerivTradingSession(account, { context: "standard-sell" });
+        await ensureDerivTradingConnection(account, { context: "standard-sell" });
       }
       const response = await sellContract(activeContract.contractId, activeContract.sellPrice);
       const sold = response.sell ?? {};
@@ -681,14 +708,13 @@ export function TradePanel({
   const tradeIndex = TRADE_TYPE_CONFIGS.findIndex((item) => item.category === selectedTradeType);
   const nextTradeType = useCallback(
     (direction: -1 | 1) => {
-      const next =
-        (tradeIndex + direction + TRADE_TYPE_CONFIGS.length) % TRADE_TYPE_CONFIGS.length;
+      const next = (tradeIndex + direction + TRADE_TYPE_CONFIGS.length) % TRADE_TYPE_CONFIGS.length;
       setSelectedTradeType(TRADE_TYPE_CONFIGS[next].category);
     },
     [tradeIndex],
   );
 
-  const activeRows = useMemo(
+  const activeRows = useMemo<[string, string | number | null | undefined][]>(
     () => [
       ["Status", activeContract.status],
       ["Contract", activeContract.contractId],
@@ -705,10 +731,7 @@ export function TradePanel({
   if (selectedTradeType === "accumulator") {
     return (
       <div className="min-w-0 space-y-3">
-        <TradingConnectionBadge
-          error={tradingConnectionError}
-          status={tradingConnectionStatus}
-        />
+        <TradingConnectionBadge error={tradingConnectionError} status={tradingConnectionStatus} />
         <TradeTypeCard
           config={config}
           onNext={() => nextTradeType(1)}
@@ -726,10 +749,7 @@ export function TradePanel({
 
   return (
     <div className="min-w-0 space-y-3">
-      <TradingConnectionBadge
-        error={tradingConnectionError}
-        status={tradingConnectionStatus}
-      />
+      <TradingConnectionBadge error={tradingConnectionError} status={tradingConnectionStatus} />
       <TradeTypeCard
         config={config}
         onNext={() => nextTradeType(1)}
@@ -807,7 +827,10 @@ export function TradePanel({
       {config.supportsMultiplier && (
         <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
           <div className="mb-2 text-sm font-semibold text-[#1f2328]">Multiplier</div>
-          <Select value={String(multiplier)} onValueChange={(value) => setMultiplier(Number(value))}>
+          <Select
+            value={String(multiplier)}
+            onValueChange={(value) => setMultiplier(Number(value))}
+          >
             <SelectTrigger className="h-10 rounded border-[#d6d9dc] font-semibold">
               <SelectValue />
             </SelectTrigger>

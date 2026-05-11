@@ -79,25 +79,11 @@ export type AccumulatorProposalInput = {
   takeProfit?: number | null;
 };
 
-export function buildLegacyAccumulatorProposalPayload(
-  input: AccumulatorProposalInput,
-): AccumulatorProposalPayload {
-  return buildDerivWsAccumulatorProposalPayload(input, "legacyTradingAdapter");
-}
-
-export function buildOptionsApiAccumulatorProposalPayload(
-  input: AccumulatorProposalInput,
-): AccumulatorProposalPayload {
-  return buildDerivWsAccumulatorProposalPayload(input, "newOAuthTradingAdapter");
-}
-
 export function buildAccumulatorProposalPayload(
   input: AccumulatorProposalInput,
-  adapter: TradingAdapter = "legacyTradingAdapter",
+  adapter: TradingAdapter = "oauth2PkceTradingAdapter",
 ): AccumulatorProposalPayload {
-  return adapter === "newOAuthTradingAdapter"
-    ? buildOptionsApiAccumulatorProposalPayload(input)
-    : buildLegacyAccumulatorProposalPayload(input);
+  return buildDerivWsAccumulatorProposalPayload(input, adapter);
 }
 
 export function validateAccumulatorProposalPayload(
@@ -105,9 +91,7 @@ export function validateAccumulatorProposalPayload(
   adapter: TradingAdapter,
 ): asserts payload is AccumulatorProposalPayload {
   if ("underlying_symbol" in payload) {
-    throw new Error(
-      `Invalid ${adapter} accumulator payload: use symbol, not underlying_symbol.`,
-    );
+    throw new Error(`Invalid ${adapter} accumulator payload: use symbol, not underlying_symbol.`);
   }
   for (const key of Object.keys(payload)) {
     if (!ACCUMULATOR_PROPOSAL_KEYS.has(key)) {
@@ -126,13 +110,7 @@ export function validateAccumulatorProposalPayload(
 }
 
 function buildDerivWsAccumulatorProposalPayload(
-  {
-    currency,
-    growthRate,
-    market,
-    stake,
-    takeProfit,
-  }: AccumulatorProposalInput,
+  { currency, growthRate, market, stake, takeProfit }: AccumulatorProposalInput,
   adapter: TradingAdapter,
 ): AccumulatorProposalPayload {
   if (!market) throw new Error("Select a market before buying an accumulator.");
@@ -230,7 +208,8 @@ export function normalizeAccumulatorContract(
     currentPayout: currentPayout ?? previous.currentPayout,
     currentProfit,
     sellPrice,
-    isValidToSell: booleanFrom(contract.is_valid_to_sell) && sellPrice != null && status === "active",
+    isValidToSell:
+      booleanFrom(contract.is_valid_to_sell) && sellPrice != null && status === "active",
     status,
     barrierSource,
     barrierBreached: lost || outsideRange,

@@ -9,8 +9,7 @@ import { DERIV_API_BASE_URL, DERIV_OAUTH_CLIENT_ID } from "@/lib/deriv-config";
 
 type DerivAccountsRequest = {
   accessToken?: string;
-  appIdMode?: "oauth" | "legacy";
-  legacyAccounts?: DerivAccount[];
+  appIdMode?: "oauth";
   oauthClientId?: string;
   oauthAppId?: string;
 };
@@ -218,7 +217,6 @@ export const Route = createFileRoute("/api/deriv-accounts")({
           const {
             accessToken,
             appIdMode = "oauth",
-            legacyAccounts = [],
             oauthClientId,
             oauthAppId,
           } = (await request.json()) as DerivAccountsRequest;
@@ -229,19 +227,9 @@ export const Route = createFileRoute("/api/deriv-accounts")({
           console.log("[Deriv Accounts API] request received", {
             hasAccessToken: Boolean(accessToken),
             appIdMode,
-            legacyAccountCount: legacyAccounts.length,
             oauthClientIdHint: oauthClientId ? `${oauthClientId.slice(0, 4)}...` : null,
             oauthAppIdHint: oauthAppId ? `${oauthAppId.slice(0, 4)}...` : null,
           });
-          if (legacyAccounts.length || appIdMode === "legacy") {
-            return Response.json(
-              {
-                error:
-                  "Reconnect through Deriv OAuth2. ArkTrader uses client_id 33dF8d2wwjIpeFDBvNkln for account loading across all account types.",
-              },
-              { status: 400 },
-            );
-          }
 
           if (!accessToken) {
             return Response.json({ error: "Missing Deriv access token" }, { status: 400 });
@@ -301,7 +289,7 @@ export const Route = createFileRoute("/api/deriv-accounts")({
           let rawAccounts = accountsFromResponse(accountsData);
           console.info("[Deriv Accounts API] raw accounts before normalization", rawAccounts);
           let normalizedAccounts = rawAccounts
-            .map(normalizeAccount)
+            .map((account) => normalizeAccount(account))
             .filter((account): account is NonNullable<ReturnType<typeof normalizeAccount>> =>
               Boolean(account),
             );
@@ -378,7 +366,7 @@ export const Route = createFileRoute("/api/deriv-accounts")({
               rawAccounts,
             );
             normalizedAccounts = rawAccounts
-              .map(normalizeAccount)
+              .map((account) => normalizeAccount(account))
               .filter((account): account is NonNullable<ReturnType<typeof normalizeAccount>> =>
                 Boolean(account),
               );
