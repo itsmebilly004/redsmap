@@ -153,7 +153,7 @@ const INITIAL_BLOCK_POSITIONS: Record<string, { x: number; y: number }> = {
 };
 
 const BLOCK_DIMENSIONS: Record<string, { height: number; width: number }> = {
-  params: { width: 470, height: 360 },
+  params: { width: 510, height: 600 },
   purchase: { width: 340, height: 145 },
   sell: { width: 360, height: 180 },
   restart: { width: 320, height: 135 },
@@ -1380,35 +1380,27 @@ function BotBuilder() {
                     <BlockSection title="Run once at start">
                       <div className="min-h-9 rounded-md border border-[#8fbec3] bg-[#d6eeee]" />
                     </BlockSection>
-                    <BlockSection title="Trade options">
-                      <div className="grid grid-cols-2 gap-2">
-                        <Field label="Duration">
-                          <div className="flex flex-wrap gap-2">
-                            <InlineSelect
-                              value={durationUnit}
-                              options={["t", "s", "m"]}
-                              labels={{ t: "Ticks", s: "Seconds", m: "Minutes" }}
-                              onChange={setDurationUnit}
-                            />
-                            <NumberInput value={duration} min={1} step={1} onChange={setDuration} />
-                          </div>
-                        </Field>
-                        <Field label="Stake">
-                          <div className="flex flex-wrap gap-2">
-                            <InlineSelect
-                              value={derivCurrency || "USD"}
-                              options={[derivCurrency || "USD"]}
-                            />
-                            <NumberInput
-                              value={initialStake}
-                              min={0.35}
-                              step={0.01}
-                              onChange={setInitialStake}
-                            />
-                          </div>
-                        </Field>
-                      </div>
-                    </BlockSection>
+                    <BotControls
+                      currency={derivCurrency || "USD"}
+                      duration={duration}
+                      durationUnit={durationUnit}
+                      initialStake={initialStake}
+                      martingale={martingale}
+                      maxRuns={maxRuns}
+                      sellAtLoss={sellAtLoss}
+                      sellAtProfit={sellAtProfit}
+                      stopLoss={stopLoss}
+                      takeProfit={takeProfit}
+                      onDurationChange={setDuration}
+                      onDurationUnitChange={setDurationUnit}
+                      onInitialStakeChange={setInitialStake}
+                      onMartingaleChange={setMartingale}
+                      onMaxRunsChange={setMaxRuns}
+                      onSellAtLossChange={setSellAtLoss}
+                      onSellAtProfitChange={setSellAtProfit}
+                      onStopLossChange={setStopLoss}
+                      onTakeProfitChange={setTakeProfit}
+                    />
                   </div>
                 </WorkspaceBlock>
               )}
@@ -2048,6 +2040,114 @@ function BlockSection({ children, title }: { children: React.ReactNode; title: s
     <div className="rounded-md border border-[#92c3c8] bg-[#cce8ea] p-2.5">
       <div className="mb-2 text-[11px] font-bold text-[#16434c]">{title}</div>
       {children}
+    </div>
+  );
+}
+
+type BotControlsProps = {
+  currency: string;
+  duration: number;
+  durationUnit: string;
+  initialStake: number;
+  martingale: number;
+  maxRuns: number;
+  sellAtLoss: number;
+  sellAtProfit: number;
+  stopLoss: number;
+  takeProfit: number;
+  onDurationChange: (value: number) => void;
+  onDurationUnitChange: (value: string) => void;
+  onInitialStakeChange: (value: number) => void;
+  onMartingaleChange: (value: number) => void;
+  onMaxRunsChange: (value: number) => void;
+  onSellAtLossChange: (value: number) => void;
+  onSellAtProfitChange: (value: number) => void;
+  onStopLossChange: (value: number) => void;
+  onTakeProfitChange: (value: number) => void;
+};
+
+function BotControls({
+  currency,
+  duration,
+  durationUnit,
+  initialStake,
+  martingale,
+  maxRuns,
+  sellAtLoss,
+  sellAtProfit,
+  stopLoss,
+  takeProfit,
+  onDurationChange,
+  onDurationUnitChange,
+  onInitialStakeChange,
+  onMartingaleChange,
+  onMaxRunsChange,
+  onSellAtLossChange,
+  onSellAtProfitChange,
+  onStopLossChange,
+  onTakeProfitChange,
+}: BotControlsProps) {
+  return (
+    <div className="rounded-md border border-[#92c3c8] bg-[#cce8ea] p-2.5">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-bold text-[#16434c]">Trade controls</span>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-[#3f6970]">
+          Manual inputs
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 rounded-md border border-[#8fbec3] bg-white/70 p-2.5 sm:grid-cols-2">
+        <ControlRow label="Stake">
+          <InlineSelect value={currency || "USD"} options={[currency || "USD"]} />
+          <NumberInput
+            value={initialStake}
+            min={0.35}
+            step={0.01}
+            onChange={onInitialStakeChange}
+          />
+        </ControlRow>
+        <ControlRow label="Duration">
+          <InlineSelect
+            value={durationUnit}
+            options={["t", "s", "m"]}
+            labels={{ t: "Ticks", s: "Seconds", m: "Minutes" }}
+            onChange={onDurationUnitChange}
+          />
+          <NumberInput value={duration} min={1} step={1} onChange={onDurationChange} />
+        </ControlRow>
+        <ControlRow label="Martingale">
+          <NumberInput value={martingale} min={1} step={0.1} onChange={onMartingaleChange} />
+        </ControlRow>
+        <ControlRow label="Max runs">
+          <NumberInput value={maxRuns} min={1} step={1} onChange={onMaxRunsChange} />
+        </ControlRow>
+        <ControlRow label="Take profit">
+          <NumberInput value={takeProfit} min={0} step={1} onChange={onTakeProfitChange} />
+        </ControlRow>
+        <ControlRow label="Stop loss">
+          <NumberInput value={stopLoss} min={0} step={1} onChange={onStopLossChange} />
+        </ControlRow>
+        <ControlRow label="Sell @ profit">
+          <NumberInput value={sellAtProfit} min={0} step={1} onChange={onSellAtProfitChange} />
+        </ControlRow>
+        <ControlRow label="Sell @ loss">
+          <NumberInput value={sellAtLoss} min={0} step={1} onChange={onSellAtLossChange} />
+        </ControlRow>
+      </div>
+      <p className="mt-2 text-[10px] leading-snug text-[#3f6970]">
+        Take profit / Stop loss apply to the whole bot run. Sell @ profit / loss close each trade
+        early when the per-contract P/L reaches the target.
+      </p>
+    </div>
+  );
+}
+
+function ControlRow({ children, label }: { children: React.ReactNode; label: string }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded border border-[#bcdcdf] bg-white px-2 py-1.5">
+      <Label className="text-[10px] font-bold uppercase tracking-wide text-[#16434c]">
+        {label}
+      </Label>
+      <div className="flex shrink-0 items-center gap-1">{children}</div>
     </div>
   );
 }
