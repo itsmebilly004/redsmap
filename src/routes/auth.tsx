@@ -204,23 +204,27 @@ function AuthPage() {
               : "Continue with the Deriv account you already use to trade — no passwords stored here."}
           </p>
 
-          <Button
-            onClick={handleDeriv}
-            size="lg"
-            disabled={busy}
-            className="mt-6 h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
-          >
-            {busy ? "Connecting to Deriv..." : "Sign in with Deriv"}
-            <ArrowRight className="ml-1 size-4" />
-          </Button>
-          <button
-            type="button"
-            onClick={handleConnectLegacyDeriv}
-            disabled={busy}
-            className="mt-3 block w-full text-center text-xs font-medium text-muted-foreground transition hover:text-primary hover:underline disabled:opacity-60"
-          >
-            Have an older Deriv API token? Connect here.
-          </button>
+          <div className="mt-6 grid gap-3">
+            <Button
+              onClick={handleDeriv}
+              size="lg"
+              disabled={busy}
+              className="h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
+            >
+              {busy ? "Connecting to Deriv..." : "New traders"}
+              <ArrowRight className="ml-1 size-4" />
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConnectLegacyDeriv}
+              size="lg"
+              disabled={busy}
+              className="h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
+            >
+              Veteran traders
+              <ArrowRight className="ml-1 size-4" />
+            </Button>
+          </div>
 
           {showOAuthDebug && (
             <div className="mt-4 rounded-xl border border-primary/20 bg-background/80 p-3 text-xs">
