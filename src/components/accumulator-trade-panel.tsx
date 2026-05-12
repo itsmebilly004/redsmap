@@ -3,13 +3,6 @@ import { toast } from "sonner";
 import { Info, Minus, Plus, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { isDemoAccount } from "@/lib/deriv-account";
@@ -22,7 +15,6 @@ import {
   redirectToDerivOAuth,
   sanitizeDerivOAuthUrl,
 } from "@/lib/deriv";
-import { SYNTHETIC_MARKETS } from "@/lib/deriv";
 import { supabase } from "@/integrations/supabase/client";
 import {
   ACCUMULATOR_GROWTH_RATES,
@@ -372,40 +364,6 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
 
   return (
     <div className="space-y-3">
-      <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
-        <div className="mb-3 grid grid-cols-2 gap-2 rounded border border-[#eceeef] bg-[#fafbfc] p-2">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#7a838c]">
-              Account
-            </div>
-            <div className="truncate font-mono text-xs font-semibold text-[#1f2328]">
-              {accountLoginId || "-"}
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#7a838c]">
-              Last price
-            </div>
-            <div className="truncate font-mono text-xs font-semibold text-[#1f2328]">
-              {numberLabel(lastPrice)}
-            </div>
-          </div>
-        </div>
-        <div className="mb-2 text-sm font-semibold text-[#1f2328]">Market</div>
-        <Select value={market} onValueChange={onMarketChange}>
-          <SelectTrigger className="h-10 rounded border-[#d6d9dc] bg-white text-sm font-medium">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SYNTHETIC_MARKETS.map((item) => (
-              <SelectItem key={item.symbol} value={item.symbol}>
-                {item.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
       <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
         <div className="mb-2 flex items-center justify-between gap-2 text-sm font-semibold text-[#1f2328]">
           <span>Growth rate</span>
