@@ -2596,7 +2596,58 @@ export function redirectToDerivLegacyOAuth(url: string) {
   });
   sessionStorage.setItem("deriv_legacy_oauth_started_at", new Date().toISOString());
   sessionStorage.setItem("deriv_legacy_oauth_redirecting", "true");
-  window.location.href = url;
+  // Deriv's legacy OAuth provider silently bypasses /oauth2/authorize for
+  // users who already have an active oauth.deriv.com session, landing them on
+  // the Deriv homepage instead of completing the redirect back to our
+  // registered redirect_uri. Hit Deriv's own /oauth2/sessions/logout endpoint
+  // in a hidden iframe first so the next top-level navigation to /authorize
+  // always starts from a clean session and the login form is shown — the
+  // callback round-trip then completes regardless of whether the user was
+  // previously signed in to deriv.com.
+  clearDerivLegacyOAuthSessionCookie().finally(() => {
+    window.location.href = url;
+  });
+}
+
+function clearDerivLegacyOAuthSessionCookie(): Promise<void> {
+  return new Promise((resolve) => {
+    if (!isBrowser) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(hardTimeout);
+      try {
+        iframe.parentNode?.removeChild(iframe);
+      } catch {
+        /* ignore */
+      }
+      resolve();
+    };
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.setAttribute("tabindex", "-1");
+    iframe.referrerPolicy = "no-referrer";
+    iframe.style.position = "fixed";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.left = "-9999px";
+    iframe.style.top = "-9999px";
+    iframe.style.opacity = "0";
+    iframe.src = "https://oauth.deriv.com/oauth2/sessions/logout";
+    iframe.onload = finish;
+    iframe.onerror = finish;
+    const hardTimeout = window.setTimeout(finish, 2500);
+    try {
+      document.body.appendChild(iframe);
+    } catch {
+      finish();
+    }
+  });
 }
 
 export async function buildOAuthUrl(
