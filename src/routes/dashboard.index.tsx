@@ -71,17 +71,30 @@ function DashboardHome() {
       .then(({ data, error }) => {
         if (!cancelled && !error) setHasDeriv((data?.length ?? 0) > 0);
       });
-    supabase
-      .from("trades")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(10)
-      .then(({ data, error }) => {
-        if (!cancelled && !error) setTrades(data ?? []);
-      });
+    const loadTrades = () =>
+      supabase
+        .from("trades")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(10)
+        .then(({ data, error }) => {
+          if (!cancelled && !error) setTrades(data ?? []);
+        });
+    void loadTrades();
+    const channel = supabase
+      .channel(`dashboard-trades-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "trades", filter: `user_id=eq.${user.id}` },
+        () => {
+          void loadTrades();
+        },
+      )
+      .subscribe();
     return () => {
       cancelled = true;
+      void supabase.removeChannel(channel);
     };
   }, [user]);
 

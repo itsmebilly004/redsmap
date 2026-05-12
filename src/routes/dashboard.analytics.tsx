@@ -24,17 +24,30 @@ function AnalyticsPage() {
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    supabase
-      .from("trades")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: true })
-      .then(({ data, error }) => {
-        if (cancelled || error) return;
-        setTrades(data ?? []);
-      });
+    const loadTrades = () =>
+      supabase
+        .from("trades")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+        .then(({ data, error }) => {
+          if (cancelled || error) return;
+          setTrades(data ?? []);
+        });
+    void loadTrades();
+    const channel = supabase
+      .channel(`analytics-trades-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "trades", filter: `user_id=eq.${user.id}` },
+        () => {
+          void loadTrades();
+        },
+      )
+      .subscribe();
     return () => {
       cancelled = true;
+      void supabase.removeChannel(channel);
     };
   }, [user]);
 

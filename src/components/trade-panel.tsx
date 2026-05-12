@@ -143,7 +143,7 @@ export function TradePanel({
   onTradeTypeChange,
 }: TradePanelProps) {
   const { user } = useAuth();
-  const { account, balance: accountBalance, currency } = useDerivBalanceContext();
+  const { account, balance: accountBalance, currency, refreshBalances } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
   const accountLoginId = account?.loginid || account?.account_id || "";
@@ -164,6 +164,7 @@ export function TradePanel({
   const [busy, setBusy] = useState(false);
   const [activeContract, setActiveContract] = useState<ActiveContractState>(EMPTY_CONTRACT_STATE);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [quotesVersion, setQuotesVersion] = useState(0);
   const [tradingConnectionStatus, setTradingConnectionStatus] = useState<ConnectionStatus>(() =>
     getStatus(),
   );
@@ -441,6 +442,7 @@ export function TradePanel({
     market,
     multiplier,
     payoutMode,
+    quotesVersion,
     selectedDigit,
     selectedTradeType,
     stake,
@@ -449,6 +451,27 @@ export function TradePanel({
     token,
     tradeCurrency,
   ]);
+
+  useEffect(() => {
+    const finalStatuses = ["won", "lost", "sold", "error"];
+    if (!finalStatuses.includes(activeContract.status)) return;
+    if (selectedTradeType === "accumulator") return;
+    const resetTimer = window.setTimeout(() => {
+      setActiveContract(EMPTY_CONTRACT_STATE);
+      setErrorMessage(null);
+      setSelectedSide(tradeTypeConfig(selectedTradeType).sides[0]?.value ?? "up");
+      setQuotesVersion((value) => value + 1);
+      tradeIdRef.current = null;
+      activeAccountIdRef.current = null;
+      closedRef.current = false;
+      if (account) {
+        void refreshBalances("post-trade-reset").catch((error) => {
+          console.warn("[Manual Trader] balance refresh after trade close failed", error);
+        });
+      }
+    }, 3500);
+    return () => window.clearTimeout(resetTimer);
+  }, [account, activeContract.status, refreshBalances, selectedTradeType]);
 
   useEffect(() => {
     const selectedAccountId = account?.account_id ?? null;
@@ -656,6 +679,7 @@ export function TradePanel({
         });
       });
       toast.success(`Bought ${side.label}`);
+      setQuotesVersion((value) => value + 1);
     } catch (error) {
       const message = getDerivTradingErrorMessage(error);
       console.error("[Deriv Trade] Buy failed", error);

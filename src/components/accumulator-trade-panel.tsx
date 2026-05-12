@@ -55,7 +55,7 @@ type Props = {
 
 export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketChange }: Props) {
   const { user } = useAuth();
-  const { account, balance: accountBalance, currency } = useDerivBalanceContext();
+  const { account, balance: accountBalance, currency, refreshBalances } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
   const accountLoginId = account?.loginid || account?.account_id || "";
@@ -78,6 +78,23 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       void unsubscribeRef.current?.();
     };
   }, []);
+
+  useEffect(() => {
+    const finalStatuses = ["sold", "lost", "error"];
+    if (!finalStatuses.includes(state.status)) return;
+    const resetTimer = window.setTimeout(() => {
+      setState(EMPTY_ACCUMULATOR_CONTRACT);
+      activeAccountIdRef.current = null;
+      tradeIdRef.current = null;
+      closedRef.current = false;
+      if (account) {
+        void refreshBalances("post-accumulator-reset").catch((error) => {
+          console.warn("[Accumulator] balance refresh after trade close failed", error);
+        });
+      }
+    }, 3500);
+    return () => window.clearTimeout(resetTimer);
+  }, [account, refreshBalances, state.status]);
 
   useEffect(() => {
     const off = onStatus((socketStatus) => {

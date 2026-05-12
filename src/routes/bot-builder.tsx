@@ -803,6 +803,18 @@ function BotBuilder() {
     setRunning(next);
     runningRef.current = next;
     if (next) {
+      currentStakeRef.current = initialStake;
+      setCurrentStake(initialStake);
+      const stopConditionTriggered =
+        statsRef.current.runs >= maxRuns ||
+        statsRef.current.profit >= takeProfit ||
+        statsRef.current.profit <= -Math.abs(stopLoss);
+      if (stopConditionTriggered) {
+        const cleared = { runs: 0, wins: 0, losses: 0, profit: 0, stake: 0, payout: 0 };
+        statsRef.current = cleared;
+        setStats(cleared);
+        logJournal("Previous run hit a stop condition — stats cleared", "info");
+      }
       if (!tradePanelDismissed)
         setTradePanelMode((mode) => (mode === "hidden" ? "collapsed" : mode));
       logJournal("Trading engine started", "success");
