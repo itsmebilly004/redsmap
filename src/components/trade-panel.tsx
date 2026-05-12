@@ -23,7 +23,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { isDemoAccount } from "@/lib/deriv-account";
 import {
-  SYNTHETIC_MARKETS,
   DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE,
   buildOAuthUrl,
   ensureDerivTradingConnection,
@@ -146,7 +145,6 @@ export function TradePanel({
   const { account, balance: accountBalance, currency, refreshBalances } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
-  const accountLoginId = account?.loginid || account?.account_id || "";
 
   const [selectedTradeType, setSelectedTradeType] = useState<TradeCategory>("accumulator");
   const [selectedSide, setSelectedSide] = useState("buy");
@@ -791,40 +789,6 @@ export function TradePanel({
         onNext={() => nextTradeType(1)}
         onPrevious={() => nextTradeType(-1)}
       />
-
-      <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
-        <div className="mb-3 grid grid-cols-2 gap-2 rounded border border-[#eceeef] bg-[#fafbfc] p-2">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#7a838c]">
-              Account
-            </div>
-            <div className="truncate font-mono text-xs font-semibold text-[#1f2328]">
-              {accountLoginId || "-"}
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#7a838c]">
-              Last price
-            </div>
-            <div className="truncate font-mono text-xs font-semibold text-[#1f2328]">
-              {lastPrice?.toFixed(4) ?? "-"}
-            </div>
-          </div>
-        </div>
-        <div className="mb-2 text-sm font-semibold text-[#1f2328]">Market</div>
-        <Select value={market} onValueChange={onMarketChange}>
-          <SelectTrigger className="h-10 rounded border-[#d6d9dc] bg-white text-sm font-medium">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SYNTHETIC_MARKETS.map((item) => (
-              <SelectItem key={item.symbol} value={item.symbol}>
-                {item.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
 
       {config.needsDuration && (
         <TickDurationSelector
