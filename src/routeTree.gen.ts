@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TradingviewRouteImport } from './routes/tradingview'
 import { Route as TradingBotsRouteImport } from './routes/trading-bots'
 import { Route as StrategiesRouteImport } from './routes/strategies'
+import { Route as RedirectRouteImport } from './routes/redirect'
 import { Route as DerivCallbackRouteImport } from './routes/deriv-callback'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as CopyTradingRouteImport } from './routes/copy-trading'
@@ -41,6 +42,11 @@ const TradingBotsRoute = TradingBotsRouteImport.update({
 const StrategiesRoute = StrategiesRouteImport.update({
   id: '/strategies',
   path: '/strategies',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RedirectRoute = RedirectRouteImport.update({
+  id: '/redirect',
+  path: '/redirect',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DerivCallbackRoute = DerivCallbackRouteImport.update({
@@ -128,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/copy-trading': typeof CopyTradingRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/deriv-callback': typeof DerivCallbackRoute
+  '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
@@ -147,6 +154,7 @@ export interface FileRoutesByTo {
   '/charts': typeof ChartsRoute
   '/copy-trading': typeof CopyTradingRoute
   '/deriv-callback': typeof DerivCallbackRoute
+  '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
@@ -168,6 +176,7 @@ export interface FileRoutesById {
   '/copy-trading': typeof CopyTradingRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/deriv-callback': typeof DerivCallbackRoute
+  '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
   '/tradingview': typeof TradingviewRoute
@@ -190,6 +199,7 @@ export interface FileRouteTypes {
     | '/copy-trading'
     | '/dashboard'
     | '/deriv-callback'
+    | '/redirect'
     | '/strategies'
     | '/trading-bots'
     | '/tradingview'
@@ -209,6 +219,7 @@ export interface FileRouteTypes {
     | '/charts'
     | '/copy-trading'
     | '/deriv-callback'
+    | '/redirect'
     | '/strategies'
     | '/trading-bots'
     | '/tradingview'
@@ -229,6 +240,7 @@ export interface FileRouteTypes {
     | '/copy-trading'
     | '/dashboard'
     | '/deriv-callback'
+    | '/redirect'
     | '/strategies'
     | '/trading-bots'
     | '/tradingview'
@@ -250,6 +262,7 @@ export interface RootRouteChildren {
   CopyTradingRoute: typeof CopyTradingRoute
   DashboardRoute: typeof DashboardRouteWithChildren
   DerivCallbackRoute: typeof DerivCallbackRoute
+  RedirectRoute: typeof RedirectRoute
   StrategiesRoute: typeof StrategiesRoute
   TradingBotsRoute: typeof TradingBotsRoute
   TradingviewRoute: typeof TradingviewRoute
@@ -280,6 +293,13 @@ declare module '@tanstack/react-router' {
       path: '/strategies'
       fullPath: '/strategies'
       preLoaderRoute: typeof StrategiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/redirect': {
+      id: '/redirect'
+      path: '/redirect'
+      fullPath: '/redirect'
+      preLoaderRoute: typeof RedirectRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/deriv-callback': {
@@ -415,6 +435,7 @@ const rootRouteChildren: RootRouteChildren = {
   CopyTradingRoute: CopyTradingRoute,
   DashboardRoute: DashboardRouteWithChildren,
   DerivCallbackRoute: DerivCallbackRoute,
+  RedirectRoute: RedirectRoute,
   StrategiesRoute: StrategiesRoute,
   TradingBotsRoute: TradingBotsRoute,
   TradingviewRoute: TradingviewRoute,

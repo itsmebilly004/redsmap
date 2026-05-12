@@ -4,12 +4,14 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
   DERIV_OAUTH_ENDPOINT_VALUE,
+  buildLegacyOAuthUrl,
   buildOAuthUrl,
   ensureDerivOAuthCanonicalOrigin,
   getDerivOAuthRedirectFailure,
   getDerivOAuthDiagnostics,
   readDerivOAuthTrace,
   recordDerivOAuthTrace,
+  redirectToDerivLegacyOAuth,
   redirectToDerivOAuth,
   sanitizeDerivOAuthUrl,
   type DerivOAuthRedirectFailure,
@@ -79,6 +81,20 @@ function AuthPage() {
       window.removeEventListener("focus", checkDashboardRedirectReturn);
     };
   }, []);
+
+  function handleConnectLegacyDeriv() {
+    setErrorMessage(null);
+    try {
+      const url = buildLegacyOAuthUrl({ returnTo: "/dashboard" });
+      console.info("[Deriv Legacy OAuth] Auth-page redirect", { url });
+      redirectToDerivLegacyOAuth(url);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not start Deriv legacy OAuth.";
+      console.error("[Deriv Legacy OAuth] Auth-page connect failed", error);
+      setErrorMessage(message);
+    }
+  }
 
   async function handleDeriv() {
     setBusy(true);
@@ -197,6 +213,14 @@ function AuthPage() {
             {busy ? "Connecting to Deriv..." : "Sign in with Deriv"}
             <ArrowRight className="ml-1 size-4" />
           </Button>
+          <button
+            type="button"
+            onClick={handleConnectLegacyDeriv}
+            disabled={busy}
+            className="mt-3 block w-full text-center text-xs font-medium text-muted-foreground transition hover:text-primary hover:underline disabled:opacity-60"
+          >
+            Have an older Deriv API token? Connect here.
+          </button>
 
           {showOAuthDebug && (
             <div className="mt-4 rounded-xl border border-primary/20 bg-background/80 p-3 text-xs">

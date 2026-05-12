@@ -13,6 +13,7 @@ import {
   type TradingAdapter,
   type TradingAuthorizationState,
 } from "@/lib/deriv";
+import { DERIV_LEGACY_APP_ID, DERIV_LEGACY_WEBSOCKET_URL } from "@/lib/deriv-config";
 import {
   normalizeDerivAccount,
   type DerivAccountLike,
@@ -118,6 +119,7 @@ type DerivAccountsApiResponse = {
 function tokenSourceFromText(value: unknown): DerivTokenSource | null {
   const text = String(value ?? "").trim();
   if (text === "oauth_access_token") return text;
+  if (text === "deriv_legacy_token") return text;
   return null;
 }
 
@@ -137,7 +139,8 @@ function tradingAuthorizationFromRaw(
   tokenSource: DerivTokenSource | undefined,
 ): TradingAuthorizationState | null {
   const adapter =
-    raw.trading_adapter === "oauth2PkceTradingAdapter"
+    raw.trading_adapter === "oauth2PkceTradingAdapter" ||
+    raw.trading_adapter === "legacyDirectTokenAdapter"
       ? raw.trading_adapter
       : tokenSource
         ? adapterForTokenSource(tokenSource)
@@ -185,6 +188,148 @@ function isOAuthTokenAccount(
   account: Pick<DerivAccount, "account_id" | "deriv_token" | "token_source">,
 ) {
   return Boolean(account.deriv_token && tokenSourceForAccount(account) === "oauth_access_token");
+}
+
+function isLegacyTokenAccount(
+  account: Pick<DerivAccount, "account_id" | "deriv_token" | "token_source">,
+) {
+  return Boolean(account.deriv_token && tokenSourceForAccount(account) === "deriv_legacy_token");
+}
+
+type LegacyAuthorizePayload = {
+  loginid: string;
+  account_id: string;
+  currency: string;
+  balance: number;
+  is_demo: boolean;
+  is_virtual: boolean;
+  account_type: string | null;
+  deriv_token: string;
+  token_source: DerivTokenSource;
+  trading_adapter: TradingAdapter;
+  trading_authorized: boolean;
+  trading_authorized_at: string | null;
+  last_trading_error: string | null;
+};
+
+function openShortLivedLegacySocket(): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const url = `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${encodeURIComponent(DERIV_LEGACY_APP_ID)}`;
+    const ws = new WebSocket(url);
+    const timeout = window.setTimeout(() => {
+      try {
+        ws.close(1000, "Legacy balance socket open timed out");
+      } catch {
+        /* ignore */
+      }
+      reject(new Error("Deriv legacy WebSocket did not open in time."));
+    }, 8_000);
+    ws.addEventListener(
+      "open",
+      () => {
+        window.clearTimeout(timeout);
+        resolve(ws);
+      },
+      { once: true },
+    );
+    ws.addEventListener(
+      "error",
+      () => {
+        window.clearTimeout(timeout);
+        reject(new Error("Deriv legacy WebSocket connection failed."));
+      },
+      { once: true },
+    );
+  });
+}
+
+async function fetchLegacyAccountSnapshot(
+  account: Pick<DerivAccount, "account_id" | "deriv_token">,
+): Promise<LegacyAuthorizePayload | null> {
+  if (!account.deriv_token) return null;
+  const connectedAt = new Date().toISOString();
+  let ws: WebSocket;
+  try {
+    ws = await openShortLivedLegacySocket();
+  } catch (error) {
+    console.warn("[Deriv Balance] legacy socket could not open", {
+      account_id: account.account_id,
+      error,
+    });
+    return null;
+  }
+  try {
+    return await new Promise<LegacyAuthorizePayload | null>((resolve) => {
+      const reqId = Math.floor(Math.random() * 1_000_000_000);
+      const timeout = window.setTimeout(() => {
+        ws.removeEventListener("message", listener);
+        resolve(null);
+      }, 10_000);
+      const listener = (event: MessageEvent) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          if (parsed.req_id !== reqId) return;
+          ws.removeEventListener("message", listener);
+          window.clearTimeout(timeout);
+          if (parsed.error) {
+            console.warn("[Deriv Balance] legacy authorize rejected", {
+              account_id: account.account_id,
+              error: parsed.error,
+            });
+            resolve(null);
+            return;
+          }
+          const authorize = parsed.authorize ?? {};
+          const loginid = String(authorize.loginid ?? account.account_id);
+          const is_virtual =
+            authorize.is_virtual === 1 ||
+            authorize.is_virtual === true ||
+            String(authorize.is_virtual ?? "").toLowerCase() === "true";
+          resolve({
+            loginid,
+            account_id: loginid,
+            currency: String(authorize.currency ?? ""),
+            balance: Number(authorize.balance ?? 0),
+            is_demo: is_virtual,
+            is_virtual,
+            account_type: authorize.account_type ? String(authorize.account_type) : null,
+            deriv_token: account.deriv_token,
+            token_source: "deriv_legacy_token",
+            trading_adapter: "legacyDirectTokenAdapter",
+            trading_authorized: true,
+            trading_authorized_at: connectedAt,
+            last_trading_error: null,
+          });
+        } catch (error) {
+          ws.removeEventListener("message", listener);
+          window.clearTimeout(timeout);
+          console.warn("[Deriv Balance] legacy authorize parse failed", {
+            account_id: account.account_id,
+            error,
+          });
+          resolve(null);
+        }
+      };
+      ws.addEventListener("message", listener);
+      try {
+        ws.send(JSON.stringify({ authorize: account.deriv_token, req_id: reqId }));
+      } catch (error) {
+        ws.removeEventListener("message", listener);
+        window.clearTimeout(timeout);
+        console.warn("[Deriv Balance] legacy authorize send failed", {
+          account_id: account.account_id,
+          error,
+        });
+        resolve(null);
+      }
+    });
+  } finally {
+    try {
+      ws.close(1000, "Legacy balance refresh complete");
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function readTokenSource(
@@ -678,6 +823,31 @@ export function useDerivBalance(): LiveBalance {
             status: response.status,
             accountCount: refreshed.length,
             accounts: refreshed.map(accountSummary),
+          });
+        }
+
+        const legacyAccounts = accounts.filter(isLegacyTokenAccount);
+        if (legacyAccounts.length) {
+          console.info("[Deriv Balance] legacy balance refresh started", {
+            accountCount: legacyAccounts.length,
+          });
+          const legacyResults = await Promise.all(
+            legacyAccounts.map((account) =>
+              fetchLegacyAccountSnapshot({
+                account_id: account.account_id,
+                deriv_token: account.deriv_token,
+              }),
+            ),
+          );
+          const legacyRefreshed = mergeFreshAccounts(
+            legacyResults.filter((item): item is LegacyAuthorizePayload =>
+              Boolean(item),
+            ) as unknown as Record<string, unknown>[],
+            null,
+            "deriv_legacy_token",
+          );
+          console.info("[Deriv Balance] legacy balance refresh completed", {
+            accountCount: legacyRefreshed.length,
           });
         }
 

@@ -3,8 +3,10 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
+  buildLegacyOAuthUrl,
   buildOAuthUrl,
   disconnectAll,
+  redirectToDerivLegacyOAuth,
   redirectToDerivOAuth,
   sanitizeDerivOAuthUrl,
 } from "@/lib/deriv";
@@ -186,6 +188,19 @@ export function TopShell({
     }
   }
 
+  function handleConnectLegacyDeriv() {
+    try {
+      const url = buildLegacyOAuthUrl({ returnTo: "/dashboard/settings" });
+      console.log("Deriv Legacy OAuth URL:", url);
+      redirectToDerivLegacyOAuth(url);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not start Deriv legacy OAuth.";
+      console.error("[Deriv Legacy OAuth] Shell connect failed", error);
+      toast.error(message);
+    }
+  }
+
   async function handleRefreshBalances() {
     try {
       await refreshBalances("manual-dropdown");
@@ -342,13 +357,22 @@ export function TopShell({
           )}
 
           {user && !account && (
-            <Button
-              onClick={handleConnectDeriv}
-              className="h-9 rounded-md bg-[#ff444f] px-3 text-sm text-white hover:bg-[#eb3e48] sm:px-4"
-            >
-              <Plug className="mr-1 size-4" /> <span className="hidden sm:inline">Connect</span>{" "}
-              Deriv
-            </Button>
+            <div className="flex flex-col items-end gap-0.5">
+              <Button
+                onClick={handleConnectDeriv}
+                className="h-9 rounded-md bg-[#ff444f] px-3 text-sm text-white hover:bg-[#eb3e48] sm:px-4"
+              >
+                <Plug className="mr-1 size-4" /> <span className="hidden sm:inline">Connect</span>{" "}
+                Deriv
+              </Button>
+              <button
+                type="button"
+                onClick={handleConnectLegacyDeriv}
+                className="text-[10px] font-medium text-[#646464] hover:text-[#ff444f] hover:underline"
+              >
+                Have an older Deriv API token? Connect here.
+              </button>
+            </div>
           )}
 
           {!user && (

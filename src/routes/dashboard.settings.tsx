@@ -7,7 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { buildOAuthUrl, redirectToDerivOAuth, sanitizeDerivOAuthUrl } from "@/lib/deriv";
+import {
+  buildLegacyOAuthUrl,
+  buildOAuthUrl,
+  redirectToDerivLegacyOAuth,
+  redirectToDerivOAuth,
+  sanitizeDerivOAuthUrl,
+} from "@/lib/deriv";
 import { isDemoAccount, normalizeDerivAccount } from "@/lib/deriv-account";
 import { Plug, Trash2 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
@@ -103,6 +109,19 @@ function SettingsPage() {
     }
   }
 
+  function connectLegacyDeriv() {
+    try {
+      const url = buildLegacyOAuthUrl({ returnTo: "/dashboard/settings" });
+      console.log("Deriv Legacy OAuth URL:", url);
+      redirectToDerivLegacyOAuth(url);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not start Deriv legacy OAuth.";
+      console.error("[Deriv Legacy OAuth] Settings connect failed", error);
+      toast.error(message);
+    }
+  }
+
   async function deleteAccount() {
     if (!user) return;
     if (!confirm("Permanently delete your account and all data?")) return;
@@ -133,9 +152,18 @@ function SettingsPage() {
       <section className="glass-card rounded-xl p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-medium">Deriv accounts</h3>
-          <Button size="sm" onClick={connectDeriv} className="w-full sm:w-auto">
-            <Plug className="mr-1 size-4" /> Connect / Reconnect
-          </Button>
+          <div className="flex flex-col items-end gap-1">
+            <Button size="sm" onClick={connectDeriv} className="w-full sm:w-auto">
+              <Plug className="mr-1 size-4" /> Connect / Reconnect
+            </Button>
+            <button
+              type="button"
+              onClick={connectLegacyDeriv}
+              className="text-[11px] font-medium text-muted-foreground hover:text-primary hover:underline"
+            >
+              Have an older Deriv API token? Connect here.
+            </button>
+          </div>
         </div>
         {accounts.length === 0 ? (
           <p className="text-sm text-muted-foreground">No accounts connected yet.</p>

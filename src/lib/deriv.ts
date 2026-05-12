@@ -12,6 +12,10 @@ import {
   DERIV_OAUTH_CLIENT_ID,
   DERIV_OAUTH_SCOPE,
   DERIV_REDIRECT_URI,
+  DERIV_LEGACY_APP_ID,
+  DERIV_LEGACY_AUTHORIZE_ENDPOINT,
+  DERIV_LEGACY_REDIRECT_URI,
+  DERIV_LEGACY_WEBSOCKET_URL,
 } from "@/lib/deriv-config";
 
 const DERIV_APP_ID = DERIV_OAUTH_CLIENT_ID;
@@ -137,9 +141,9 @@ export type DerivMessage = DerivRecord & {
 export type DerivBalance = { balance: number; currency: string; loginid: string };
 export type ActiveSymbol = { symbol: string; display_name: string; market: string };
 type DerivAppIdMode = "oauth";
-export type TradingAdapter = "oauth2PkceTradingAdapter";
-export type TradingWebSocketMode = "oauth-otp";
-export type DerivTokenSource = "oauth_access_token";
+export type TradingAdapter = "oauth2PkceTradingAdapter" | "legacyDirectTokenAdapter";
+export type TradingWebSocketMode = "oauth-otp" | "legacy-authorize";
+export type DerivTokenSource = "oauth_access_token" | "deriv_legacy_token";
 export type TradingAuthorizationState = {
   account_id: string;
   trading_authorized: boolean;
@@ -839,6 +843,11 @@ function tradingAuthorizationRequestKey(session: DerivTradingSession) {
 function assertOAuthTradingTokenFresh(
   session: Pick<DerivTradingSession, "expires_at" | "createdAt" | "token_source" | "account_id">,
 ) {
+  if (session.token_source === "deriv_legacy_token") {
+    // Legacy tokens never expire from the client's perspective; the user revokes them
+    // from Deriv's "Authorized applications" page. Skip the expiry guard.
+    return effectiveTokenExpiryState(session.expires_at, session.createdAt, session.token_source);
+  }
   if (session.token_source !== "oauth_access_token") {
     throw createDerivSocketError(
       DERIV_OAUTH_ONLY_RECONNECT_MESSAGE,
@@ -1090,6 +1099,7 @@ function authenticatedAccountTypeLabel(account: NonNullable<typeof authenticated
 function tokenSourceFromText(value: unknown): DerivTokenSource | null {
   const text = textFrom(value);
   if (text === "oauth_access_token") return text;
+  if (text === "deriv_legacy_token") return text;
   return null;
 }
 
@@ -1157,11 +1167,11 @@ function tradingAuthorizationStorageKey(userId: string, accountId: string) {
 }
 
 function tokenSourceIsValid(value: unknown): value is DerivTokenSource {
-  return value === "oauth_access_token";
+  return value === "oauth_access_token" || value === "deriv_legacy_token";
 }
 
 function adapterIsValid(value: unknown): value is TradingAdapter {
-  return value === "oauth2PkceTradingAdapter";
+  return value === "oauth2PkceTradingAdapter" || value === "legacyDirectTokenAdapter";
 }
 
 function accountTypeIsValid(value: unknown): value is DerivTradingSession["normalizedType"] {
@@ -1210,7 +1220,9 @@ function isTradingReadinessSchemaError(error: unknown): error is TradingReadines
 }
 
 export function tradingAuthorizationIsFresh(state: TradingAuthorizationState | null | undefined) {
-  if (!state?.trading_authorized || !state.trading_authorized_at) return false;
+  if (!state?.trading_authorized) return false;
+  if (state.token_source === "deriv_legacy_token") return true;
+  if (!state.trading_authorized_at) return false;
   const authorizedAt = new Date(state.trading_authorized_at).getTime();
   if (!Number.isFinite(authorizedAt)) return false;
   return Date.now() - authorizedAt <= TRADING_AUTHORIZATION_FRESH_MS;
@@ -1394,16 +1406,18 @@ function persistSelectedTradingSession(userId: string, session: DerivTradingSess
 function readStoredTokenSource(userId: string, accountId: string): DerivTokenSource | null {
   if (!isBrowser) return null;
   try {
-    const saved = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
-    if (saved === "oauth_access_token") return saved;
+    const saved = tokenSourceFromText(
+      localStorage.getItem(tokenSourceStorageKey(userId, accountId)),
+    );
+    if (saved) return saved;
     const selectedAccountId =
       localStorage.getItem(selectedAccountIdStorageKey(userId)) ??
       localStorage.getItem(activeAccountStorageKey(userId));
     if (sameDerivId(selectedAccountId, accountId)) {
-      const selectedTokenSource = localStorage.getItem(selectedTokenSourceStorageKey(userId));
-      if (selectedTokenSource === "oauth_access_token") {
-        return selectedTokenSource;
-      }
+      const selectedTokenSource = tokenSourceFromText(
+        localStorage.getItem(selectedTokenSourceStorageKey(userId)),
+      );
+      if (selectedTokenSource) return selectedTokenSource;
     }
   } catch {
     /* ignore localStorage access failures */
@@ -1463,6 +1477,16 @@ function effectiveTokenExpiryState(
   _createdAt: string | null | undefined,
   tokenSource: DerivTokenSource | null,
 ) {
+  if (tokenSource === "deriv_legacy_token") {
+    return {
+      ...tokenExpiryState(expiresAt),
+      storedExpiresAt: expiresAt ?? null,
+      platformExpiresAt: null,
+      shortProviderExpiresAt: null,
+      expiryPolicy: "legacy-direct-token",
+      expired: false,
+    };
+  }
   if (tokenSource !== "oauth_access_token") {
     return {
       ...tokenExpiryState(expiresAt),
@@ -1527,10 +1551,12 @@ function explicitTokenSourceForAccount(account: DerivAccountLike): DerivTokenSou
 }
 
 export function adapterForTokenSource(tokenSource: DerivTokenSource): TradingAdapter {
+  if (tokenSource === "deriv_legacy_token") return "legacyDirectTokenAdapter";
   return "oauth2PkceTradingAdapter";
 }
 
 export function tradingWebSocketMode(tokenSource: DerivTokenSource): TradingWebSocketMode {
+  if (tokenSource === "deriv_legacy_token") return "legacy-authorize";
   return "oauth-otp";
 }
 
@@ -1723,7 +1749,10 @@ function openAuthenticatedSocket(
           socketAccountId = null;
         }
 
-        if (account.tokenSource !== "oauth_access_token") {
+        if (
+          account.tokenSource !== "oauth_access_token" &&
+          account.tokenSource !== "deriv_legacy_token"
+        ) {
           throw createDerivSocketError(
             DERIV_OAUTH_ONLY_RECONNECT_MESSAGE,
             "DERIV_OAUTH_RECONNECT_REQUIRED",
@@ -1777,6 +1806,61 @@ function openAuthenticatedSocket(
             tokenSource: account.tokenSource,
             readyState: ws?.readyState ?? null,
           });
+
+          if (account.tokenSource === "deriv_legacy_token") {
+            // Legacy adapter: token is presented over the open socket. Send the
+            // authorize request and wait for the response before marking ready.
+            const authorizeReqId = reqId++;
+            const authorizePayload = { authorize: account.accessToken, req_id: authorizeReqId };
+            const authorizeListener = (message: DerivMessage) => {
+              if (message.req_id !== authorizeReqId) return;
+              listeners.delete(authorizeListener);
+              if (message.error) {
+                console.error("[Deriv WS] Legacy authorize failed", {
+                  accountId: account.accountId,
+                  mode: websocketMode,
+                  tokenSource: account.tokenSource,
+                  adapter: adapterForTokenSource(account.tokenSource),
+                  error: message.error,
+                });
+                try {
+                  ws?.close(1000, "Legacy authorize failed");
+                } catch {
+                  /* ignore */
+                }
+                void fail(
+                  createDerivSocketError(
+                    message.error.message ?? "Legacy Deriv authorize failed.",
+                    "DERIV_LEGACY_AUTHORIZE_FAILED",
+                    401,
+                    false,
+                  ),
+                );
+                return;
+              }
+              console.info("[Deriv WS] Legacy authorize socket ready", {
+                accountId: account.accountId,
+                mode: websocketMode,
+                tokenSource: account.tokenSource,
+                adapter: adapterForTokenSource(account.tokenSource),
+                authorizationResult: "legacy-authorize-ok",
+                returnedLoginid: textFrom(message.authorize?.loginid),
+              });
+              completeOpen();
+            };
+            listeners.add(authorizeListener);
+            try {
+              ws?.send(JSON.stringify(authorizePayload));
+            } catch (sendError) {
+              listeners.delete(authorizeListener);
+              void fail(
+                sendError instanceof Error
+                  ? sendError
+                  : new Error("Could not send legacy authorize payload"),
+              );
+            }
+            return;
+          }
 
           console.info("[Deriv WS] OAuth OTP socket authorization ready", {
             accountId: account.accountId,
@@ -2450,6 +2534,53 @@ export function redirectToDerivOAuth(url: string) {
   window.location.href = url;
 }
 
+// Legacy OAuth (direct-token) flow: separate authorization endpoint that returns
+// `token1`, `acct1`, `cur1`, ... directly in the redirect query. No PKCE, no token
+// exchange. The redirect_uri is the legacy one registered on Deriv's app dashboard.
+export function buildLegacyOAuthUrl(options: { returnTo?: string } = {}): string {
+  const params = new URLSearchParams({
+    app_id: DERIV_LEGACY_APP_ID,
+    l: "EN",
+    brand: "deriv",
+    redirect_uri: DERIV_LEGACY_REDIRECT_URI,
+  });
+  if (isBrowser && options.returnTo) {
+    try {
+      sessionStorage.setItem("deriv_legacy_oauth_return_to", options.returnTo);
+    } catch {
+      /* ignore storage failures */
+    }
+  }
+  return `${DERIV_LEGACY_AUTHORIZE_ENDPOINT}?${params.toString()}`;
+}
+
+export function redirectToDerivLegacyOAuth(url: string) {
+  if (!isBrowser) return;
+  const parsed = safeParseUrl(url);
+  if (
+    !parsed ||
+    parsed.origin !== "https://oauth.deriv.com" ||
+    parsed.pathname !== "/oauth2/authorize"
+  ) {
+    throw new Error("Invalid Deriv legacy OAuth URL.");
+  }
+  if (parsed.searchParams.get("app_id") !== DERIV_LEGACY_APP_ID) {
+    throw new Error("Legacy OAuth URL must use the registered legacy app_id.");
+  }
+  if (parsed.searchParams.get("redirect_uri") !== DERIV_LEGACY_REDIRECT_URI) {
+    throw new Error("Legacy OAuth URL must use the registered legacy redirect_uri.");
+  }
+  recordDerivOAuthTrace("legacy-oauth-redirect-start", {
+    currentHref: window.location.href,
+    endpoint: `${parsed.origin}${parsed.pathname}`,
+    app_id: parsed.searchParams.get("app_id"),
+    redirect_uri: parsed.searchParams.get("redirect_uri"),
+  });
+  sessionStorage.setItem("deriv_legacy_oauth_started_at", new Date().toISOString());
+  sessionStorage.setItem("deriv_legacy_oauth_redirecting", "true");
+  window.location.href = url;
+}
+
 export async function buildOAuthUrl(
   options: {
     debug?: boolean;
@@ -2611,6 +2742,20 @@ export async function getAuthenticatedWsUrl(
   accountId: string,
   tokenSource: DerivTokenSource,
 ): Promise<string> {
+  if (tokenSource === "deriv_legacy_token") {
+    // Legacy direct-token flow: connect to the public Deriv WebSocket with the legacy
+    // app_id. The token is sent over the open socket via {authorize: token} from
+    // openAuthenticatedSocket() — there is no OTP/URL exchange step.
+    const legacyUrl = `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${encodeURIComponent(DERIV_LEGACY_APP_ID)}`;
+    console.info("[Deriv WS] Legacy authorize-mode WebSocket URL prepared", {
+      accountId,
+      tokenSource,
+      adapter: adapterForTokenSource(tokenSource),
+      websocketMode: tradingWebSocketMode(tokenSource),
+      url: legacyUrl,
+    });
+    return legacyUrl;
+  }
   const appIdMode: DerivAppIdMode = "oauth";
   if (tokenSource !== "oauth_access_token") {
     throw createDerivSocketError(
