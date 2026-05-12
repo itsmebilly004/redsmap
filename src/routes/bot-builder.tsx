@@ -15,29 +15,38 @@ import {
   Save,
   Search,
   Square,
+  Trash2,
   Undo2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 
 import { TopShell } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
+import { useAuth } from "@/hooks/use-auth";
 import {
   ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
   type TradeCategory,
   type TradingAdapter,
 } from "@/lib/deriv";
+import { BOT_PRESET_CONFIGS, type BotPresetConfig } from "@/lib/bot-presets";
 import { buyProposal, requestProposal, subscribeOpenContract } from "@/lib/deriv-trading-service";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import { cn } from "@/lib/utils";
 
+const search = z.object({
+  preset: z.string().optional(),
+});
+
 export const Route = createFileRoute("/bot-builder")({
   component: BotBuilderPage,
+  validateSearch: search,
 });
 
 type BotStatus = "error" | "running" | "stopped";
@@ -99,8 +108,20 @@ type Settlement = {
   profit: number;
   status: "lost" | "open" | "won";
 };
+type SavedBotPreset = {
+  id: string;
+  name: string;
+  savedAt: string;
+  settings: BotSettings;
+  source: "deployed" | "imported" | "manual";
+};
+type ImportedBotSettings = {
+  name: string;
+  settings: BotSettings;
+};
 
-const STORAGE_KEY = "arktrader:bot-builder:deriv-style-settings";
+const CURRENT_SETTINGS_STORAGE_VERSION = 1;
+const SAVED_PRESETS_STORAGE_VERSION = 1;
 
 const symbolOptions = [
   { label: "Volatility 10 Index", value: "R_10" },
@@ -121,7 +142,7 @@ const initialSettings: BotSettings = {
   conditionJoin: "All",
   conditionLeft: "Last Digit",
   conditionOperator: ">",
-  conditionRight: "4",
+  conditionRight: "3",
   currency: "USD",
   digitContract: "over_under",
   duration: 1,
@@ -152,7 +173,92 @@ const blockMenu = [
   { collapsible: true, section: "utility", title: "Utility" },
 ];
 
+function currentSettingsStorageKey(userId?: string | null) {
+  return `arktrader:bot-builder:${userId ?? "guest"}:current-settings`;
+}
+
+function savedPresetsStorageKey(userId?: string | null) {
+  return `arktrader:bot-builder:${userId ?? "guest"}:saved-presets`;
+}
+
+function readCurrentBotSettings(userId?: string | null) {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(currentSettingsStorageKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || parsed.version !== CURRENT_SETTINGS_STORAGE_VERSION) return null;
+    if (!isRecord(parsed.settings)) return null;
+    return settingsFromRecord(parsed.settings);
+  } catch {
+    return null;
+  }
+}
+
+function writeCurrentBotSettings(userId: string | null | undefined, settings: BotSettings) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      currentSettingsStorageKey(userId),
+      JSON.stringify({
+        savedAt: new Date().toISOString(),
+        settings,
+        version: CURRENT_SETTINGS_STORAGE_VERSION,
+      }),
+    );
+  } catch {
+    /* Local persistence is best effort. */
+  }
+}
+
+function readSavedBotPresets(userId?: string | null): SavedBotPreset[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(savedPresetsStorageKey(userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || parsed.version !== SAVED_PRESETS_STORAGE_VERSION) return [];
+    if (!Array.isArray(parsed.presets)) return [];
+    return parsed.presets
+      .map(savedPresetFromRecord)
+      .filter((preset): preset is SavedBotPreset => Boolean(preset));
+  } catch {
+    return [];
+  }
+}
+
+function writeSavedBotPresets(userId: string | null | undefined, presets: SavedBotPreset[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      savedPresetsStorageKey(userId),
+      JSON.stringify({
+        presets,
+        savedAt: new Date().toISOString(),
+        version: SAVED_PRESETS_STORAGE_VERSION,
+      }),
+    );
+  } catch {
+    /* Local persistence is best effort. */
+  }
+}
+
+function savedPresetFromRecord(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.settings)) return null;
+  const source = value.source;
+  return {
+    id: readString(value, "id", crypto.randomUUID()),
+    name: readString(value, "name", "Saved bot preset"),
+    savedAt: readString(value, "savedAt", new Date().toISOString()),
+    settings: settingsFromRecord(value.settings),
+    source:
+      source === "deployed" || source === "imported" || source === "manual" ? source : "manual",
+  } satisfies SavedBotPreset;
+}
+
 function BotBuilderPage() {
+  const { user, loading: authLoading } = useAuth();
+  const { preset } = Route.useSearch();
   const { account, currency: accountCurrency, refreshBalances } = useDerivBalanceContext();
   const [settings, setSettings] = useState<BotSettings>(initialSettings);
   const [status, setStatus] = useState<BotStatus>("stopped");
@@ -179,12 +285,89 @@ function BotBuilderPage() {
   });
   const [history, setHistory] = useState<BotSettings[]>([]);
   const [redoStack, setRedoStack] = useState<BotSettings[]>([]);
+  const [savedPresets, setSavedPresets] = useState<SavedBotPreset[]>([]);
+  const [activeSavedPresetId, setActiveSavedPresetId] = useState<string | null>(null);
+  const [activePresetName, setActivePresetName] = useState("Unsaved bot");
+  const [hydratedStorageUser, setHydratedStorageUser] = useState<string | null>(null);
+  const [storageReady, setStorageReady] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const hydratedUserRef = useRef<string | null>(null);
+  const loadedRoutePresetRef = useRef<string | null>(null);
+  const skipPersistOnceRef = useRef(false);
   const runningRef = useRef(false);
   const settingsRef = useRef(settings);
 
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    const storageUserId = user?.id ?? "guest";
+    const routePresetId = preset?.trim();
+    const routePresetKey = `${storageUserId}:${routePresetId ?? ""}`;
+    const localPresets = readSavedBotPresets(user?.id);
+    setSavedPresets(localPresets);
+
+    if (routePresetId && loadedRoutePresetRef.current !== routePresetKey) {
+      const deployedPreset = BOT_PRESET_CONFIGS.find((item) => item.id === routePresetId);
+      loadedRoutePresetRef.current = routePresetKey;
+      hydratedUserRef.current = storageUserId;
+      setHydratedStorageUser(storageUserId);
+      setStorageReady(true);
+
+      if (!deployedPreset) {
+        toast.error("That bot preset could not be found.");
+        addJournal(`Preset ${routePresetId} was not found.`, "error");
+        return;
+      }
+
+      const nextSettings = settingsFromBotPreset(deployedPreset);
+      skipPersistOnceRef.current = true;
+      setSettings(nextSettings);
+      settingsRef.current = nextSettings;
+      setHistory([]);
+      setRedoStack([]);
+      setActiveSavedPresetId(null);
+      setActivePresetName(deployedPreset.name);
+      writeCurrentBotSettings(user?.id, nextSettings);
+      addJournal(`Loaded deployed preset: ${deployedPreset.name}.`, "success");
+      toast.success(`${deployedPreset.name} loaded in the bot builder.`);
+      return;
+    }
+
+    if (!routePresetId && hydratedUserRef.current !== storageUserId) {
+      const storedSettings = readCurrentBotSettings(user?.id);
+      hydratedUserRef.current = storageUserId;
+      setHydratedStorageUser(storageUserId);
+      setStorageReady(true);
+
+      if (storedSettings) {
+        skipPersistOnceRef.current = true;
+        setSettings(storedSettings);
+        settingsRef.current = storedSettings;
+        setHistory([]);
+        setRedoStack([]);
+        setActiveSavedPresetId(null);
+        setActivePresetName("Restored bot");
+        addJournal("Restored the last bot builder configuration.", "success");
+      }
+      return;
+    }
+
+    setHydratedStorageUser(storageUserId);
+    setStorageReady(true);
+  }, [authLoading, preset, user?.id]);
+
+  useEffect(() => {
+    const storageUserId = user?.id ?? "guest";
+    if (!storageReady || hydratedStorageUser !== storageUserId) return;
+    if (skipPersistOnceRef.current) {
+      skipPersistOnceRef.current = false;
+      return;
+    }
+    writeCurrentBotSettings(user?.id, settings);
+  }, [hydratedStorageUser, settings, storageReady, user?.id]);
 
   useEffect(() => {
     if (!accountCurrency) return;
@@ -248,20 +431,97 @@ function BotBuilderPage() {
   }
 
   function saveSettings() {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settingsRef.current, null, 2));
-    addJournal("Bot settings saved locally.", "success");
-    toast.success("Bot settings saved.");
+    const suggestedName =
+      activePresetName === "Unsaved bot" || activePresetName === "Restored bot"
+        ? "My bot preset"
+        : activePresetName;
+    const name = window.prompt("Save bot preset as", suggestedName)?.trim();
+    if (!name) return;
+
+    const now = new Date().toISOString();
+    const existingPreset = savedPresets.find((item) => item.id === activeSavedPresetId);
+    const savedPreset: SavedBotPreset = {
+      id: existingPreset?.id ?? `preset-${crypto.randomUUID()}`,
+      name,
+      savedAt: now,
+      settings: settingsRef.current,
+      source: existingPreset?.source ?? "manual",
+    };
+    const nextPresets = [savedPreset, ...savedPresets.filter((item) => item.id !== savedPreset.id)];
+
+    setSavedPresets(nextPresets);
+    setActiveSavedPresetId(savedPreset.id);
+    setActivePresetName(name);
+    writeSavedBotPresets(user?.id, nextPresets);
+    writeCurrentBotSettings(user?.id, settingsRef.current);
+    addJournal(`Preset "${name}" saved locally.`, "success");
+    toast.success("Bot preset saved.");
   }
 
-  function loadSettings() {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      toast.info("No saved bot settings found.");
-      return;
+  function loadSavedPreset(savedPreset: SavedBotPreset) {
+    setSettings(savedPreset.settings);
+    settingsRef.current = savedPreset.settings;
+    setHistory([]);
+    setRedoStack([]);
+    setActiveSavedPresetId(savedPreset.id);
+    setActivePresetName(savedPreset.name);
+    writeCurrentBotSettings(user?.id, savedPreset.settings);
+    addJournal(`Loaded saved preset: ${savedPreset.name}.`, "success");
+    toast.success(`${savedPreset.name} loaded.`);
+  }
+
+  function deleteSavedPreset(presetId: string) {
+    const presetToDelete = savedPresets.find((item) => item.id === presetId);
+    if (!presetToDelete) return;
+    const confirmed = window.confirm(`Delete "${presetToDelete.name}" from saved presets?`);
+    if (!confirmed) return;
+
+    const nextPresets = savedPresets.filter((item) => item.id !== presetId);
+    setSavedPresets(nextPresets);
+    writeSavedBotPresets(user?.id, nextPresets);
+    if (activeSavedPresetId === presetId) {
+      setActiveSavedPresetId(null);
+      setActivePresetName("Unsaved bot");
     }
-    const parsed = JSON.parse(raw) as BotSettings;
-    updateSettings(parsed);
-    addJournal("Saved bot settings loaded.", "success");
+    addJournal(`Deleted preset: ${presetToDelete.name}.`, "warning");
+    toast.success("Bot preset deleted.");
+  }
+
+  async function importBotFile(file?: File) {
+    if (!file) return;
+    try {
+      const imported = parseImportedBot(await file.text(), file.name);
+      const savedPreset: SavedBotPreset = {
+        id: `import-${crypto.randomUUID()}`,
+        name: imported.name,
+        savedAt: new Date().toISOString(),
+        settings: imported.settings,
+        source: "imported",
+      };
+      const nextPresets = [
+        savedPreset,
+        ...savedPresets.filter((item) => item.id !== savedPreset.id),
+      ];
+
+      setSavedPresets(nextPresets);
+      setSettings(imported.settings);
+      settingsRef.current = imported.settings;
+      setHistory([]);
+      setRedoStack([]);
+      setActiveSavedPresetId(savedPreset.id);
+      setActivePresetName(imported.name);
+      writeSavedBotPresets(user?.id, nextPresets);
+      writeCurrentBotSettings(user?.id, imported.settings);
+      addJournal(`Imported bot file: ${file.name}.`, "success");
+      toast.success("Bot imported into the builder.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "The bot file could not be imported.";
+      addJournal(message, "error");
+      toast.error(message);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   function applyQuickStrategy() {
@@ -272,6 +532,8 @@ function BotBuilderPage() {
       martingale: 1.5,
       maxRuns: 3,
       maxStake: 50,
+      conditionOperator: ">",
+      conditionRight: "3",
       purchaseDirection: "over",
       selectedDigit: 4,
       stake: 1,
@@ -416,6 +678,13 @@ function BotBuilderPage() {
 
   return (
     <TopShell showAssistantButton={false}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,.xml,application/json,text/xml,application/xml"
+        className="hidden"
+        onChange={(event) => void importBotFile(event.target.files?.[0])}
+      />
       <div className="min-w-0 bg-[#e9eaec] p-2 text-[#171717] dark:bg-[#0f0f0f]">
         <div
           className={cn(
@@ -426,15 +695,19 @@ function BotBuilderPage() {
           )}
         >
           <BlocksMenu
+            activeSavedPresetId={activeSavedPresetId}
             collapsed={leftCollapsed}
             filteredMenu={filteredMenu}
+            onDeletePreset={deleteSavedPreset}
+            onLoadPreset={loadSavedPreset}
             onQuickStrategy={applyQuickStrategy}
             onSearch={setSearchTerm}
             onToggle={() => setLeftCollapsed((value) => !value)}
             searchTerm={searchTerm}
+            savedPresets={savedPresets}
           />
           <WorkspaceCanvas
-            onLoad={loadSettings}
+            onImport={() => fileInputRef.current?.click()}
             onRedo={redo}
             onReset={resetBot}
             onSave={saveSettings}
@@ -463,19 +736,27 @@ function BotBuilderPage() {
 }
 
 function BlocksMenu({
+  activeSavedPresetId,
   collapsed,
   filteredMenu,
+  onDeletePreset,
+  onLoadPreset,
   onQuickStrategy,
   onSearch,
   onToggle,
   searchTerm,
+  savedPresets,
 }: {
+  activeSavedPresetId: string | null;
   collapsed: boolean;
   filteredMenu: typeof blockMenu;
+  onDeletePreset: (presetId: string) => void;
+  onLoadPreset: (preset: SavedBotPreset) => void;
   onQuickStrategy: () => void;
   onSearch: (value: string) => void;
   onToggle: () => void;
   searchTerm: string;
+  savedPresets: SavedBotPreset[];
 }) {
   if (collapsed) {
     return (
@@ -534,12 +815,56 @@ function BlocksMenu({
           </a>
         ))}
       </div>
+
+      <div className="border-t border-[#e1e1e1] bg-white px-3 py-3 dark:border-[#2b2b2b] dark:bg-[#151515]">
+        <div className="mb-2 text-xs font-bold uppercase tracking-wide text-[#656565] dark:text-[#b7b7b7]">
+          Saved presets
+        </div>
+        {savedPresets.length === 0 ? (
+          <div className="rounded-[4px] border border-dashed border-[#d7d9db] px-3 py-3 text-xs leading-5 text-[#6e6e6e] dark:border-[#333] dark:text-[#b7b7b7]">
+            Save or import a bot to keep it here after refresh.
+          </div>
+        ) : (
+          <div className="max-h-48 space-y-2 overflow-auto pr-1">
+            {savedPresets.map((preset) => (
+              <div
+                key={preset.id}
+                className={cn(
+                  "flex items-center gap-2 rounded-[4px] border border-[#e0e0e0] bg-[#f8f8f8] p-2 dark:border-[#333] dark:bg-[#202020]",
+                  activeSavedPresetId === preset.id &&
+                    "border-[#4bb4b3] bg-[#e8f7f7] dark:bg-[#143030]",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => onLoadPreset(preset)}
+                  className="min-w-0 flex-1 text-left"
+                  title={`Load ${preset.name}`}
+                >
+                  <div className="truncate text-xs font-bold">{preset.name}</div>
+                  <div className="mt-1 text-[10px] uppercase tracking-wide text-[#777]">
+                    {preset.source} / {formatShortDate(preset.savedAt)}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeletePreset(preset.id)}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-[3px] text-[#777] hover:bg-[#ff444f]/10 hover:text-[#c52832]"
+                  title={`Delete ${preset.name}`}
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </aside>
   );
 }
 
 function WorkspaceCanvas({
-  onLoad,
+  onImport,
   onRedo,
   onReset,
   onSave,
@@ -550,7 +875,7 @@ function WorkspaceCanvas({
   updateSettings,
   zoom,
 }: {
-  onLoad: () => void;
+  onImport: () => void;
   onRedo: () => void;
   onReset: () => void;
   onSave: () => void;
@@ -564,7 +889,7 @@ function WorkspaceCanvas({
   return (
     <section className="relative min-h-0 overflow-hidden bg-white dark:bg-[#101010]">
       <WorkspaceToolbar
-        onLoad={onLoad}
+        onImport={onImport}
         onRedo={onRedo}
         onReset={onReset}
         onSave={onSave}
@@ -594,7 +919,7 @@ function WorkspaceCanvas({
 }
 
 function WorkspaceToolbar({
-  onLoad,
+  onImport,
   onRedo,
   onReset,
   onSave,
@@ -602,7 +927,7 @@ function WorkspaceToolbar({
   onZoomIn,
   onZoomOut,
 }: {
-  onLoad: () => void;
+  onImport: () => void;
   onRedo: () => void;
   onReset: () => void;
   onSave: () => void;
@@ -612,8 +937,8 @@ function WorkspaceToolbar({
 }) {
   const actions = [
     { icon: RefreshCw, label: "Reset", onClick: onReset },
-    { icon: FolderOpen, label: "Load", onClick: onLoad },
-    { icon: Save, label: "Save", onClick: onSave },
+    { icon: FolderOpen, label: "Import bot", onClick: onImport },
+    { icon: Save, label: "Save preset", onClick: onSave },
     { icon: LayoutList, label: "Workspace layout", onClick: onReset },
     { icon: LineChart, label: "Analysis view", onClick: onZoomOut },
     { icon: BarChart2, label: "Chart view", onClick: onZoomIn },
@@ -1373,6 +1698,284 @@ function RoundMinus() {
   );
 }
 
+function settingsFromBotPreset(preset: BotPresetConfig): BotSettings {
+  const stake = Number(preset.stake) || initialSettings.stake;
+  const martingale = Number(preset.martingale) || initialSettings.martingale;
+  const direction = preset.contractType.toLowerCase();
+  const condition =
+    preset.tradeType === "even_odd"
+      ? {
+          conditionOperator: "contains",
+          conditionRight: direction === "odd" ? "1,3,5,7,9" : "0,2,4,6,8",
+        }
+      : preset.tradeType === "matches_differs"
+        ? {
+            conditionOperator: direction === "matches" ? "=" : ">",
+            conditionRight:
+              direction === "matches"
+                ? String(preset.predictionDigit)
+                : String(Math.max(0, preset.predictionDigit - 1)),
+          }
+        : {
+            conditionOperator: direction === "under" ? "<" : ">",
+            conditionRight: String(
+              direction === "under"
+                ? Math.min(9, preset.predictionDigit + 1)
+                : Math.max(0, preset.predictionDigit - 1),
+            ),
+          };
+
+  return normalizeSettings({
+    ...initialSettings,
+    conditionLeft: "Last Digit",
+    conditionOperator: condition.conditionOperator,
+    conditionRight: condition.conditionRight,
+    digitContract: preset.tradeType,
+    duration: preset.duration,
+    durationUnit: preset.durationUnit,
+    martingale,
+    maxRuns: preset.maxRuns,
+    maxStake: Math.max(stake, stake * Math.max(1, martingale) * 8),
+    purchaseDirection: direction,
+    selectedDigit: preset.predictionDigit,
+    stake,
+    stopLoss: preset.sl,
+    symbol: preset.market,
+    takeProfit: preset.tp,
+    tradeType: "digits",
+  });
+}
+
+function parseImportedBot(text: string, fileName: string): ImportedBotSettings {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("The selected bot file is empty.");
+  if (fileName.toLowerCase().endsWith(".xml") || trimmed.startsWith("<")) {
+    return parseXmlBot(trimmed, fileName);
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const container = isRecord(parsed) ? parsed : {};
+    const sourceRecord = importedSettingsRecord(container);
+    return {
+      name: readString(container, "name", stripFileExtension(fileName)),
+      settings: settingsFromRecord(sourceRecord),
+    };
+  } catch {
+    throw new Error("Import failed. Select a valid Deriv XML bot or JSON strategy file.");
+  }
+}
+
+function importedSettingsRecord(container: Record<string, unknown>) {
+  const direct = isRecord(container.settings)
+    ? container.settings
+    : isRecord(container.botSettings)
+      ? container.botSettings
+      : isRecord(container.configuration)
+        ? container.configuration
+        : container;
+  const tradeParameters = isRecord(direct.tradeParameters) ? direct.tradeParameters : {};
+  const riskSettings = isRecord(direct.riskSettings) ? direct.riskSettings : {};
+  return { ...direct, ...tradeParameters, ...riskSettings };
+}
+
+function parseXmlBot(text: string, fileName: string): ImportedBotSettings {
+  const document = new DOMParser().parseFromString(text, "text/xml");
+  if (document.querySelector("parsererror")) {
+    throw new Error("Import failed. The Deriv XML bot file could not be parsed.");
+  }
+
+  const field = (names: string[]) => firstXmlFieldText(document, names);
+  const tradeTypeText = [
+    field(["TRADETYPE_LIST", "TRADETYPE", "TRADE_TYPE"]),
+    field(["TYPE_LIST", "CONTRACT_TYPE", "CONTRACTTYPE"]),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const prediction = firstFiniteNumber([
+    field(["PREDICTION", "BARRIER", "LAST_DIGIT"]),
+    firstXmlNumberFromVariable(document, ["prediction", "digit", "barrier"]),
+  ]);
+  const stake = firstFiniteNumber([
+    field(["AMOUNT", "STAKE"]),
+    firstXmlNumberFromVariable(document, ["stake", "amount", "initial amount"]),
+  ]);
+
+  const next: BotSettings = {
+    ...initialSettings,
+    currency: field(["CURRENCY", "CURRENCY_LIST"]) ?? initialSettings.currency,
+    duration:
+      firstFiniteNumber([
+        field(["DURATION", "DURATION_LIST"]),
+        firstXmlNumberFromVariable(document, ["duration"]),
+      ]) ?? initialSettings.duration,
+    durationUnit: durationUnitValue(
+      field(["DURATIONTYPE_LIST", "DURATION_UNIT", "DURATION_UNIT_LIST"])?.toLowerCase(),
+      initialSettings.durationUnit,
+    ),
+    maxRuns:
+      firstXmlNumberFromVariable(document, ["max runs", "runs", "tradesno", "trades no"]) ??
+      initialSettings.maxRuns,
+    martingale:
+      firstXmlNumberFromVariable(document, ["martingale", "multiplier"]) ??
+      initialSettings.martingale,
+    selectedDigit: prediction ?? initialSettings.selectedDigit,
+    stake: stake ?? initialSettings.stake,
+    stopLoss:
+      firstXmlNumberFromVariable(document, ["stop loss", "stoploss", "loss limit"]) ??
+      initialSettings.stopLoss,
+    symbol: field(["SYMBOL_LIST", "SYMBOL", "MARKET_LIST", "MARKET"]) ?? initialSettings.symbol,
+    takeProfit:
+      firstXmlNumberFromVariable(document, ["expected profit", "take profit", "profit target"]) ??
+      initialSettings.takeProfit,
+    tradeType: "digits",
+  };
+
+  if (
+    tradeTypeText.includes("over") ||
+    tradeTypeText.includes("under") ||
+    tradeTypeText.includes("digitover") ||
+    tradeTypeText.includes("digitunder")
+  ) {
+    next.digitContract = "over_under";
+    next.purchaseDirection =
+      tradeTypeText.includes("under") || tradeTypeText.includes("digitunder") ? "under" : "over";
+  } else if (
+    tradeTypeText.includes("matches") ||
+    tradeTypeText.includes("differs") ||
+    tradeTypeText.includes("digitmatch") ||
+    tradeTypeText.includes("digitdiff")
+  ) {
+    next.digitContract = "matches_differs";
+    next.purchaseDirection =
+      tradeTypeText.includes("differs") || tradeTypeText.includes("digitdiff")
+        ? "differs"
+        : "matches";
+  } else if (
+    tradeTypeText.includes("even") ||
+    tradeTypeText.includes("odd") ||
+    tradeTypeText.includes("digiteven") ||
+    tradeTypeText.includes("digitodd")
+  ) {
+    next.digitContract = "even_odd";
+    next.purchaseDirection =
+      tradeTypeText.includes("odd") || tradeTypeText.includes("digitodd") ? "odd" : "even";
+  }
+
+  if (next.purchaseDirection === "under") {
+    next.conditionOperator = "<";
+    next.conditionRight = String(Math.min(9, next.selectedDigit + 1));
+  } else if (next.purchaseDirection === "odd") {
+    next.conditionOperator = "contains";
+    next.conditionRight = "1,3,5,7,9";
+  } else if (next.purchaseDirection === "even") {
+    next.conditionOperator = "contains";
+    next.conditionRight = "0,2,4,6,8";
+  } else {
+    next.conditionOperator = ">";
+    next.conditionRight = String(Math.max(0, next.selectedDigit - 1));
+  }
+
+  next.maxStake = Math.max(next.stake, next.stake * Math.max(1, next.martingale) * 8);
+
+  return {
+    name: stripFileExtension(fileName),
+    settings: normalizeSettings(next),
+  };
+}
+
+function settingsFromRecord(record: Record<string, unknown>): BotSettings {
+  const isPresetLike =
+    typeof record.contractType === "string" &&
+    typeof record.tradeType === "string" &&
+    ("tp" in record || "sl" in record || "predictionDigit" in record);
+  if (isPresetLike) {
+    const stake = readNumber(record, "stake", initialSettings.stake);
+    const martingale = readNumber(record, "martingale", initialSettings.martingale);
+    const digitContract = digitContractValue(record.tradeType, initialSettings.digitContract);
+    const selectedDigit = readNumber(record, "predictionDigit", initialSettings.selectedDigit);
+    const purchaseDirection = readString(record, "contractType", initialSettings.purchaseDirection);
+    const condition =
+      digitContract === "even_odd"
+        ? {
+            conditionOperator: "contains",
+            conditionRight: purchaseDirection === "odd" ? "1,3,5,7,9" : "0,2,4,6,8",
+          }
+        : digitContract === "matches_differs"
+          ? {
+              conditionOperator: purchaseDirection === "matches" ? "=" : ">",
+              conditionRight:
+                purchaseDirection === "matches"
+                  ? String(selectedDigit)
+                  : String(Math.max(0, selectedDigit - 1)),
+            }
+          : {
+              conditionOperator: purchaseDirection === "under" ? "<" : ">",
+              conditionRight: String(
+                purchaseDirection === "under"
+                  ? Math.min(9, selectedDigit + 1)
+                  : Math.max(0, selectedDigit - 1),
+              ),
+            };
+    return normalizeSettings({
+      ...initialSettings,
+      conditionOperator: condition.conditionOperator,
+      conditionRight: condition.conditionRight,
+      digitContract,
+      duration: readNumber(record, "duration", initialSettings.duration),
+      durationUnit: durationUnitValue(record.durationUnit, initialSettings.durationUnit),
+      martingale,
+      maxRuns: readNumber(record, "maxRuns", initialSettings.maxRuns),
+      maxStake: Math.max(stake, stake * Math.max(1, martingale) * 8),
+      purchaseDirection,
+      selectedDigit,
+      stake,
+      stopLoss: readNumber(record, "sl", initialSettings.stopLoss),
+      symbol: readString(record, "market", initialSettings.symbol),
+      takeProfit: readNumber(record, "tp", initialSettings.takeProfit),
+      tradeType: "digits",
+    });
+  }
+
+  return normalizeSettings({
+    ...initialSettings,
+    assetCategory: readString(record, "assetCategory", initialSettings.assetCategory),
+    candleInterval: readString(record, "candleInterval", initialSettings.candleInterval),
+    conditionJoin: conditionJoinValue(record.conditionJoin, initialSettings.conditionJoin),
+    conditionLeft: readString(record, "conditionLeft", initialSettings.conditionLeft),
+    conditionOperator: readString(record, "conditionOperator", initialSettings.conditionOperator),
+    conditionRight: readString(record, "conditionRight", initialSettings.conditionRight),
+    currency: readString(record, "currency", initialSettings.currency),
+    digitContract: digitContractValue(record.digitContract, initialSettings.digitContract),
+    duration: readNumber(record, "duration", initialSettings.duration),
+    durationUnit: durationUnitValue(record.durationUnit, initialSettings.durationUnit),
+    market: readString(record, "market", initialSettings.market),
+    martingale: readNumber(record, "martingale", initialSettings.martingale),
+    maxRuns: readNumber(record, "maxRuns", initialSettings.maxRuns),
+    maxStake: readNumber(record, "maxStake", initialSettings.maxStake),
+    purchaseDirection: readString(record, "purchaseDirection", initialSettings.purchaseDirection),
+    restartBuySellOnError: readBoolean(
+      record,
+      "restartBuySellOnError",
+      initialSettings.restartBuySellOnError,
+    ),
+    restartLastTradeOnError: readBoolean(
+      record,
+      "restartLastTradeOnError",
+      initialSettings.restartLastTradeOnError,
+    ),
+    runOnceAtStart: readBoolean(record, "runOnceAtStart", initialSettings.runOnceAtStart),
+    selectedDigit: readNumber(record, "selectedDigit", initialSettings.selectedDigit),
+    stake: readNumber(record, "stake", initialSettings.stake),
+    stopLoss: readNumber(record, "stopLoss", initialSettings.stopLoss),
+    symbol: readString(record, "symbol", initialSettings.symbol),
+    takeProfit: readNumber(record, "takeProfit", initialSettings.takeProfit),
+    tradeEveryTick: readBoolean(record, "tradeEveryTick", initialSettings.tradeEveryTick),
+    tradeType: tradeTypeValue(record.tradeType, initialSettings.tradeType),
+  });
+}
+
 function normalizeSettings(settings: BotSettings): BotSettings {
   const patch: Partial<BotSettings> = {};
   if (settings.tradeType !== "digits") {
@@ -1605,4 +2208,105 @@ function formatTime() {
     minute: "2-digit",
     second: "2-digit",
   });
+}
+
+function formatShortDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "saved";
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function stripFileExtension(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, "") || "Imported bot";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readString(record: Record<string, unknown>, key: string, fallback: string) {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function readNumber(record: Record<string, unknown>, key: string, fallback: number) {
+  const value = record[key];
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function readBoolean(record: Record<string, unknown>, key: string, fallback: boolean) {
+  const value = record[key];
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
+}
+
+function durationUnitValue(value: unknown, fallback: DurationUnit): DurationUnit {
+  if (value === "m" || value === "s" || value === "t") return value;
+  if (value === "minutes") return "m";
+  if (value === "seconds") return "s";
+  if (value === "ticks") return "t";
+  return fallback;
+}
+
+function digitContractValue(value: unknown, fallback: DigitContract): DigitContract {
+  if (value === "even_odd" || value === "matches_differs" || value === "over_under") {
+    return value;
+  }
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized.includes("over") || normalized.includes("under")) return "over_under";
+  if (normalized.includes("match") || normalized.includes("differ")) return "matches_differs";
+  if (normalized.includes("even") || normalized.includes("odd")) return "even_odd";
+  return fallback;
+}
+
+function tradeTypeValue(value: unknown, fallback: TradeTypeUi): TradeTypeUi {
+  if (
+    value === "digits" ||
+    value === "higher_lower" ||
+    value === "multiplier" ||
+    value === "rise_fall" ||
+    value === "touch_no_touch"
+  ) {
+    return value;
+  }
+  return fallback;
+}
+
+function conditionJoinValue(value: unknown, fallback: "All" | "Any") {
+  return value === "All" || value === "Any" ? value : fallback;
+}
+
+function firstFiniteNumber(values: Array<number | string | null | undefined>) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return undefined;
+}
+
+function firstXmlFieldText(document: Document, names: string[]) {
+  for (const name of names) {
+    const field = document.querySelector(`field[name="${name}"]`);
+    const value = field?.textContent?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function firstXmlNumberFromVariable(document: Document, variableHints: string[]) {
+  const variables = Array.from(document.querySelectorAll('block[type="variables_set"]'));
+  for (const block of variables) {
+    const variableName = block.querySelector('field[name="VAR"]')?.textContent?.trim() ?? "";
+    const normalizedName = variableName.toLowerCase();
+    if (!variableHints.some((hint) => normalizedName.includes(hint))) continue;
+    const value =
+      block.querySelector('value[name="VALUE"] field[name="NUM"]')?.textContent?.trim() ??
+      block.querySelector('field[name="NUM"]')?.textContent?.trim();
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return undefined;
 }
