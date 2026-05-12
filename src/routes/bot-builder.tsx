@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { TopShell } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
@@ -354,6 +354,25 @@ function BotBuilder() {
       { height: 760, width: 1160 },
     );
   }, [activeBlocks, blockPositions]);
+  const applyPresetConfig = useCallback((config: (typeof BOT_PRESETS)[number]) => {
+    const nextTradeType = config.tradeType as TradeCategory;
+    setBotName(config.name);
+    setSymbol(config.market);
+    setTradeType(nextTradeType);
+    setPurchaseSide(config.contractType ?? SIDE_OPTIONS[nextTradeType]?.[0]?.value ?? "up");
+    setInitialStake(config.stake);
+    setCurrentStake(config.stake);
+    setDuration(config.duration ?? 1);
+    setDurationUnit(config.durationUnit ?? "t");
+    setTakeProfit(config.tp);
+    setStopLoss(config.sl);
+    setMartingale(config.martingale);
+    setPredictionDigit(config.predictionDigit ?? 5);
+    setMaxRuns(config.maxRuns ?? 25);
+    setSellAtProfit(0);
+    setSellAtLoss(0);
+    setActiveBlocks(["params", "purchase", "sell", "restart", "analysis"]);
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => setUtcNow(new Date()), 1000);
@@ -533,19 +552,8 @@ function BotBuilder() {
     if (!preset) return;
     const config = BOT_PRESETS.find((item) => item.id === preset);
     if (!config) return;
-    const nextTradeType = config.tradeType as TradeCategory;
-    setBotName(config.name);
-    setSymbol(config.market);
-    setTradeType(nextTradeType);
-    setPurchaseSide(config.contractType ?? SIDE_OPTIONS[nextTradeType]?.[0]?.value ?? "up");
-    setInitialStake(config.stake);
-    setCurrentStake(config.stake);
-    setTakeProfit(config.tp);
-    setStopLoss(config.sl);
-    setMartingale(config.martingale);
-    setPredictionDigit(5);
-    setActiveBlocks(["params", "purchase", "sell", "restart"]);
-  }, [preset]);
+    applyPresetConfig(config);
+  }, [applyPresetConfig, preset]);
 
   useEffect(() => {
     if (!user) return;
@@ -752,17 +760,7 @@ function BotBuilder() {
   function loadPreset(id: string) {
     const config = BOT_PRESETS.find((item) => item.id === id);
     if (!config) return;
-    const nextTradeType = config.tradeType as TradeCategory;
-    setBotName(config.name);
-    setSymbol(config.market);
-    setTradeType(nextTradeType);
-    setPurchaseSide(config.contractType ?? SIDE_OPTIONS[nextTradeType]?.[0]?.value ?? "up");
-    setInitialStake(config.stake);
-    setCurrentStake(config.stake);
-    setTakeProfit(config.tp);
-    setStopLoss(config.sl);
-    setMartingale(config.martingale);
-    setActiveBlocks(["params", "purchase", "sell", "restart"]);
+    applyPresetConfig(config);
     toast.success(`${config.name} loaded`);
   }
 
@@ -1153,7 +1151,7 @@ function BotBuilder() {
                 <DropdownMenuItem onSelect={quickStrategy}>
                   <Sparkles className="size-4" /> Quick strategy
                 </DropdownMenuItem>
-                {BOT_PRESETS.slice(0, 6).map((item) => (
+                {BOT_PRESETS.map((item) => (
                   <DropdownMenuItem key={item.id} onSelect={() => loadPreset(item.id)}>
                     {item.name}
                   </DropdownMenuItem>
