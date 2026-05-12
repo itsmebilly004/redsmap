@@ -338,16 +338,18 @@ function readTokenSource(
   token: string | null | undefined,
 ): DerivTokenSource | undefined {
   try {
-    const saved = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
-    if (saved === "oauth_access_token") return saved;
+    const saved = tokenSourceFromText(
+      localStorage.getItem(tokenSourceStorageKey(userId, accountId)),
+    );
+    if (saved) return saved;
     const selectedAccountId =
       localStorage.getItem(selectedAccountIdStorageKey(userId)) ??
       localStorage.getItem(accountStorageKey(userId));
     if (selectedAccountId?.toUpperCase() === accountId.toUpperCase()) {
-      const selectedTokenSource = localStorage.getItem(selectedTokenSourceStorageKey(userId));
-      if (selectedTokenSource === "oauth_access_token") {
-        return selectedTokenSource;
-      }
+      const selectedTokenSource = tokenSourceFromText(
+        localStorage.getItem(selectedTokenSourceStorageKey(userId)),
+      );
+      if (selectedTokenSource) return selectedTokenSource;
     }
   } catch {
     /* ignore localStorage access failures */
@@ -462,7 +464,7 @@ function normalizeFreshAccount(
   );
   if (!normalized?.deriv_token) return null;
   const tokenSource = fallbackTokenSource ?? fallbackTokenSourceForRaw(account);
-  if (tokenSource !== "oauth_access_token") return null;
+  if (tokenSource !== "oauth_access_token" && tokenSource !== "deriv_legacy_token") return null;
   const tradingAuthorization = tradingAuthorizationFromRaw(
     account,
     normalized.account_id,
@@ -567,14 +569,17 @@ export function useDerivBalance(): LiveBalance {
             const tokenSource =
               fallbackTokenSourceForRaw(account) ??
               readTokenSource(user.id, normalized.account_id, normalized.deriv_token);
-            if (tokenSource !== "oauth_access_token") {
-              console.warn("[Deriv Accounts] stale non-OAuth session excluded", {
-                account_id: normalized.account_id,
-                loginid: normalized.loginid,
-                token_source: account.token_source ?? null,
-                reason:
-                  "Only OAuth2 PKCE sessions created with the owned client_id are valid after the Deriv integration refactor.",
-              });
+            if (tokenSource !== "oauth_access_token" && tokenSource !== "deriv_legacy_token") {
+              console.warn(
+                "[Deriv Accounts] stale session with unrecognized token source excluded",
+                {
+                  account_id: normalized.account_id,
+                  loginid: normalized.loginid,
+                  token_source: account.token_source ?? null,
+                  reason:
+                    "Only OAuth2 PKCE (oauth_access_token) and legacy direct-token (deriv_legacy_token) sessions are supported.",
+                },
+              );
               return null;
             }
             const storedAuthorization = readStoredTradingAuthorizationState(
