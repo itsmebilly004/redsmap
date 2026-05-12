@@ -138,9 +138,30 @@ function tradingAuthorizationFromRaw(
   accountId: string,
   tokenSource: DerivTokenSource | undefined,
 ): TradingAuthorizationState | null {
+  // Legacy direct-token rows take a parallel branch so the OAuth2 PKCE logic
+  // below remains byte-identical to the original implementation.
+  if (tokenSource === "deriv_legacy_token") {
+    const legacyAdapter =
+      raw.trading_adapter === "legacyDirectTokenAdapter"
+        ? raw.trading_adapter
+        : adapterForTokenSource(tokenSource);
+    return {
+      account_id: accountId,
+      trading_authorized: raw.trading_authorized === true || raw.trading_authorized === "true",
+      trading_adapter: legacyAdapter,
+      token_source: tokenSource,
+      trading_authorized_at:
+        typeof raw.trading_authorized_at === "string" && raw.trading_authorized_at
+          ? raw.trading_authorized_at
+          : null,
+      last_trading_error:
+        typeof raw.last_trading_error === "string" && raw.last_trading_error
+          ? raw.last_trading_error
+          : null,
+    };
+  }
   const adapter =
-    raw.trading_adapter === "oauth2PkceTradingAdapter" ||
-    raw.trading_adapter === "legacyDirectTokenAdapter"
+    raw.trading_adapter === "oauth2PkceTradingAdapter"
       ? raw.trading_adapter
       : tokenSource
         ? adapterForTokenSource(tokenSource)
@@ -338,18 +359,25 @@ function readTokenSource(
   token: string | null | undefined,
 ): DerivTokenSource | undefined {
   try {
-    const saved = tokenSourceFromText(
-      localStorage.getItem(tokenSourceStorageKey(userId, accountId)),
-    );
-    if (saved) return saved;
+    // Legacy direct-token accounts are matched first via a separate code path
+    // so the OAuth/PKCE flow below is byte-identical to the original behavior.
+    const savedRaw = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
+    if (savedRaw === "deriv_legacy_token") return "deriv_legacy_token";
     const selectedAccountId =
       localStorage.getItem(selectedAccountIdStorageKey(userId)) ??
       localStorage.getItem(accountStorageKey(userId));
     if (selectedAccountId?.toUpperCase() === accountId.toUpperCase()) {
-      const selectedTokenSource = tokenSourceFromText(
-        localStorage.getItem(selectedTokenSourceStorageKey(userId)),
-      );
-      if (selectedTokenSource) return selectedTokenSource;
+      const selectedRaw = localStorage.getItem(selectedTokenSourceStorageKey(userId));
+      if (selectedRaw === "deriv_legacy_token") return "deriv_legacy_token";
+    }
+    // Original OAuth2 PKCE behavior — unchanged.
+    const saved = localStorage.getItem(tokenSourceStorageKey(userId, accountId));
+    if (saved === "oauth_access_token") return saved;
+    if (selectedAccountId?.toUpperCase() === accountId.toUpperCase()) {
+      const selectedTokenSource = localStorage.getItem(selectedTokenSourceStorageKey(userId));
+      if (selectedTokenSource === "oauth_access_token") {
+        return selectedTokenSource;
+      }
     }
   } catch {
     /* ignore localStorage access failures */
@@ -464,7 +492,23 @@ function normalizeFreshAccount(
   );
   if (!normalized?.deriv_token) return null;
   const tokenSource = fallbackTokenSource ?? fallbackTokenSourceForRaw(account);
-  if (tokenSource !== "oauth_access_token" && tokenSource !== "deriv_legacy_token") return null;
+  // Legacy direct-token accounts are handled first via a parallel branch so the
+  // OAuth2 PKCE check below stays byte-identical to the original behavior.
+  if (tokenSource === "deriv_legacy_token") {
+    const legacyAuthorization = tradingAuthorizationFromRaw(
+      account,
+      normalized.account_id,
+      tokenSource,
+    );
+    return applyTradingAuthorizationState(
+      {
+        ...normalized,
+        token_source: tokenSource,
+      } as DerivAccount,
+      legacyAuthorization,
+    );
+  }
+  if (tokenSource !== "oauth_access_token") return null;
   const tradingAuthorization = tradingAuthorizationFromRaw(
     account,
     normalized.account_id,
@@ -569,17 +613,32 @@ export function useDerivBalance(): LiveBalance {
             const tokenSource =
               fallbackTokenSourceForRaw(account) ??
               readTokenSource(user.id, normalized.account_id, normalized.deriv_token);
-            if (tokenSource !== "oauth_access_token" && tokenSource !== "deriv_legacy_token") {
-              console.warn(
-                "[Deriv Accounts] stale session with unrecognized token source excluded",
-                {
-                  account_id: normalized.account_id,
-                  loginid: normalized.loginid,
-                  token_source: account.token_source ?? null,
-                  reason:
-                    "Only OAuth2 PKCE (oauth_access_token) and legacy direct-token (deriv_legacy_token) sessions are supported.",
-                },
+            // Legacy direct-token rows take a parallel processing branch so the
+            // OAuth2 PKCE pipeline below stays byte-identical to the original
+            // working implementation. New-account / PKCE rows never touch the
+            // legacy code, and legacy rows never touch the PKCE code.
+            if (tokenSource === "deriv_legacy_token") {
+              const legacySessionAuthorization = tradingAuthorizationFromRaw(
+                account,
+                normalized.account_id,
+                tokenSource,
               );
+              return applyTradingAuthorizationState(
+                {
+                  ...normalized,
+                  token_source: tokenSource,
+                } as DerivAccount,
+                legacySessionAuthorization,
+              );
+            }
+            if (tokenSource !== "oauth_access_token") {
+              console.warn("[Deriv Accounts] stale non-OAuth session excluded", {
+                account_id: normalized.account_id,
+                loginid: normalized.loginid,
+                token_source: account.token_source ?? null,
+                reason:
+                  "Only OAuth2 PKCE sessions created with the owned client_id are valid after the Deriv integration refactor.",
+              });
               return null;
             }
             const storedAuthorization = readStoredTradingAuthorizationState(
