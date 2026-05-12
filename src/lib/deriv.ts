@@ -1956,7 +1956,19 @@ export async function send(payload: DerivRecord): Promise<DerivMessage> {
   if (authenticatedAccount && socketAccountId !== authenticatedAccount.accountId) {
     throw new Error("Deriv WebSocket account does not match the selected account.");
   }
-  return sendSocketPayload(ws, payload);
+  return sendSocketPayload(ws, adaptPayloadForActiveAdapter(payload));
+}
+
+// Deriv's WebSocket validates the `proposal` request against a JSON-Schema that
+// only accepts `symbol`, not `underlying_symbol`. The legacy direct-token app
+// surfaces this strictly ("Properties not allowed: underlying_symbol"). The new
+// PKCE flow is wired to `underlying_symbol` end-to-end, so we only rename the
+// field for the legacy adapter — PKCE payloads are passed through unchanged.
+function adaptPayloadForActiveAdapter(payload: DerivRecord): DerivRecord {
+  if (authenticatedAccount?.tokenSource !== "deriv_legacy_token") return payload;
+  if (!("underlying_symbol" in payload)) return payload;
+  const { underlying_symbol, ...rest } = payload;
+  return { ...rest, symbol: underlying_symbol };
 }
 
 export async function subscribeTicks(
