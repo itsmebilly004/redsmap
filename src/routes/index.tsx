@@ -1,6 +1,6 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { Bot, Crosshair, Globe, HelpCircle, Maximize2, Settings, Shield, Sun } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useState } from "react";
+import { Bot, Maximize2, Minimize2 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DerivChart } from "@/components/deriv-chart";
 import { TopShell } from "@/components/top-shell";
@@ -43,6 +43,27 @@ function Index() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const chartHeight = isMobile ? 260 : 340;
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (typeof document === "undefined") return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      /* user dismissed prompt or browser blocked it — ignore */
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -129,15 +150,23 @@ function Index() {
           Risk Disclaimer - Trading involves significant risk of loss.
         </span>
         <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-[oklch(0.45_0.02_260)] sm:gap-3 dark:text-[#999999]">
-          <Shield className="size-4" />
-          <Bot className="size-4" />
-          <Crosshair className="size-4" />
-          <Sun className="size-4" />
-          <HelpCircle className="size-4" />
-          <Settings className="size-4" />
-          <Globe className="size-4" />
-          <span className="font-sans font-medium">EN</span>
-          <Maximize2 className="size-4" />
+          <Link
+            to="/bot-builder"
+            aria-label="Open bot builder"
+            title="Bot Builder"
+            className="rounded-md p-1.5 transition-colors hover:bg-[#f2f3f4] hover:text-[#333333] dark:hover:bg-[#1f1f1f] dark:hover:text-white"
+          >
+            <Bot className="size-4" />
+          </Link>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? "Exit full screen" : "Enter full screen"}
+            title={isFullscreen ? "Exit full screen" : "Enter full screen"}
+            className="rounded-md p-1.5 transition-colors hover:bg-[#f2f3f4] hover:text-[#333333] dark:hover:bg-[#1f1f1f] dark:hover:text-white"
+          >
+            {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </button>
         </div>
       </div>
     </TopShell>

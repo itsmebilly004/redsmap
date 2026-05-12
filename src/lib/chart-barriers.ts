@@ -13,7 +13,7 @@ export type BarrierLines = {
   breached?: boolean;
 };
 
-type BaseSeries = ISeriesApi<"Area"> | ISeriesApi<"Candlestick">;
+type BaseSeries = ISeriesApi<"Area"> | ISeriesApi<"Candlestick"> | ISeriesApi<"Bar">;
 
 export function clearBarrierLines(series: BaseSeries | null | undefined, refs: BarrierLineRefs) {
   if (!series) return;

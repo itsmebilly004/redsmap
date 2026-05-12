@@ -11,8 +11,11 @@ import {
 import {
   createChart,
   AreaSeries,
+  BarSeries,
   CandlestickSeries,
+  CrosshairMode,
   LineSeries,
+  LineStyle,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
@@ -39,18 +42,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Activity, ChevronDown, Crosshair, ZoomIn } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearBarrierLines, renderBarrierLines, type BarrierLineRefs } from "@/lib/chart-barriers";
 
-type ChartType = "area" | "candle";
+type ChartType = "area" | "candle" | "bar";
 type AnalysisTool =
   | "sma"
   | "ema"
+  | "wma"
   | "bollinger"
+  | "donchian"
+  | "psar"
   | "highlow"
   | "rsi"
   | "macd"
-  | "stochastic";
+  | "stochastic"
+  | "cci"
+  | "williams_r"
+  | "awesome"
+  | "atr";
+
+type IndicatorCategory = "Trend" | "Momentum" | "Volatility" | "Reference";
+
+type IndicatorDef = {
+  value: AnalysisTool;
+  label: string;
+  description: string;
+  category: IndicatorCategory;
+};
 
 // Order in which Deriv groups its market categories. Anything we don't have
 // a custom rank for sorts to the end alphabetically (preserves new Deriv
@@ -104,15 +125,28 @@ const TIMEFRAMES = [
   { label: "1D", value: 86400 },
 ];
 
-const ANALYSIS_TOOLS: { label: string; value: AnalysisTool; title: string }[] = [
-  { label: "SMA", value: "sma", title: "Simple Moving Average (20)" },
-  { label: "EMA", value: "ema", title: "Exponential Moving Average (20)" },
-  { label: "BB", value: "bollinger", title: "Bollinger Bands (20, 2σ)" },
-  { label: "H/L", value: "highlow", title: "Period High / Low" },
-  { label: "RSI", value: "rsi", title: "Relative Strength Index (14)" },
-  { label: "MACD", value: "macd", title: "MACD (12, 26, 9)" },
-  { label: "Stoch", value: "stochastic", title: "Stochastic %K/%D (14, 3)" },
+const INDICATORS: IndicatorDef[] = [
+  // Trend (overlay on price)
+  { value: "sma", label: "SMA", description: "Simple Moving Average (20)", category: "Trend" },
+  { value: "ema", label: "EMA", description: "Exponential Moving Average (20)", category: "Trend" },
+  { value: "wma", label: "WMA", description: "Weighted Moving Average (20)", category: "Trend" },
+  { value: "bollinger", label: "Bollinger Bands", description: "Period 20, 2σ", category: "Trend" },
+  { value: "donchian", label: "Donchian Channel", description: "Period 20 high/low channel", category: "Trend" },
+  { value: "psar", label: "Parabolic SAR", description: "Step 0.02, max 0.2", category: "Trend" },
+  // Momentum (own pane)
+  { value: "rsi", label: "RSI", description: "Relative Strength Index (14)", category: "Momentum" },
+  { value: "macd", label: "MACD", description: "12 / 26 / 9", category: "Momentum" },
+  { value: "stochastic", label: "Stochastic", description: "%K/%D (14, 3)", category: "Momentum" },
+  { value: "cci", label: "CCI", description: "Commodity Channel Index (20)", category: "Momentum" },
+  { value: "williams_r", label: "Williams %R", description: "Period 14", category: "Momentum" },
+  { value: "awesome", label: "Awesome Oscillator", description: "(5,34) histogram", category: "Momentum" },
+  // Volatility (own pane)
+  { value: "atr", label: "ATR", description: "Average True Range (14)", category: "Volatility" },
+  // Reference (overlay)
+  { value: "highlow", label: "Period High / Low", description: "Visible-range high/low markers", category: "Reference" },
 ];
+
+const INDICATOR_CATEGORIES: IndicatorCategory[] = ["Trend", "Momentum", "Volatility", "Reference"];
 
 const STATUS_STYLE: Record<ConnectionStatus, string> = {
   connecting: "bg-yellow-400/20 text-yellow-600",
@@ -137,17 +171,26 @@ export function DerivChart({
   const chartRef = useRef<IChartApi | null>(null);
   const areaSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const barSeriesRef = useRef<ISeriesApi<"Bar"> | null>(null);
   const indicatorSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const highLowLineRefs = useRef<IPriceLine[]>([]);
   const barrierLineRefs = useRef<BarrierLineRefs>({ entry: null, lower: null, upper: null });
   const candleBufferRef = useRef<Map<number, Candle>>(new Map());
   const historyRef = useRef<LineData[]>([]);
+  const candleHistoryRef = useRef<Candle[]>([]);
   const digitHistoryRef = useRef<number[]>([]);
 
   const [granularity, setGranularity] = useState(0);
   const [chartType, setChartType] = useState<ChartType>("area");
   const [analysisTools, setAnalysisTools] = useState<Set<AnalysisTool>>(new Set());
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [crosshairOn, setCrosshairOn] = useState(true);
+  const [indicatorsOpen, setIndicatorsOpen] = useState(false);
+
+  const baseSeriesGetter = useCallback(
+    () => areaSeriesRef.current ?? candleSeriesRef.current ?? barSeriesRef.current,
+    [],
+  );
   const [allSymbols, setAllSymbols] = useState<
     {
       symbol: string;
@@ -178,7 +221,7 @@ export function DerivChart({
       }
     });
     indicatorSeriesRef.current = [];
-    const baseSeries = areaSeriesRef.current ?? candleSeriesRef.current;
+    const baseSeries = baseSeriesGetter();
     highLowLineRefs.current.forEach((line) => {
       try {
         baseSeries?.removePriceLine(line);
@@ -187,12 +230,13 @@ export function DerivChart({
       }
     });
     highLowLineRefs.current = [];
-  }, []);
+  }, [baseSeriesGetter]);
 
   const updateAnalysisOverlays = useCallback(() => {
     const chart = chartRef.current;
     const data = historyRef.current;
-    const baseSeries = areaSeriesRef.current ?? candleSeriesRef.current;
+    const candleHistory = candleHistoryRef.current;
+    const baseSeries = baseSeriesGetter();
     const tools = analysisToolsRef.current;
     if (!chart || !baseSeries) return;
     clearAnalysisOverlays();
@@ -216,6 +260,45 @@ export function DerivChart({
         lastValueVisible: false,
       });
       series.setData(exponentialAverage(data, 20));
+      indicatorSeriesRef.current.push(series);
+    }
+    if (tools.has("wma")) {
+      const series = chart.addSeries(LineSeries, {
+        color: "#0d9488",
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      series.setData(weightedAverage(data, 20));
+      indicatorSeriesRef.current.push(series);
+    }
+    if (tools.has("donchian") && candleHistory.length > 0) {
+      const { upper, lower } = donchianChannel(candleHistory, 20);
+      const upperSeries = chart.addSeries(LineSeries, {
+        color: "#16a34a",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      const lowerSeries = chart.addSeries(LineSeries, {
+        color: "#dc2626",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      upperSeries.setData(upper);
+      lowerSeries.setData(lower);
+      indicatorSeriesRef.current.push(upperSeries, lowerSeries);
+    }
+    if (tools.has("psar") && candleHistory.length > 0) {
+      const series = chart.addSeries(LineSeries, {
+        color: "#f97316",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      series.setData(parabolicSar(candleHistory, 0.02, 0.2));
       indicatorSeriesRef.current.push(series);
     }
     if (tools.has("bollinger")) {
@@ -367,7 +450,109 @@ export function DerivChart({
       indicatorSeriesRef.current.push(kLine, dLine);
       oscillatorPaneIndex += 1;
     }
-  }, [clearAnalysisOverlays]);
+    if (tools.has("cci") && candleHistory.length > 0) {
+      const series = chart.addSeries(
+        LineSeries,
+        {
+          color: "#14b8a6",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+        },
+        oscillatorPaneIndex,
+      );
+      series.setData(commodityChannelIndex(candleHistory, 20));
+      series.createPriceLine({
+        price: 100,
+        color: "#ef4444",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: "+100",
+      });
+      series.createPriceLine({
+        price: -100,
+        color: "#22c55e",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: "-100",
+      });
+      indicatorSeriesRef.current.push(series);
+      oscillatorPaneIndex += 1;
+    }
+    if (tools.has("williams_r") && candleHistory.length > 0) {
+      const series = chart.addSeries(
+        LineSeries,
+        {
+          color: "#a855f7",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+        },
+        oscillatorPaneIndex,
+      );
+      series.setData(williamsR(candleHistory, 14));
+      series.createPriceLine({
+        price: -20,
+        color: "#ef4444",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: "-20",
+      });
+      series.createPriceLine({
+        price: -80,
+        color: "#22c55e",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: "-80",
+      });
+      indicatorSeriesRef.current.push(series);
+      oscillatorPaneIndex += 1;
+    }
+    if (tools.has("awesome") && candleHistory.length > 0) {
+      const series = chart.addSeries(
+        LineSeries,
+        {
+          color: "#eab308",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+        },
+        oscillatorPaneIndex,
+      );
+      series.setData(awesomeOscillator(candleHistory, 5, 34));
+      series.createPriceLine({
+        price: 0,
+        color: "#9ca3af",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: false,
+        title: "0",
+      });
+      indicatorSeriesRef.current.push(series);
+      oscillatorPaneIndex += 1;
+    }
+    if (tools.has("atr") && candleHistory.length > 0) {
+      const series = chart.addSeries(
+        LineSeries,
+        {
+          color: "#ef4444",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+        },
+        oscillatorPaneIndex,
+      );
+      series.setData(averageTrueRange(candleHistory, 14));
+      indicatorSeriesRef.current.push(series);
+      oscillatorPaneIndex += 1;
+    }
+  }, [baseSeriesGetter, clearAnalysisOverlays]);
 
   useEffect(() => {
     getActiveSymbols()
@@ -416,7 +601,7 @@ export function DerivChart({
         timeVisible: true,
         secondsVisible: granularity < 60,
       },
-      crosshair: { mode: 1 },
+      crosshair: { mode: CrosshairMode.Magnet },
     });
 
     if (chartType === "candle") {
@@ -431,6 +616,18 @@ export function DerivChart({
         lastValueVisible: true,
       });
       candleSeriesRef.current = series as ISeriesApi<"Candlestick">;
+      areaSeriesRef.current = null;
+      barSeriesRef.current = null;
+    } else if (chartType === "bar") {
+      const series = chart.addSeries(BarSeries, {
+        upColor: "#22c55e",
+        downColor: "#ef4444",
+        thinBars: false,
+        priceLineVisible: true,
+        lastValueVisible: true,
+      });
+      barSeriesRef.current = series as ISeriesApi<"Bar">;
+      candleSeriesRef.current = null;
       areaSeriesRef.current = null;
     } else {
       const series = chart.addSeries(AreaSeries, {
@@ -447,6 +644,7 @@ export function DerivChart({
       });
       areaSeriesRef.current = series as ISeriesApi<"Area">;
       candleSeriesRef.current = null;
+      barSeriesRef.current = null;
     }
 
     chartRef.current = chart;
@@ -455,6 +653,7 @@ export function DerivChart({
       chartRef.current = null;
       areaSeriesRef.current = null;
       candleSeriesRef.current = null;
+      barSeriesRef.current = null;
       indicatorSeriesRef.current = [];
       highLowLineRefs.current = [];
       barrierLineRefs.current = { entry: null, lower: null, upper: null };
@@ -462,13 +661,29 @@ export function DerivChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType]);
 
+  // React to crosshair toggle without rebuilding the chart.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.applyOptions({
+      crosshair: { mode: crosshairOn ? CrosshairMode.Magnet : CrosshairMode.Hidden },
+    });
+  }, [crosshairOn]);
+
+  const resetZoom = useCallback(() => {
+    chartRef.current?.timeScale().fitContent();
+  }, []);
+
   // Load history + tick subscription on symbol/granularity/chartType change.
   useEffect(() => {
     let cancelled = false;
     let unsubTicks: (() => void) | undefined;
     candleBufferRef.current.clear();
     historyRef.current = [];
+    candleHistoryRef.current = [];
     digitHistoryRef.current = [];
+
+    const isOhlc = chartType === "candle" || chartType === "bar";
 
     async function init() {
       try {
@@ -492,7 +707,7 @@ export function DerivChart({
             setDigitStats,
           );
           areaSeriesRef.current?.setData(data);
-        } else if (candleSeriesRef.current) {
+        } else if (isOhlc) {
           const candleGranularity = granularity || 60;
           const candles = await fetchCandles(symbol, candleGranularity, 300);
           if (cancelled) return;
@@ -503,8 +718,13 @@ export function DerivChart({
             low: c.low,
             close: c.close,
           }));
-          candleSeriesRef.current.setData(data);
+          if (chartType === "candle") {
+            candleSeriesRef.current?.setData(data);
+          } else {
+            barSeriesRef.current?.setData(data);
+          }
           candles.forEach((c) => candleBufferRef.current.set(c.time, c));
+          candleHistoryRef.current = candles;
           historyRef.current = candles.map((c) => ({
             time: c.time as UTCTimestamp,
             value: c.close,
@@ -529,7 +749,7 @@ export function DerivChart({
         if ((chartType === "area" || granularity === 0) && areaSeriesRef.current) {
           areaSeriesRef.current.update(tickPoint);
           historyRef.current = [...historyRef.current.slice(-499), tickPoint];
-        } else if (chartType === "candle" && candleSeriesRef.current) {
+        } else if (isOhlc) {
           const candleGranularity = granularity || 60;
           const barTime = Math.floor(t / candleGranularity) * candleGranularity;
           const buf = candleBufferRef.current;
@@ -543,13 +763,22 @@ export function DerivChart({
               }
             : { time: barTime, open: price, high: price, low: price, close: price };
           buf.set(barTime, bar);
-          candleSeriesRef.current.update({
+          const update = {
             time: barTime as UTCTimestamp,
             open: bar.open,
             high: bar.high,
             low: bar.low,
             close: bar.close,
-          });
+          };
+          if (chartType === "candle") {
+            candleSeriesRef.current?.update(update);
+          } else {
+            barSeriesRef.current?.update(update);
+          }
+          candleHistoryRef.current = [
+            ...candleHistoryRef.current.filter((c) => c.time !== barTime).slice(-499),
+            bar,
+          ];
           historyRef.current = [
             ...historyRef.current
               .filter((point) => point.time !== (barTime as UTCTimestamp))
@@ -575,7 +804,7 @@ export function DerivChart({
 
   // Barrier lines.
   useEffect(() => {
-    const series = areaSeriesRef.current ?? candleSeriesRef.current;
+    const series = baseSeriesGetter();
     if (!series) return;
     clearBarrierLines(series, barrierLineRefs.current);
     renderBarrierLines(series, barrierLineRefs.current, {
@@ -584,7 +813,7 @@ export function DerivChart({
       upperBarrier: highBarrier,
       breached: barrierBreached,
     });
-  }, [entryPrice, highBarrier, lowBarrier, barrierBreached]);
+  }, [entryPrice, highBarrier, lowBarrier, barrierBreached, baseSeriesGetter]);
 
   function toggleAnalysisTool(tool: AnalysisTool) {
     setAnalysisTools((current) => {
@@ -704,25 +933,138 @@ export function DerivChart({
           >
             Candle
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (granularity === 0) setGranularity(60);
+              setChartType("bar");
+            }}
+            title="OHLC Bars"
+            className={cn(
+              "px-2 py-1.5 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
+              chartType === "bar"
+                ? "bg-primary text-primary-foreground"
+                : "bg-transparent text-muted-foreground hover:bg-foreground/5",
+            )}
+          >
+            Bar
+          </button>
         </div>
 
-        <div className="flex max-w-full shrink-0 overflow-x-auto rounded-md border border-glass-border">
-          {ANALYSIS_TOOLS.map((tool) => (
+        {/* Indicators popover — Deriv-style categorized checklist. */}
+        <Popover open={indicatorsOpen} onOpenChange={setIndicatorsOpen}>
+          <PopoverTrigger asChild>
             <button
-              key={tool.value}
               type="button"
-              onClick={() => toggleAnalysisTool(tool.value)}
-              title={tool.title}
               className={cn(
-                "shrink-0 px-2 py-1.5 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
-                analysisTools.has(tool.value)
+                "flex shrink-0 items-center gap-1.5 rounded-md border border-glass-border px-2 py-1.5 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
+                analysisTools.size > 0
                   ? "bg-[#ff444f] text-white"
                   : "bg-transparent text-muted-foreground hover:bg-foreground/5",
               )}
+              title="Indicators"
             >
-              {tool.label}
+              <Activity className="size-3.5" />
+              <span>Indicators</span>
+              {analysisTools.size > 0 && (
+                <span className="rounded-full bg-white/20 px-1.5 text-[10px] font-semibold">
+                  {analysisTools.size}
+                </span>
+              )}
+              <ChevronDown className="size-3.5" />
             </button>
-          ))}
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-72 max-h-[60vh] overflow-y-auto p-0"
+          >
+            <div className="flex items-center justify-between border-b border-glass-border px-3 py-2">
+              <span className="text-xs font-semibold">Indicators</span>
+              {analysisTools.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAnalysisTools(new Set())}
+                  className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+            {INDICATOR_CATEGORIES.map((category) => {
+              const items = INDICATORS.filter((ind) => ind.category === category);
+              if (!items.length) return null;
+              return (
+                <div key={category} className="border-b border-glass-border last:border-b-0">
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {category}
+                  </div>
+                  {items.map((ind) => {
+                    const active = analysisTools.has(ind.value);
+                    return (
+                      <button
+                        key={ind.value}
+                        type="button"
+                        onClick={() => toggleAnalysisTool(ind.value)}
+                        className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-foreground/5"
+                      >
+                        <span
+                          className={cn(
+                            "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border",
+                            active
+                              ? "border-[#ff444f] bg-[#ff444f] text-white"
+                              : "border-glass-border bg-transparent",
+                          )}
+                        >
+                          {active && (
+                            <svg viewBox="0 0 12 12" className="size-3" fill="none">
+                              <path
+                                d="M2 6.5l2.5 2.5L10 3.5"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          )}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium">{ind.label}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {ind.description}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </PopoverContent>
+        </Popover>
+
+        {/* Chart tools — crosshair toggle + reset zoom. */}
+        <div className="flex shrink-0 overflow-hidden rounded-md border border-glass-border">
+          <button
+            type="button"
+            onClick={() => setCrosshairOn((v) => !v)}
+            title={crosshairOn ? "Hide crosshair" : "Show crosshair"}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium transition-colors sm:text-xs",
+              crosshairOn
+                ? "bg-primary text-primary-foreground"
+                : "bg-transparent text-muted-foreground hover:bg-foreground/5",
+            )}
+          >
+            <Crosshair className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={resetZoom}
+            title="Reset zoom"
+            className="flex items-center gap-1 bg-transparent px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 sm:text-xs"
+          >
+            <ZoomIn className="size-3.5" />
+          </button>
         </div>
 
         {/* Connection status */}
@@ -954,4 +1296,163 @@ function stochasticSeries(
     k: data.map((point, i) => ({ time: point.time, value: kValues[i] })),
     d: data.map((point, i) => ({ time: point.time, value: dValues[i] })),
   };
+}
+
+function weightedAverage(data: LineData[], period: number): LineData[] {
+  return data.map((point, index) => {
+    const window = data.slice(Math.max(0, index - period + 1), index + 1);
+    let weightedSum = 0;
+    let weightTotal = 0;
+    window.forEach((item, i) => {
+      const weight = i + 1;
+      weightedSum += item.value * weight;
+      weightTotal += weight;
+    });
+    return { time: point.time, value: weightedSum / weightTotal };
+  });
+}
+
+function donchianChannel(
+  candles: Candle[],
+  period: number,
+): { upper: LineData[]; lower: LineData[] } {
+  const upper: LineData[] = [];
+  const lower: LineData[] = [];
+  candles.forEach((candle, i) => {
+    const window = candles.slice(Math.max(0, i - period + 1), i + 1);
+    upper.push({
+      time: candle.time as UTCTimestamp,
+      value: Math.max(...window.map((c) => c.high)),
+    });
+    lower.push({
+      time: candle.time as UTCTimestamp,
+      value: Math.min(...window.map((c) => c.low)),
+    });
+  });
+  return { upper, lower };
+}
+
+function parabolicSar(
+  candles: Candle[],
+  step: number,
+  maxStep: number,
+): LineData[] {
+  if (candles.length < 2) {
+    return candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.low }));
+  }
+  const result: LineData[] = [];
+  let isUp = candles[1].close > candles[0].close;
+  let sar = isUp ? candles[0].low : candles[0].high;
+  let ep = isUp ? candles[0].high : candles[0].low;
+  let af = step;
+  result.push({ time: candles[0].time as UTCTimestamp, value: sar });
+  for (let i = 1; i < candles.length; i += 1) {
+    const candle = candles[i];
+    sar = sar + af * (ep - sar);
+    if (isUp) {
+      sar = Math.min(sar, candles[i - 1].low);
+      if (i >= 2) sar = Math.min(sar, candles[i - 2].low);
+      if (candle.low < sar) {
+        isUp = false;
+        sar = ep;
+        ep = candle.low;
+        af = step;
+      } else if (candle.high > ep) {
+        ep = candle.high;
+        af = Math.min(maxStep, af + step);
+      }
+    } else {
+      sar = Math.max(sar, candles[i - 1].high);
+      if (i >= 2) sar = Math.max(sar, candles[i - 2].high);
+      if (candle.high > sar) {
+        isUp = true;
+        sar = ep;
+        ep = candle.high;
+        af = step;
+      } else if (candle.low < ep) {
+        ep = candle.low;
+        af = Math.min(maxStep, af + step);
+      }
+    }
+    result.push({ time: candle.time as UTCTimestamp, value: sar });
+  }
+  return result;
+}
+
+function commodityChannelIndex(candles: Candle[], period: number): LineData[] {
+  return candles.map((candle, i) => {
+    const window = candles.slice(Math.max(0, i - period + 1), i + 1);
+    const typical = window.map((c) => (c.high + c.low + c.close) / 3);
+    const mean = typical.reduce((sum, v) => sum + v, 0) / typical.length;
+    const meanDeviation =
+      typical.reduce((sum, v) => sum + Math.abs(v - mean), 0) / typical.length;
+    const currentTp = (candle.high + candle.low + candle.close) / 3;
+    const value = meanDeviation === 0 ? 0 : (currentTp - mean) / (0.015 * meanDeviation);
+    return { time: candle.time as UTCTimestamp, value };
+  });
+}
+
+function williamsR(candles: Candle[], period: number): LineData[] {
+  return candles.map((candle, i) => {
+    const window = candles.slice(Math.max(0, i - period + 1), i + 1);
+    const highest = Math.max(...window.map((c) => c.high));
+    const lowest = Math.min(...window.map((c) => c.low));
+    const range = highest - lowest;
+    const value = range === 0 ? -50 : ((highest - candle.close) / range) * -100;
+    return { time: candle.time as UTCTimestamp, value };
+  });
+}
+
+function awesomeOscillator(
+  candles: Candle[],
+  fastPeriod: number,
+  slowPeriod: number,
+): LineData[] {
+  const medians = candles.map((c) => (c.high + c.low) / 2);
+  const fast = medians.map((_, i) => {
+    const window = medians.slice(Math.max(0, i - fastPeriod + 1), i + 1);
+    return window.reduce((sum, v) => sum + v, 0) / window.length;
+  });
+  const slow = medians.map((_, i) => {
+    const window = medians.slice(Math.max(0, i - slowPeriod + 1), i + 1);
+    return window.reduce((sum, v) => sum + v, 0) / window.length;
+  });
+  return candles.map((candle, i) => ({
+    time: candle.time as UTCTimestamp,
+    value: fast[i] - slow[i],
+  }));
+}
+
+function averageTrueRange(candles: Candle[], period: number): LineData[] {
+  if (candles.length === 0) return [];
+  const trs: number[] = [];
+  candles.forEach((candle, i) => {
+    if (i === 0) {
+      trs.push(candle.high - candle.low);
+      return;
+    }
+    const prevClose = candles[i - 1].close;
+    trs.push(
+      Math.max(
+        candle.high - candle.low,
+        Math.abs(candle.high - prevClose),
+        Math.abs(candle.low - prevClose),
+      ),
+    );
+  });
+  const result: LineData[] = [];
+  let atr = trs[0];
+  for (let i = 0; i < candles.length; i += 1) {
+    if (i === 0) {
+      result.push({ time: candles[i].time as UTCTimestamp, value: atr });
+      continue;
+    }
+    if (i < period) {
+      atr = (atr * i + trs[i]) / (i + 1);
+    } else {
+      atr = (atr * (period - 1) + trs[i]) / period;
+    }
+    result.push({ time: candles[i].time as UTCTimestamp, value: atr });
+  }
+  return result;
 }
