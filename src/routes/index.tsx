@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Bot, Crosshair, Globe, HelpCircle, Maximize2, Settings, Shield, Sun } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { DerivChart } from "@/components/deriv-chart";
 import { SignalsPanel } from "@/components/signals-panel";
 import { TopShell } from "@/components/top-shell";
@@ -41,6 +42,8 @@ function Index() {
     low: null,
   });
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
+  const chartHeight = isMobile ? 260 : 340;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -83,8 +86,8 @@ function Index() {
 
   return (
     <TopShell>
-      <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100dvh-9.5rem)] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
-        <section className="relative min-h-0 min-w-0 border-r border-[oklch(0.92_0.005_240)] bg-white p-2 sm:p-3">
+      <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100dvh-12rem)] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
+        <section className="relative flex min-h-0 min-w-0 flex-col overflow-y-auto border-b border-[oklch(0.92_0.005_240)] bg-white p-2 sm:p-3 lg:border-b-0 lg:border-r">
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-semibold">Manual Trader</div>
@@ -98,7 +101,7 @@ function Index() {
             symbol={symbol}
             onSymbolChange={setSymbol}
             onPrice={setPrice}
-            height={340}
+            height={chartHeight}
             entryPrice={barriers.entry}
             highBarrier={barriers.high}
             lowBarrier={barriers.low}
@@ -113,7 +116,7 @@ function Index() {
           <SignalsPanel symbol={symbol} compact />
         </section>
 
-        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 sm:p-3">
+        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 pb-24 sm:p-3 lg:pb-3">
           <TradePanel
             market={symbol}
             lastPrice={price}
@@ -124,11 +127,11 @@ function Index() {
         </aside>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[oklch(0.92_0.005_240)] bg-white px-4 py-3">
-        <span className="rounded-md bg-[oklch(0.92_0.13_95)] px-4 py-1.5 text-sm font-semibold text-[oklch(0.3_0.1_80)]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
+        <span className="rounded-md bg-[oklch(0.92_0.13_95)] px-2.5 py-1 text-[11px] font-semibold text-[oklch(0.3_0.1_80)] sm:px-4 sm:py-1.5 sm:text-sm">
           Risk Disclaimer - Trading involves significant risk of loss.
         </span>
-        <div className="flex items-center gap-3 font-mono text-xs text-[oklch(0.45_0.02_260)]">
+        <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-[oklch(0.45_0.02_260)] sm:gap-3">
           <Shield className="size-4" />
           <Bot className="size-4" />
           <Crosshair className="size-4" />
@@ -142,5 +145,4 @@ function Index() {
       </div>
     </TopShell>
   );
-  
 }

@@ -12,7 +12,9 @@
       "Bash(node -e \"require.resolve\\('nitro/vite'\\)\")",
       "Bash(xargs basename -a)",
       "Bash(node -e \"const t = require\\('@tanstack/react-start/plugin/vite'\\); console.log\\(Object.keys\\(t\\)\\)\")",
-      "Bash(xargs grep -l \"TanStackStartViteInputConfig\\\\|server\\\\|preset\")"
+      "Bash(xargs grep -l \"TanStackStartViteInputConfig\\\\|server\\\\|preset\")",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(npx eslint *)"
     ]
   }
 }

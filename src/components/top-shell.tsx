@@ -398,11 +398,11 @@ export function TopShell({
       {showAssistantButton && (
         <button
           aria-label="AI assistant"
-          className="fixed bottom-4 right-4 z-50 flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-[#8e44ad] to-[#2c3e50] text-white shadow-lg transition-transform hover:scale-105 sm:bottom-6 sm:right-6 sm:size-14"
+          className="fixed bottom-3 right-3 z-50 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[#8e44ad] to-[#2c3e50] text-white shadow-lg transition-transform hover:scale-105 sm:bottom-6 sm:right-6 sm:size-14"
         >
-          <Sparkles className="size-5" />
+          <Sparkles className="size-4 sm:size-5" />
           <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-[#4bb4b3]" />
-          <span className="absolute -bottom-1 text-[10px] font-bold">AI</span>
+          <span className="absolute -bottom-1 text-[9px] font-bold sm:text-[10px]">AI</span>
         </button>
       )}
     </div>

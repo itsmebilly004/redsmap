@@ -214,7 +214,10 @@ function BotBuilder() {
   const [botName, setBotName] = useState("ArkTrader Bot");
   const [searchTerm, setSearchTerm] = useState("");
   const [openMenu, setOpenMenu] = useState("params");
-  const [blocksMenuCollapsed, setBlocksMenuCollapsed] = useState(false);
+  const [blocksMenuCollapsed, setBlocksMenuCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth < 768;
+  });
   const [activeBlocks, setActiveBlocks] = useState<string[]>([
     "params",
     "purchase",
@@ -1203,17 +1206,22 @@ function BotBuilder() {
         </section>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <aside className="flex w-[220px] shrink-0 flex-col border-r border-[#d6d8dc] bg-white">
+          <aside
+            className={cn(
+              "flex shrink-0 flex-col border-r border-[#d6d8dc] bg-white transition-[width]",
+              blocksMenuCollapsed ? "w-12" : "w-[180px] sm:w-[220px]",
+            )}
+          >
             <button
               type="button"
               onClick={() => setBlocksMenuCollapsed((value) => !value)}
-              className="flex h-11 items-center justify-between border-b border-[#e5e7eb] px-3 text-left text-sm font-bold text-[#111827]"
+              className="flex h-11 items-center justify-between gap-2 border-b border-[#e5e7eb] px-3 text-left text-sm font-bold text-[#111827]"
             >
-              <span>Blocks menu</span>
+              {!blocksMenuCollapsed && <span className="truncate">Blocks menu</span>}
               {blocksMenuCollapsed ? (
-                <PanelLeftOpen className="size-4 text-[#64748b]" />
+                <PanelLeftOpen className="size-4 shrink-0 text-[#64748b]" />
               ) : (
-                <PanelLeftClose className="size-4 text-[#64748b]" />
+                <PanelLeftClose className="size-4 shrink-0 text-[#64748b]" />
               )}
             </button>
 

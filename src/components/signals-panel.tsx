@@ -59,9 +59,9 @@ export function SignalsPanel({ compact = false, symbol }: { compact?: boolean; s
   })();
 
   return (
-    <section className="border-t border-[#e5e5e5] bg-white px-3 py-3">
+    <section className="border-t border-[#e5e5e5] bg-white px-2 py-3 sm:px-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
+        <div className="min-w-0">
           <div className="text-sm font-bold text-[#333333]">Signals</div>
           <div className="text-[11px] text-[#777777]">
             Live digit observations from the current market
@@ -75,20 +75,20 @@ export function SignalsPanel({ compact = false, symbol }: { compact?: boolean; s
 
       <div
         className={cn(
-          "grid gap-3",
+          "grid min-w-0 gap-3",
           compact ? "lg:grid-cols-[1.2fr_1fr]" : "lg:grid-cols-[1fr_1fr]",
         )}
       >
-        <div className="rounded border border-[#e5e5e5] bg-[#fafafa] p-3">
-          <div className="grid grid-cols-10 gap-1.5">
+        <div className="min-w-0 rounded border border-[#e5e5e5] bg-[#fafafa] p-2 sm:p-3">
+          <div className="grid grid-cols-10 gap-1 sm:gap-1.5">
             {counts.map((count, digit) => {
               const isCurrent = currentDigit === digit;
               const isHot = pcts[digit] === maxPct && total > 1;
               return (
-                <div key={digit} className="flex flex-col items-center">
+                <div key={digit} className="flex min-w-0 flex-col items-center">
                   <div
                     className={cn(
-                      "flex size-9 items-center justify-center rounded-full border-2 text-sm font-bold",
+                      "flex aspect-square w-full max-w-9 items-center justify-center rounded-full border-2 text-xs font-bold sm:text-sm",
                       DIGIT_COLORS[digit],
                       isCurrent && "ring-2 ring-[#ff444f]/40",
                     )}

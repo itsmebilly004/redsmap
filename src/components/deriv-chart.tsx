@@ -469,14 +469,14 @@ export function DerivChart({
         </Select>
 
         {/* Timeframe buttons */}
-        <div className="flex max-w-full min-w-0 overflow-x-auto rounded-md border border-glass-border">
+        <div className="flex w-full min-w-0 shrink overflow-x-auto rounded-md border border-glass-border sm:w-auto sm:max-w-full">
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf.value}
               type="button"
               onClick={() => setGranularity(tf.value)}
               className={cn(
-                "px-2.5 py-1.5 text-xs font-medium transition-colors",
+                "shrink-0 px-2 py-1.5 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
                 granularity === tf.value
                   ? "bg-primary text-primary-foreground"
                   : "bg-transparent text-muted-foreground hover:bg-foreground/5",
@@ -494,7 +494,7 @@ export function DerivChart({
             onClick={() => setChartType("area")}
             title="Line / Area"
             className={cn(
-              "px-2.5 py-1.5 text-xs font-medium transition-colors",
+              "px-2 py-1.5 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
               chartType === "area"
                 ? "bg-primary text-primary-foreground"
                 : "bg-transparent text-muted-foreground hover:bg-foreground/5",
@@ -510,7 +510,7 @@ export function DerivChart({
             }}
             title="Candlestick"
             className={cn(
-              "px-2.5 py-1.5 text-xs font-medium transition-colors",
+              "px-2 py-1.5 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
               chartType === "candle"
                 ? "bg-primary text-primary-foreground"
                 : "bg-transparent text-muted-foreground hover:bg-foreground/5",
@@ -520,7 +520,7 @@ export function DerivChart({
           </button>
         </div>
 
-        <div className="flex max-w-full overflow-x-auto rounded-md border border-glass-border">
+        <div className="flex max-w-full shrink-0 overflow-x-auto rounded-md border border-glass-border">
           {ANALYSIS_TOOLS.map((tool) => (
             <button
               key={tool.value}
@@ -528,7 +528,7 @@ export function DerivChart({
               onClick={() => toggleAnalysisTool(tool.value)}
               title={`${tool.label} analysis`}
               className={cn(
-                "px-2.5 py-1.5 text-xs font-medium transition-colors",
+                "shrink-0 px-2 py-1.5 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
                 analysisTools.has(tool.value)
                   ? "bg-[#ff444f] text-white"
                   : "bg-transparent text-muted-foreground hover:bg-foreground/5",
@@ -542,7 +542,7 @@ export function DerivChart({
         {/* Connection status */}
         <span
           className={cn(
-            "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider sm:ml-auto",
+            "ml-auto shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider",
             STATUS_STYLE[status],
           )}
         >
