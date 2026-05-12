@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { Bot, Crosshair, Globe, HelpCircle, Maximize2, Settings, Shield, Sun } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DerivChart } from "@/components/deriv-chart";
-import { SignalsPanel } from "@/components/signals-panel";
 import { TopShell } from "@/components/top-shell";
 import { TradePanel } from "@/components/trade-panel";
 import {
@@ -87,11 +86,11 @@ function Index() {
   return (
     <TopShell>
       <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100dvh-12rem)] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
-        <section className="relative flex min-h-0 min-w-0 flex-col overflow-y-auto border-b border-[oklch(0.92_0.005_240)] bg-white p-2 sm:p-3 lg:border-b-0 lg:border-r">
+        <section className="relative flex min-h-0 min-w-0 flex-col overflow-y-auto border-b border-[oklch(0.92_0.005_240)] bg-white p-2 sm:p-3 lg:border-b-0 lg:border-r dark:border-[#242424] dark:bg-[#151515]">
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-semibold">Manual Trader</div>
-              <div className="font-mono text-[11px] text-[oklch(0.55_0.02_260)]">
+              <div className="font-mono text-[11px] text-[oklch(0.55_0.02_260)] dark:text-[#999999]">
                 {price !== null ? price.toFixed(4) : "-"}
               </div>
             </div>
@@ -109,15 +108,11 @@ function Index() {
             showDigitStats={isDigitTrade(tradeType)}
           />
 
-          <p className="mt-2 text-xs text-[oklch(0.5_0.02_260)]">
+          <p className="mt-2 text-xs text-[oklch(0.5_0.02_260)] dark:text-[#999999]">
             Live data streamed from the Deriv WebSocket API. Sign in to place real trades.
           </p>
-
-
-
-          <SignalsPanel symbol={symbol} compact />
         </section>
-        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 pb-24 sm:p-3 lg:pb-3">
+        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 pb-24 sm:p-3 lg:pb-3 dark:bg-[#0e0e0e]">
           <TradePanel
             market={symbol}
             lastPrice={price}
@@ -129,11 +124,11 @@ function Index() {
       </div>
 
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 dark:border-[#242424] dark:bg-[#151515]">
         <span className="rounded-md bg-[oklch(0.92_0.13_95)] px-2.5 py-1 text-[11px] font-semibold text-[oklch(0.3_0.1_80)] sm:px-4 sm:py-1.5 sm:text-sm">
           Risk Disclaimer - Trading involves significant risk of loss.
         </span>
-        <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-[oklch(0.45_0.02_260)] sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-[oklch(0.45_0.02_260)] sm:gap-3 dark:text-[#999999]">
           <Shield className="size-4" />
           <Bot className="size-4" />
           <Crosshair className="size-4" />

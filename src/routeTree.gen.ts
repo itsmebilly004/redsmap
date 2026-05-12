@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TradingviewRouteImport } from './routes/tradingview'
 import { Route as TradingBotsRouteImport } from './routes/trading-bots'
 import { Route as StrategiesRouteImport } from './routes/strategies'
 import { Route as RedirectRouteImport } from './routes/redirect'
@@ -29,11 +28,6 @@ import { Route as ApiDerivTokenExchangeRouteImport } from './routes/api/deriv-to
 import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-accounts'
 import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
 
-const TradingviewRoute = TradingviewRouteImport.update({
-  id: '/tradingview',
-  path: '/tradingview',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TradingBotsRoute = TradingBotsRouteImport.update({
   id: '/trading-bots',
   path: '/trading-bots',
@@ -137,7 +131,6 @@ export interface FileRoutesByFullPath {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
-  '/tradingview': typeof TradingviewRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
@@ -157,7 +150,6 @@ export interface FileRoutesByTo {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
-  '/tradingview': typeof TradingviewRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
@@ -179,7 +171,6 @@ export interface FileRoutesById {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
-  '/tradingview': typeof TradingviewRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
@@ -202,7 +193,6 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
-    | '/tradingview'
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
@@ -222,7 +212,6 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
-    | '/tradingview'
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
@@ -243,7 +232,6 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
-    | '/tradingview'
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
@@ -265,7 +253,6 @@ export interface RootRouteChildren {
   RedirectRoute: typeof RedirectRoute
   StrategiesRoute: typeof StrategiesRoute
   TradingBotsRoute: typeof TradingBotsRoute
-  TradingviewRoute: typeof TradingviewRoute
   ApiDerivAccountOtpRoute: typeof ApiDerivAccountOtpRoute
   ApiDerivAccountsRoute: typeof ApiDerivAccountsRoute
   ApiDerivTokenExchangeRoute: typeof ApiDerivTokenExchangeRoute
@@ -274,13 +261,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/tradingview': {
-      id: '/tradingview'
-      path: '/tradingview'
-      fullPath: '/tradingview'
-      preLoaderRoute: typeof TradingviewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/trading-bots': {
       id: '/trading-bots'
       path: '/trading-bots'
@@ -438,7 +418,6 @@ const rootRouteChildren: RootRouteChildren = {
   RedirectRoute: RedirectRoute,
   StrategiesRoute: StrategiesRoute,
   TradingBotsRoute: TradingBotsRoute,
-  TradingviewRoute: TradingviewRoute,
   ApiDerivAccountOtpRoute: ApiDerivAccountOtpRoute,
   ApiDerivAccountsRoute: ApiDerivAccountsRoute,
   ApiDerivTokenExchangeRoute: ApiDerivTokenExchangeRoute,

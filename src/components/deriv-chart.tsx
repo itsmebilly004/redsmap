@@ -33,7 +33,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -41,7 +43,37 @@ import { cn } from "@/lib/utils";
 import { clearBarrierLines, renderBarrierLines, type BarrierLineRefs } from "@/lib/chart-barriers";
 
 type ChartType = "area" | "candle";
-type AnalysisTool = "sma" | "ema" | "bollinger" | "highlow";
+type AnalysisTool =
+  | "sma"
+  | "ema"
+  | "bollinger"
+  | "highlow"
+  | "rsi"
+  | "macd"
+  | "stochastic";
+
+// Order in which Deriv groups its market categories. Anything we don't have
+// a custom rank for sorts to the end alphabetically (preserves new Deriv
+// markets without code changes).
+const MARKET_ORDER: Record<string, number> = {
+  synthetic_index: 0,
+  forex: 1,
+  cryptocurrency: 2,
+  indices: 3,
+  stocks: 4,
+  commodities: 5,
+  basket_index: 6,
+};
+
+const MARKET_FALLBACK_LABEL: Record<string, string> = {
+  synthetic_index: "Derived",
+  forex: "Forex",
+  cryptocurrency: "Cryptocurrencies",
+  indices: "Stock indices",
+  stocks: "Stocks",
+  commodities: "Commodities",
+  basket_index: "Baskets",
+};
 
 type Props = {
   symbol: string;
@@ -72,11 +104,14 @@ const TIMEFRAMES = [
   { label: "1D", value: 86400 },
 ];
 
-const ANALYSIS_TOOLS: { label: string; value: AnalysisTool }[] = [
-  { label: "SMA", value: "sma" },
-  { label: "EMA", value: "ema" },
-  { label: "Bands", value: "bollinger" },
-  { label: "H/L", value: "highlow" },
+const ANALYSIS_TOOLS: { label: string; value: AnalysisTool; title: string }[] = [
+  { label: "SMA", value: "sma", title: "Simple Moving Average (20)" },
+  { label: "EMA", value: "ema", title: "Exponential Moving Average (20)" },
+  { label: "BB", value: "bollinger", title: "Bollinger Bands (20, 2σ)" },
+  { label: "H/L", value: "highlow", title: "Period High / Low" },
+  { label: "RSI", value: "rsi", title: "Relative Strength Index (14)" },
+  { label: "MACD", value: "macd", title: "MACD (12, 26, 9)" },
+  { label: "Stoch", value: "stochastic", title: "Stochastic %K/%D (14, 3)" },
 ];
 
 const STATUS_STYLE: Record<ConnectionStatus, string> = {
@@ -114,7 +149,14 @@ export function DerivChart({
   const [analysisTools, setAnalysisTools] = useState<Set<AnalysisTool>>(new Set());
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [allSymbols, setAllSymbols] = useState<
-    { symbol: string; display_name: string; market: string }[]
+    {
+      symbol: string;
+      display_name: string;
+      market: string;
+      market_display_name: string;
+      submarket: string;
+      submarket_display_name: string;
+    }[]
   >([]);
   const [digitStats, setDigitStats] = useState<{
     latest: number | null;
@@ -217,6 +259,114 @@ export function DerivChart({
         }),
       ];
     }
+    // Oscillator panes — each oscillator gets its own pane below the price
+    // pane (pane index 1+). Lightweight-charts v5 manages pane stretching
+    // automatically; users can resize via the pane separator.
+    let oscillatorPaneIndex = 1;
+    if (tools.has("rsi")) {
+      const series = chart.addSeries(
+        LineSeries,
+        {
+          color: "#0ea5e9",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+        },
+        oscillatorPaneIndex,
+      );
+      series.setData(relativeStrengthIndex(data, 14));
+      series.createPriceLine({
+        price: 70,
+        color: "#ef4444",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: "70",
+      });
+      series.createPriceLine({
+        price: 30,
+        color: "#22c55e",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: "30",
+      });
+      indicatorSeriesRef.current.push(series);
+      oscillatorPaneIndex += 1;
+    }
+    if (tools.has("macd")) {
+      const { macd, signal } = macdSeries(data, 12, 26, 9);
+      const macdLine = chart.addSeries(
+        LineSeries,
+        {
+          color: "#2563eb",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+        },
+        oscillatorPaneIndex,
+      );
+      const signalLine = chart.addSeries(
+        LineSeries,
+        {
+          color: "#ef4444",
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: true,
+        },
+        oscillatorPaneIndex,
+      );
+      macdLine.setData(macd);
+      signalLine.setData(signal);
+      indicatorSeriesRef.current.push(macdLine, signalLine);
+      oscillatorPaneIndex += 1;
+    }
+    if (tools.has("stochastic")) {
+      const { k, d } = stochasticSeries(data, 14, 3);
+      const kLine = chart.addSeries(
+        LineSeries,
+        {
+          color: "#9333ea",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+        },
+        oscillatorPaneIndex,
+      );
+      const dLine = chart.addSeries(
+        LineSeries,
+        {
+          color: "#f59e0b",
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+        },
+        oscillatorPaneIndex,
+      );
+      kLine.setData(k);
+      dLine.setData(d);
+      kLine.createPriceLine({
+        price: 80,
+        color: "#ef4444",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: "80",
+      });
+      kLine.createPriceLine({
+        price: 20,
+        color: "#22c55e",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: "20",
+      });
+      indicatorSeriesRef.current.push(kLine, dLine);
+      oscillatorPaneIndex += 1;
+    }
   }, [clearAnalysisOverlays]);
 
   useEffect(() => {
@@ -230,6 +380,9 @@ export function DerivChart({
             symbol: m.symbol,
             display_name: m.name,
             market: "synthetic_index",
+            market_display_name: "Derived",
+            submarket: "random_index",
+            submarket_display_name: "Continuous indices",
           })),
         );
       });
@@ -442,12 +595,38 @@ export function DerivChart({
     });
   }
 
-  const symbolOptions = useMemo(() => {
-    if (allSymbols.length === 0)
-      return SYNTHETIC_MARKETS.map((m) => ({ symbol: m.symbol, display_name: m.name }));
-    const syn = allSymbols.filter((s) => s.market === "synthetic_index");
-    const rest = allSymbols.filter((s) => s.market !== "synthetic_index");
-    return [...syn, ...rest];
+  const symbolGroups = useMemo(() => {
+    const source =
+      allSymbols.length > 0
+        ? allSymbols
+        : SYNTHETIC_MARKETS.map((m) => ({
+            symbol: m.symbol,
+            display_name: m.name,
+            market: "synthetic_index",
+            market_display_name: "Derived",
+            submarket: "random_index",
+            submarket_display_name: "Continuous indices",
+          }));
+    const byMarket = new Map<string, { label: string; items: typeof source }>();
+    for (const item of source) {
+      const key = item.market || "other";
+      const label =
+        item.market_display_name || MARKET_FALLBACK_LABEL[key] || key || "Other";
+      let bucket = byMarket.get(key);
+      if (!bucket) {
+        bucket = { label, items: [] };
+        byMarket.set(key, bucket);
+      }
+      bucket.items.push(item);
+    }
+    return Array.from(byMarket.entries())
+      .map(([key, value]) => ({ key, label: value.label, items: value.items }))
+      .sort((a, b) => {
+        const ar = MARKET_ORDER[a.key] ?? 99;
+        const br = MARKET_ORDER[b.key] ?? 99;
+        if (ar !== br) return ar - br;
+        return a.label.localeCompare(b.label);
+      });
   }, [allSymbols]);
 
   return (
@@ -460,10 +639,17 @@ export function DerivChart({
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="max-h-80">
-            {symbolOptions.map((m) => (
-              <SelectItem key={m.symbol} value={m.symbol}>
-                {m.display_name}
-              </SelectItem>
+            {symbolGroups.map((group) => (
+              <SelectGroup key={group.key}>
+                <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {group.label}
+                </SelectLabel>
+                {group.items.map((item) => (
+                  <SelectItem key={item.symbol} value={item.symbol}>
+                    {item.display_name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             ))}
           </SelectContent>
         </Select>
@@ -526,7 +712,7 @@ export function DerivChart({
               key={tool.value}
               type="button"
               onClick={() => toggleAnalysisTool(tool.value)}
-              title={`${tool.label} analysis`}
+              title={tool.title}
               className={cn(
                 "shrink-0 px-2 py-1.5 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
                 analysisTools.has(tool.value)
@@ -688,4 +874,84 @@ function bollingerBands(data: LineData[], period: number): [LineData[], LineData
     lower.push({ time: point.time, value: mean - deviation * 2 });
   });
   return [upper, lower];
+}
+
+// Wilder's RSI — standard 14-period formulation used across charting tools.
+function relativeStrengthIndex(data: LineData[], period: number): LineData[] {
+  if (data.length === 0) return [];
+  const result: LineData[] = [];
+  let avgGain = 0;
+  let avgLoss = 0;
+  for (let i = 0; i < data.length; i += 1) {
+    if (i === 0) {
+      result.push({ time: data[i].time, value: 50 });
+      continue;
+    }
+    const change = data[i].value - data[i - 1].value;
+    const gain = Math.max(0, change);
+    const loss = Math.max(0, -change);
+    if (i <= period) {
+      avgGain = (avgGain * (i - 1) + gain) / i;
+      avgLoss = (avgLoss * (i - 1) + loss) / i;
+    } else {
+      avgGain = (avgGain * (period - 1) + gain) / period;
+      avgLoss = (avgLoss * (period - 1) + loss) / period;
+    }
+    const rs = avgLoss === 0 ? Number.POSITIVE_INFINITY : avgGain / avgLoss;
+    const rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
+    result.push({ time: data[i].time, value: rsi });
+  }
+  return result;
+}
+
+function emaArray(values: number[], period: number): number[] {
+  if (values.length === 0) return [];
+  const k = 2 / (period + 1);
+  const result: number[] = [values[0]];
+  for (let i = 1; i < values.length; i += 1) {
+    result.push(values[i] * k + result[i - 1] * (1 - k));
+  }
+  return result;
+}
+
+function macdSeries(
+  data: LineData[],
+  fastPeriod: number,
+  slowPeriod: number,
+  signalPeriod: number,
+): { macd: LineData[]; signal: LineData[] } {
+  const values = data.map((p) => p.value);
+  const fast = emaArray(values, fastPeriod);
+  const slow = emaArray(values, slowPeriod);
+  const macdValues = fast.map((value, i) => value - slow[i]);
+  const signalValues = emaArray(macdValues, signalPeriod);
+  return {
+    macd: data.map((point, i) => ({ time: point.time, value: macdValues[i] })),
+    signal: data.map((point, i) => ({ time: point.time, value: signalValues[i] })),
+  };
+}
+
+function stochasticSeries(
+  data: LineData[],
+  kPeriod: number,
+  dPeriod: number,
+): { k: LineData[]; d: LineData[] } {
+  const kValues: number[] = [];
+  data.forEach((_, i) => {
+    const window = data.slice(Math.max(0, i - kPeriod + 1), i + 1);
+    const highs = window.map((p) => p.value);
+    const high = Math.max(...highs);
+    const low = Math.min(...highs);
+    const range = high - low;
+    const value = range === 0 ? 50 : ((data[i].value - low) / range) * 100;
+    kValues.push(value);
+  });
+  const dValues = kValues.map((_, i) => {
+    const window = kValues.slice(Math.max(0, i - dPeriod + 1), i + 1);
+    return window.reduce((sum, v) => sum + v, 0) / window.length;
+  });
+  return {
+    k: data.map((point, i) => ({ time: point.time, value: kValues[i] })),
+    d: data.map((point, i) => ({ time: point.time, value: dValues[i] })),
+  };
 }

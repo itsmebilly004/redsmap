@@ -65,11 +65,23 @@ export const Route = createRootRoute({
   notFoundComponent: NotFoundComponent,
 });
 
+const THEME_INIT_SCRIPT = `
+(function(){try{
+  var t = localStorage.getItem('arktrader-theme');
+  if (t !== 'dark' && t !== 'light') t = 'light';
+  var r = document.documentElement;
+  r.classList.toggle('dark', t === 'dark');
+  r.dataset.theme = t;
+  r.style.colorScheme = t;
+}catch(e){}})();
+`;
+
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <head>
         <HeadContent />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
         {children}

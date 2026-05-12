@@ -2,6 +2,7 @@ import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
+import { useTheme } from "@/hooks/use-theme";
 import {
   buildLegacyOAuthUrl,
   buildOAuthUrl,
@@ -21,13 +22,14 @@ import {
   Microscope,
   Target,
   Users,
-  CandlestickChart,
   Sparkles,
   Plug,
   ChevronDown,
   LogOut,
   ChevronUp,
   RefreshCw,
+  Moon,
+  Sun,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -90,7 +92,6 @@ export const TOP_TABS: TabDef[] = [
   { to: "/analysis", label: "Analysis Tool", icon: Microscope },
   { to: "/strategies", label: "Strategies", icon: Target },
   { to: "/copy-trading", label: "Copy Trading", icon: Users },
-  { to: "/tradingview", label: "TradingView", icon: CandlestickChart },
 ];
 
 export function TopShell({
@@ -105,6 +106,7 @@ export function TopShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { account, accounts, balance, currency, refreshing, refreshBalances, switchAccount } =
     useDerivBalanceContext();
+  const { theme, toggleTheme } = useTheme();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeAccountTab, setActiveAccountTab] = useState<"real" | "demo">("real");
 
@@ -217,16 +219,25 @@ export function TopShell({
   }
 
   return (
-    <div className="flex min-h-dvh min-w-0 flex-col overflow-x-hidden bg-[#f2f3f4] text-[#333333]">
-      <header className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-[#e5e5e5] bg-white px-3 py-2 sm:flex-nowrap md:px-6">
+    <div className="flex min-h-dvh min-w-0 flex-col overflow-x-hidden bg-[#f2f3f4] text-[#333333] dark:bg-[#0e0e0e] dark:text-[#e6e6e6]">
+      <header className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-[#e5e5e5] bg-white px-3 py-2 sm:flex-nowrap md:px-6 dark:border-[#242424] dark:bg-[#151515]">
         <Link to="/" className="flex min-w-0 items-center gap-2">
           <div className="size-5 shrink-0 rotate-45 rounded-sm bg-[#ff444f] sm:size-6" />
-          <span className="truncate text-base font-bold tracking-tight text-[#333333] sm:text-lg">
+          <span className="truncate text-base font-bold tracking-tight text-[#333333] sm:text-lg dark:text-[#e6e6e6]">
             ArkTrader Hub
           </span>
         </Link>
 
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none sm:gap-4">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label="Toggle theme"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-[#d6d6d6] bg-white text-[#333333] transition hover:bg-[#f2f3f4] dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:text-[#e6e6e6] dark:hover:bg-[#222]"
+          >
+            {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          </button>
           {user && account && (
             <>
               <Button
@@ -395,7 +406,7 @@ export function TopShell({
         </div>
       </header>
 
-      <nav className="border-b border-[#e5e5e5] bg-white">
+      <nav className="border-b border-[#e5e5e5] bg-white dark:border-[#242424] dark:bg-[#151515]">
         <div className="flex min-w-0 items-center overflow-x-auto px-1 sm:px-2">
           {TOP_TABS.map((t) => {
             const active = t.to === "/" ? pathname === "/" : pathname.startsWith(t.to);
@@ -406,7 +417,9 @@ export function TopShell({
                 to={t.to}
                 className={cn(
                   "flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:py-3 sm:text-sm",
-                  active ? "bg-[#4bb4b3] text-white" : "text-[#333333] hover:bg-[#f2f3f4]",
+                  active
+                    ? "bg-[#4bb4b3] text-white"
+                    : "text-[#333333] hover:bg-[#f2f3f4] dark:text-[#cccccc] dark:hover:bg-[#1f1f1f]",
                 )}
               >
                 <Icon className="size-4" />

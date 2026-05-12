@@ -133,13 +133,23 @@ export type DerivMessage = DerivRecord & {
     symbol?: string;
     display_name?: string;
     market?: string;
+    market_display_name?: string;
+    submarket?: string;
+    submarket_display_name?: string;
     underlying_symbol?: string;
     underlying_symbol_name?: string;
     underlying_symbol_type?: string;
   }>;
 };
 export type DerivBalance = { balance: number; currency: string; loginid: string };
-export type ActiveSymbol = { symbol: string; display_name: string; market: string };
+export type ActiveSymbol = {
+  symbol: string;
+  display_name: string;
+  market: string;
+  market_display_name: string;
+  submarket: string;
+  submarket_display_name: string;
+};
 type DerivAppIdMode = "oauth";
 export type TradingAdapter = "oauth2PkceTradingAdapter" | "legacyDirectTokenAdapter";
 export type TradingWebSocketMode = "oauth-otp" | "legacy-authorize";
@@ -2076,7 +2086,10 @@ export async function getActiveSymbols(): Promise<ActiveSymbol[]> {
   symbolsCache = (res?.active_symbols ?? []).map((s) => ({
     symbol: String(s.underlying_symbol ?? s.symbol ?? ""),
     display_name: String(s.underlying_symbol_name ?? s.display_name ?? ""),
-    market: String(s.underlying_symbol_type ?? s.market ?? ""),
+    market: String(s.market ?? ""),
+    market_display_name: String(s.market_display_name ?? s.market ?? ""),
+    submarket: String(s.submarket ?? ""),
+    submarket_display_name: String(s.submarket_display_name ?? s.submarket ?? ""),
   }));
   return symbolsCache!;
 }
