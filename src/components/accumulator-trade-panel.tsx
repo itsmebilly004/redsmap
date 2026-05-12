@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Info, Minus, Plus, ShieldAlert } from "lucide-react";
+import { Info, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
@@ -50,7 +50,6 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
   const { account, balance: accountBalance, currency, refreshBalances } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
-  const accountLoginId = account?.loginid || account?.account_id || "";
   const selectedAccountIsDemo = account ? isDemoAccount(account) : false;
 
   const [stake, setStake] = useState(10);
@@ -355,12 +354,6 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
   }
 
   const canSell = state.status === "active" && state.isValidToSell && state.sellPrice != null;
-  const insideRange =
-    state.currentSpot != null &&
-    state.upperBarrier != null &&
-    state.lowerBarrier != null &&
-    state.currentSpot < state.upperBarrier &&
-    state.currentSpot > state.lowerBarrier;
 
   return (
     <div className="space-y-3">
@@ -456,64 +449,11 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         )}
       </div>
 
-      <div className="rounded-md border border-[#d8edf7] bg-[#f7fcff] p-3 text-sm shadow-sm">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs">
-          <span className="font-semibold text-[#147a78]">Accumulator status</span>
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 font-semibold uppercase tracking-wide",
-              state.status === "active" && "bg-[#e5f7f6] text-[#147a78]",
-              state.status === "sold" && "bg-[#edf7ed] text-[#0b8f62]",
-              state.status === "lost" && "bg-[#fff1f2] text-[#cc2f39]",
-              state.status === "error" && "bg-[#fff1f2] text-[#cc2f39]",
-              (state.status === "idle" || state.status === "proposing") &&
-                "bg-[#f2f3f4] text-[#646464]",
-            )}
-          >
-            {state.status}
-          </span>
+      {state.error && (
+        <div className="rounded-md border border-[#ffd1d4] bg-[#fff7f7] p-2 text-xs font-medium text-[#cc2f39]">
+          {state.error}
         </div>
-
-        <MetricGrid
-          currency={tradeCurrency}
-          rows={[
-            ["Account", accountLoginId || "-"],
-            ["Current price", numberLabel(state.currentSpot ?? lastPrice)],
-            ["Entry price", numberLabel(state.entrySpot)],
-            ["Upper barrier", numberLabel(state.upperBarrier)],
-            ["Lower barrier", numberLabel(state.lowerBarrier)],
-            ["Buy price", moneyLabel(state.buyPrice, tradeCurrency)],
-            ["Live payout", moneyLabel(state.currentPayout, tradeCurrency)],
-            ["Profit/Loss", moneyLabel(state.currentProfit, tradeCurrency, true)],
-            ["Sell price", moneyLabel(state.sellPrice, tradeCurrency)],
-            ["Ticks", state.tickCount != null ? String(state.tickCount) : "-"],
-          ]}
-        />
-
-        <div
-          className={cn(
-            "mt-3 flex items-start gap-2 rounded border p-2 text-xs",
-            state.barrierBreached
-              ? "border-[#ffd1d4] bg-[#fff7f7] text-[#cc2f39]"
-              : insideRange
-                ? "border-[#cce9e7] bg-white text-[#147a78]"
-                : "border-[#eeeeee] bg-white text-[#646464]",
-          )}
-        >
-          <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-          <span>
-            {state.barrierBreached
-              ? "Barrier breached. The contract is closed."
-              : insideRange
-                ? `Price is inside the barrier range. Barrier data source: ${state.barrierSource}.`
-                : "Barrier range will appear after Deriv returns contract updates."}
-          </span>
-        </div>
-
-        {state.error && (
-          <div className="mt-2 text-xs font-medium text-[#cc2f39]">{state.error}</div>
-        )}
-      </div>
+      )}
 
       <Button
         onClick={() => {
@@ -556,23 +496,6 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       </Button>
     </div>
   );
-}
-
-function MetricGrid({ rows }: { currency: string; rows: Array<[string, string]> }) {
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      {rows.map(([label, value]) => (
-        <div key={label} className="rounded-md bg-white p-2">
-          <div className="text-[10px] font-bold uppercase text-[#999999]">{label}</div>
-          <div className="mt-0.5 truncate font-mono text-xs font-bold text-[#333333]">{value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function numberLabel(value?: number | null) {
-  return value != null && Number.isFinite(value) ? value.toFixed(4) : "-";
 }
 
 function moneyLabel(value?: number | null, currency?: string, signed = false) {
