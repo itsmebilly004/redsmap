@@ -2599,11 +2599,14 @@ export function redirectToDerivLegacyOAuth(url: string) {
   // Deriv's legacy OAuth provider silently bypasses /oauth2/authorize for
   // users who already have an active oauth.deriv.com session, landing them on
   // the Deriv homepage instead of completing the redirect back to our
-  // registered redirect_uri. Hit Deriv's own /oauth2/sessions/logout endpoint
-  // in a hidden iframe first so the next top-level navigation to /authorize
-  // always starts from a clean session and the login form is shown — the
-  // callback round-trip then completes regardless of whether the user was
-  // previously signed in to deriv.com.
+  // registered redirect_uri. Pre-clear the deriv.com session by opening
+  // Deriv's own /oauth2/sessions/logout endpoint in a short-lived popup —
+  // a popup is a top-level browsing context so the session cookie is sent
+  // first-party and Deriv's Set-Cookie clearance applies to the global cookie
+  // jar (an iframe-based logout is undermined by browsers' third-party cookie
+  // restrictions). After the popup closes the main window navigates to the
+  // bare ?app_id=… URL and Deriv reliably presents the login form, so the
+  // callback round-trip always completes.
   clearDerivLegacyOAuthSessionCookie().finally(() => {
     window.location.href = url;
   });
@@ -2615,38 +2618,63 @@ function clearDerivLegacyOAuthSessionCookie(): Promise<void> {
       resolve();
       return;
     }
+    const logoutUrl = "https://oauth.deriv.com/oauth2/sessions/logout";
+    const popupFeatures = [
+      "width=480",
+      "height=320",
+      "left=120",
+      "top=120",
+      "menubar=no",
+      "toolbar=no",
+      "location=no",
+      "status=no",
+      "resizable=no",
+      "scrollbars=no",
+    ].join(",");
+    let popup: Window | null = null;
+    try {
+      popup = window.open(logoutUrl, "deriv_legacy_logout", popupFeatures);
+    } catch {
+      popup = null;
+    }
+    if (!popup) {
+      // Popup blocked or unavailable — proceed without pre-logout. The
+      // redirect will still attempt; worst case the user lands on Deriv's
+      // homepage and re-clicks the connect button, which is the existing
+      // behavior we're trying to improve, not worsen.
+      resolve();
+      return;
+    }
     let settled = false;
+    let pollHandle: number | null = null;
+    let hardTimeout: number | null = null;
+    const cleanup = () => {
+      if (pollHandle !== null) {
+        window.clearInterval(pollHandle);
+        pollHandle = null;
+      }
+      if (hardTimeout !== null) {
+        window.clearTimeout(hardTimeout);
+        hardTimeout = null;
+      }
+    };
     const finish = () => {
       if (settled) return;
       settled = true;
-      window.clearTimeout(hardTimeout);
+      cleanup();
       try {
-        iframe.parentNode?.removeChild(iframe);
+        if (popup && !popup.closed) popup.close();
       } catch {
         /* ignore */
       }
       resolve();
     };
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("aria-hidden", "true");
-    iframe.setAttribute("tabindex", "-1");
-    iframe.referrerPolicy = "no-referrer";
-    iframe.style.position = "fixed";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    iframe.style.left = "-9999px";
-    iframe.style.top = "-9999px";
-    iframe.style.opacity = "0";
-    iframe.src = "https://oauth.deriv.com/oauth2/sessions/logout";
-    iframe.onload = finish;
-    iframe.onerror = finish;
-    const hardTimeout = window.setTimeout(finish, 2500);
-    try {
-      document.body.appendChild(iframe);
-    } catch {
-      finish();
-    }
+    // Give Deriv enough time to load /oauth2/sessions/logout and process the
+    // Set-Cookie clearance, then close the popup ourselves.
+    hardTimeout = window.setTimeout(finish, 1600);
+    pollHandle = window.setInterval(() => {
+      if (popup?.closed) finish();
+    }, 200);
   });
 }
 
