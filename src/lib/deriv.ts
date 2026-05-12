@@ -2534,15 +2534,17 @@ export function redirectToDerivOAuth(url: string) {
   window.location.href = url;
 }
 
-// Legacy OAuth (direct-token) flow: separate authorization endpoint that returns
-// `token1`, `acct1`, `cur1`, ... directly in the redirect query. No PKCE, no token
-// exchange. The redirect_uri is the legacy one registered on Deriv's app dashboard.
+// Legacy OAuth (direct-token) flow: per the official Deriv API spec the
+// authorization URL takes only `app_id` (and optionally `l` for language). The
+// registered "OAuth redirect URL" on developers.deriv.com decides where Deriv
+// sends the user back with `acct1=…&token1=…&cur1=…`. Passing extra params
+// like `redirect_uri` or `brand` makes Deriv reject the request and fall back
+// to its public landing page (app_id=61554&redirect=home), which is exactly
+// what was happening before this fix.
 export function buildLegacyOAuthUrl(options: { returnTo?: string } = {}): string {
   const params = new URLSearchParams({
     app_id: DERIV_LEGACY_APP_ID,
     l: "EN",
-    brand: "deriv",
-    redirect_uri: DERIV_LEGACY_REDIRECT_URI,
   });
   if (isBrowser && options.returnTo) {
     try {
@@ -2567,14 +2569,16 @@ export function redirectToDerivLegacyOAuth(url: string) {
   if (parsed.searchParams.get("app_id") !== DERIV_LEGACY_APP_ID) {
     throw new Error("Legacy OAuth URL must use the registered legacy app_id.");
   }
-  if (parsed.searchParams.get("redirect_uri") !== DERIV_LEGACY_REDIRECT_URI) {
-    throw new Error("Legacy OAuth URL must use the registered legacy redirect_uri.");
+  if (parsed.searchParams.has("redirect_uri") || parsed.searchParams.has("redirect")) {
+    throw new Error(
+      "Legacy OAuth URL must not include redirect / redirect_uri — the redirect is configured on the Deriv app dashboard.",
+    );
   }
   recordDerivOAuthTrace("legacy-oauth-redirect-start", {
     currentHref: window.location.href,
     endpoint: `${parsed.origin}${parsed.pathname}`,
     app_id: parsed.searchParams.get("app_id"),
-    redirect_uri: parsed.searchParams.get("redirect_uri"),
+    registeredRedirectUri: DERIV_LEGACY_REDIRECT_URI,
   });
   sessionStorage.setItem("deriv_legacy_oauth_started_at", new Date().toISOString());
   sessionStorage.setItem("deriv_legacy_oauth_redirecting", "true");
