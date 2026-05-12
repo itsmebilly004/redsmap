@@ -2535,17 +2535,12 @@ export function redirectToDerivOAuth(url: string) {
 }
 
 // Legacy OAuth (direct-token) flow: per the official Deriv API spec the
-// authorization URL takes only `app_id` (and optionally `l` for language). The
-// registered "OAuth redirect URL" on developers.deriv.com decides where Deriv
-// sends the user back with `acct1=…&token1=…&cur1=…`. Passing extra params
-// like `redirect_uri` or `brand` makes Deriv reject the request and fall back
-// to its public landing page (app_id=61554&redirect=home), which is exactly
-// what was happening before this fix.
+// authorization URL takes only `app_id`. The registered "OAuth redirect URL"
+// on developers.deriv.com decides where Deriv sends the user back with
+// `acct1=…&token1=…&cur1=…`. We build the absolutely minimal URL so Deriv has
+// nothing to reject; any extra query parameter (redirect_uri, brand, l, etc.)
+// risks dropping the user onto Deriv's anonymous landing page.
 export function buildLegacyOAuthUrl(options: { returnTo?: string } = {}): string {
-  const params = new URLSearchParams({
-    app_id: DERIV_LEGACY_APP_ID,
-    l: "EN",
-  });
   if (isBrowser && options.returnTo) {
     try {
       sessionStorage.setItem("deriv_legacy_oauth_return_to", options.returnTo);
@@ -2553,7 +2548,7 @@ export function buildLegacyOAuthUrl(options: { returnTo?: string } = {}): string
       /* ignore storage failures */
     }
   }
-  return `${DERIV_LEGACY_AUTHORIZE_ENDPOINT}?${params.toString()}`;
+  return `${DERIV_LEGACY_AUTHORIZE_ENDPOINT}?app_id=${encodeURIComponent(DERIV_LEGACY_APP_ID)}`;
 }
 
 export function redirectToDerivLegacyOAuth(url: string) {
@@ -2569,16 +2564,23 @@ export function redirectToDerivLegacyOAuth(url: string) {
   if (parsed.searchParams.get("app_id") !== DERIV_LEGACY_APP_ID) {
     throw new Error("Legacy OAuth URL must use the registered legacy app_id.");
   }
-  if (parsed.searchParams.has("redirect_uri") || parsed.searchParams.has("redirect")) {
-    throw new Error(
-      "Legacy OAuth URL must not include redirect / redirect_uri — the redirect is configured on the Deriv app dashboard.",
-    );
+  // Deriv rejects the request and bounces the user to its anonymous landing
+  // page (app_id=61554&redirect=home) whenever the OAuth URL carries any of
+  // these non-spec parameters. Catch them client-side so we never redirect to
+  // a URL that breaks the flow.
+  for (const forbidden of ["redirect_uri", "redirect", "brand", "l", "scope", "state"]) {
+    if (parsed.searchParams.has(forbidden)) {
+      throw new Error(
+        `Legacy OAuth URL must not include "${forbidden}" — only app_id is allowed. The redirect is configured on the Deriv app dashboard.`,
+      );
+    }
   }
   recordDerivOAuthTrace("legacy-oauth-redirect-start", {
     currentHref: window.location.href,
     endpoint: `${parsed.origin}${parsed.pathname}`,
     app_id: parsed.searchParams.get("app_id"),
     registeredRedirectUri: DERIV_LEGACY_REDIRECT_URI,
+    sanitizedOAuthUrl: url,
   });
   sessionStorage.setItem("deriv_legacy_oauth_started_at", new Date().toISOString());
   sessionStorage.setItem("deriv_legacy_oauth_redirecting", "true");
