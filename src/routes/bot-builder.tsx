@@ -61,7 +61,6 @@ import {
   Save,
   Search,
   Settings2,
-  Sparkles,
   Square,
   Trash2,
   Undo2,
@@ -71,6 +70,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isDemoAccount } from "@/lib/deriv-account";
+import { markDeployedBotPresetId, readDeployedBotPresetIds } from "@/lib/bot-preset-storage";
 import { BOT_PRESETS } from "./trading-bots";
 
 export const Route = createFileRoute("/bot-builder")({
@@ -204,8 +204,54 @@ type BotBuilderSnapshot = {
   tradeType: TradeCategory;
   workspaceZoom: number;
 };
+
+type StoredBotBuilderState = {
+  blockPositions?: Record<string, { x: number; y: number }>;
+  botId?: string | null;
+  snapshot?: BotBuilderSnapshot;
+  version?: number;
+};
+
+const BOT_BUILDER_STORAGE_VERSION = 1;
+
+function botBuilderStateStorageKey(userId?: string | null) {
+  return `arktrader:bot-builder:${userId ?? "guest"}:state`;
+}
+
+function readStoredBotBuilderState(userId?: string | null) {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(botBuilderStateStorageKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredBotBuilderState;
+    if (!parsed.snapshot || !Array.isArray(parsed.snapshot.activeBlocks)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredBotBuilderState(
+  userId: string | null | undefined,
+  state: Omit<StoredBotBuilderState, "version">,
+) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      botBuilderStateStorageKey(userId),
+      JSON.stringify({
+        ...state,
+        savedAt: new Date().toISOString(),
+        version: BOT_BUILDER_STORAGE_VERSION,
+      }),
+    );
+  } catch {
+    /* Local persistence is best effort. */
+  }
+}
+
 function BotBuilder() {
-  const { user } = useAuth();
+  const { loading: authLoading, user } = useAuth();
   const { preset } = Route.useSearch();
   const {
     account: derivAccount,
@@ -222,12 +268,7 @@ function BotBuilder() {
     if (typeof window === "undefined") return false;
     return window.innerWidth < 768;
   });
-  const [activeBlocks, setActiveBlocks] = useState<string[]>([
-    "params",
-    "purchase",
-    "sell",
-    "restart",
-  ]);
+  const [activeBlocks, setActiveBlocks] = useState<string[]>([]);
   const [blockPositions, setBlockPositions] =
     useState<Record<string, { x: number; y: number }>>(INITIAL_BLOCK_POSITIONS);
   const [draggingBlock, setDraggingBlock] = useState<string | null>(null);
@@ -275,6 +316,8 @@ function BotBuilder() {
   const applyingHistoryRef = useRef(false);
   const saveBotNowRef = useRef<(showToast?: boolean) => Promise<void>>(async () => {});
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "idle">("saved");
+  const [storageReady, setStorageReady] = useState(false);
+  const [deployedPresetIds, setDeployedPresetIds] = useState<string[]>([]);
   const [panelTab, setPanelTab] = useState("summary");
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
@@ -293,6 +336,10 @@ function BotBuilder() {
   const [tradeRecords, setTradeRecords] = useState<TradeRecord[]>([]);
 
   const availableSides = SIDE_OPTIONS[tradeType];
+  const deployedPresets = useMemo(
+    () => BOT_PRESETS.filter((item) => deployedPresetIds.includes(item.id)),
+    [deployedPresetIds],
+  );
   const snapshot = useMemo<BotBuilderSnapshot>(
     () => ({
       activeBlocks,
@@ -354,6 +401,35 @@ function BotBuilder() {
       { height: 760, width: 1160 },
     );
   }, [activeBlocks, blockPositions]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    setDeployedPresetIds(readDeployedBotPresetIds(user?.id));
+  }, [authLoading, user?.id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (preset) {
+      setStorageReady(true);
+      return;
+    }
+
+    const stored = readStoredBotBuilderState(user?.id);
+    if (stored?.snapshot) {
+      applySnapshot(stored.snapshot);
+      if (stored.blockPositions) {
+        setBlockPositions({
+          ...INITIAL_BLOCK_POSITIONS,
+          ...stored.blockPositions,
+        });
+      }
+      setBotId(stored.botId ?? null);
+      setUndoStack([]);
+      setRedoStack([]);
+    }
+    setStorageReady(true);
+  }, [authLoading, preset, user?.id]);
+
   const applyPresetConfig = useCallback((config: (typeof BOT_PRESETS)[number]) => {
     const nextTradeType = config.tradeType as TradeCategory;
     setBotName(config.name);
@@ -549,14 +625,24 @@ function BotBuilder() {
   }, [snapshot]);
 
   useEffect(() => {
-    if (!preset) return;
-    const config = BOT_PRESETS.find((item) => item.id === preset);
-    if (!config) return;
-    applyPresetConfig(config);
-  }, [applyPresetConfig, preset]);
+    if (!storageReady || authLoading) return;
+    writeStoredBotBuilderState(user?.id, {
+      blockPositions,
+      botId,
+      snapshot,
+    });
+  }, [authLoading, blockPositions, botId, snapshot, storageReady, user?.id]);
 
   useEffect(() => {
-    if (!user) return;
+    if (authLoading || !preset) return;
+    const config = BOT_PRESETS.find((item) => item.id === preset);
+    if (!config) return;
+    setDeployedPresetIds(markDeployedBotPresetId(user?.id, config.id));
+    applyPresetConfig(config);
+  }, [applyPresetConfig, authLoading, preset, user?.id]);
+
+  useEffect(() => {
+    if (!user || authLoading || !storageReady || activeBlocks.length === 0) return;
     const timeoutId = setTimeout(async () => {
       setSaveStatus("saving");
       await saveBotNowRef.current(false);
@@ -582,6 +668,8 @@ function BotBuilder() {
     takeProfit,
     tradeType,
     user,
+    authLoading,
+    storageReady,
     workspaceZoom,
   ]);
 
@@ -1148,10 +1236,10 @@ function BotBuilder() {
                 <ToolbarPill icon={FileJson} label="Strategy" />
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-64 border-[#d6d8dc] bg-white text-[#111827] shadow-lg">
-                <DropdownMenuItem onSelect={quickStrategy}>
-                  <Sparkles className="size-4" /> Quick strategy
-                </DropdownMenuItem>
-                {BOT_PRESETS.map((item) => (
+                {deployedPresets.length === 0 && (
+                  <DropdownMenuItem disabled>No saved presets</DropdownMenuItem>
+                )}
+                {deployedPresets.map((item) => (
                   <DropdownMenuItem key={item.id} onSelect={() => loadPreset(item.id)}>
                     {item.name}
                   </DropdownMenuItem>

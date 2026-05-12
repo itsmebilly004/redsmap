@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { TopShell, PageHero } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { markDeployedBotPresetId } from "@/lib/bot-preset-storage";
 import { Zap, Target, ShieldCheck, Cpu, BrainCircuit, Flame, Radar } from "lucide-react";
 
 export const Route = createFileRoute("/trading-bots")({
@@ -178,9 +179,19 @@ function TradingBots() {
 
                   <div className="mt-6">
                     <Button asChild size="lg" className="w-full rounded-xl font-bold shadow-glow">
-                      <Link to="/bot-builder" search={{ preset: b.id }}>
-                        {user ? "Deploy Bot" : "Sign in to deploy"}
-                      </Link>
+                      {user ? (
+                        <Link
+                          to="/bot-builder"
+                          search={{ preset: b.id }}
+                          onClick={() => markDeployedBotPresetId(user.id, b.id)}
+                        >
+                          Deploy Bot
+                        </Link>
+                      ) : (
+                        <Link to="/auth" search={{ mode: "signin" }}>
+                          Sign in to deploy
+                        </Link>
+                      )}
                     </Button>
                   </div>
                 </div>
