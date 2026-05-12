@@ -2599,14 +2599,15 @@ export function redirectToDerivLegacyOAuth(url: string) {
   // Deriv's legacy OAuth provider silently bypasses /oauth2/authorize for
   // users who already have an active oauth.deriv.com session, landing them on
   // the Deriv homepage instead of completing the redirect back to our
-  // registered redirect_uri. Pre-clear the deriv.com session by opening
-  // Deriv's own /oauth2/sessions/logout endpoint in a short-lived popup —
-  // a popup is a top-level browsing context so the session cookie is sent
-  // first-party and Deriv's Set-Cookie clearance applies to the global cookie
-  // jar (an iframe-based logout is undermined by browsers' third-party cookie
-  // restrictions). After the popup closes the main window navigates to the
-  // bare ?app_id=… URL and Deriv reliably presents the login form, so the
-  // callback round-trip always completes.
+  // registered redirect_uri. Pre-clear the deriv.com session by issuing a
+  // background cross-origin GET to Deriv's own /oauth2/sessions/logout
+  // endpoint with credentials. The browser carries the existing oauth.deriv.com
+  // session cookie first-party, Deriv invalidates the session and returns
+  // Set-Cookie clearance headers, and the browser applies them — all
+  // invisibly, with no popup or iframe shown to the user. The subsequent
+  // top-level navigation to the bare ?app_id=… URL then sees no active
+  // session, so Deriv reliably presents the login/authorization screen and
+  // the callback round-trip completes.
   clearDerivLegacyOAuthSessionCookie().finally(() => {
     window.location.href = url;
   });
@@ -2614,67 +2615,33 @@ export function redirectToDerivLegacyOAuth(url: string) {
 
 function clearDerivLegacyOAuthSessionCookie(): Promise<void> {
   return new Promise((resolve) => {
-    if (!isBrowser) {
-      resolve();
-      return;
-    }
-    const logoutUrl = "https://oauth.deriv.com/oauth2/sessions/logout";
-    const popupFeatures = [
-      "width=480",
-      "height=320",
-      "left=120",
-      "top=120",
-      "menubar=no",
-      "toolbar=no",
-      "location=no",
-      "status=no",
-      "resizable=no",
-      "scrollbars=no",
-    ].join(",");
-    let popup: Window | null = null;
-    try {
-      popup = window.open(logoutUrl, "deriv_legacy_logout", popupFeatures);
-    } catch {
-      popup = null;
-    }
-    if (!popup) {
-      // Popup blocked or unavailable — proceed without pre-logout. The
-      // redirect will still attempt; worst case the user lands on Deriv's
-      // homepage and re-clicks the connect button, which is the existing
-      // behavior we're trying to improve, not worsen.
+    if (!isBrowser || typeof fetch !== "function") {
       resolve();
       return;
     }
     let settled = false;
-    let pollHandle: number | null = null;
-    let hardTimeout: number | null = null;
-    const cleanup = () => {
-      if (pollHandle !== null) {
-        window.clearInterval(pollHandle);
-        pollHandle = null;
-      }
-      if (hardTimeout !== null) {
-        window.clearTimeout(hardTimeout);
-        hardTimeout = null;
-      }
-    };
     const finish = () => {
       if (settled) return;
       settled = true;
-      cleanup();
-      try {
-        if (popup && !popup.closed) popup.close();
-      } catch {
-        /* ignore */
-      }
+      window.clearTimeout(hardTimeout);
       resolve();
     };
-    // Give Deriv enough time to load /oauth2/sessions/logout and process the
-    // Set-Cookie clearance, then close the popup ourselves.
-    hardTimeout = window.setTimeout(finish, 1600);
-    pollHandle = window.setInterval(() => {
-      if (popup?.closed) finish();
-    }, 200);
+    // Hard cap so a slow/blocked network never strands the user. If the
+    // fetch hasn't completed in 1.8s we proceed with the redirect anyway —
+    // worst case the user lands on the existing behavior, never worse.
+    const hardTimeout = window.setTimeout(finish, 1800);
+    try {
+      void fetch("https://oauth.deriv.com/oauth2/sessions/logout", {
+        method: "GET",
+        credentials: "include",
+        mode: "no-cors",
+        cache: "no-store",
+        redirect: "follow",
+        referrerPolicy: "no-referrer",
+      }).then(finish, finish);
+    } catch {
+      finish();
+    }
   });
 }
 
