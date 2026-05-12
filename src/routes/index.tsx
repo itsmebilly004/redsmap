@@ -115,7 +115,6 @@ function Index() {
 
           <SignalsPanel symbol={symbol} compact />
         </section>
-
         <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 pb-24 sm:p-3 lg:pb-3">
           <TradePanel
             market={symbol}
