@@ -127,6 +127,7 @@ function Index() {
         </aside>
       </div>
 
+
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
         <span className="rounded-md bg-[oklch(0.92_0.13_95)] px-2.5 py-1 text-[11px] font-semibold text-[oklch(0.3_0.1_80)] sm:px-4 sm:py-1.5 sm:text-sm">
           Risk Disclaimer - Trading involves significant risk of loss.
