@@ -671,15 +671,21 @@ export function TradePanel({
             status: next.status,
             websocketAccountId: getTradingSocketAccountId(),
           });
-          if (["sold", "won", "lost"].includes(next.status)) {
+          if (["sold", "won", "lost"].includes(next.status) && current.status === "active") {
             void cleanupSubscription();
             void markTradeClosed(next);
+            void refreshBalances("trade-closed").catch((error) => {
+              console.warn("[Manual Trader] balance refresh after close failed", error);
+            });
           }
           return next;
         });
       });
       toast.success(`Bought ${side.label}`);
       setQuotesVersion((value) => value + 1);
+      void refreshBalances("trade-placed").catch((error) => {
+        console.warn("[Manual Trader] balance refresh after buy failed", error);
+      });
     } catch (error) {
       const message = getDerivTradingErrorMessage(error);
       console.error("[Deriv Trade] Buy failed", error);
@@ -719,6 +725,9 @@ export function TradePanel({
       setActiveContract(next);
       await cleanupSubscription();
       await markTradeClosed(next);
+      void refreshBalances("manual-sell").catch((error) => {
+        console.warn("[Manual Trader] balance refresh after sell failed", error);
+      });
       toast[profit >= 0 ? "success" : "error"](
         `Closed ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${tradeCurrency}`,
       );

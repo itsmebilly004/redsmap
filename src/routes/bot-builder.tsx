@@ -207,7 +207,11 @@ type BotBuilderSnapshot = {
 function BotBuilder() {
   const { user } = useAuth();
   const { preset } = Route.useSearch();
-  const { account: derivAccount, currency: derivCurrency } = useDerivBalanceContext();
+  const {
+    account: derivAccount,
+    currency: derivCurrency,
+    refreshBalances,
+  } = useDerivBalanceContext();
   const token = derivAccount?.deriv_token ?? null;
 
   const [botId, setBotId] = useState<string | null>(null);
@@ -936,6 +940,9 @@ function BotBuilder() {
         status: "open",
       });
       logJournal(`Purchased ${contractType} on ${symbol}`, "success");
+      void refreshBalances("bot-trade-placed").catch((error) => {
+        console.warn("[Deriv Bot] balance refresh after buy failed", error);
+      });
 
       const poll = setInterval(async () => {
         if (!runningRef.current) {
@@ -972,6 +979,9 @@ function BotBuilder() {
           `${won ? "Win" : "Loss"} ${pnl.toFixed(2)} ${derivCurrency || ""}`,
           won ? "success" : "error",
         );
+        void refreshBalances("bot-trade-closed").catch((error) => {
+          console.warn("[Deriv Bot] balance refresh after close failed", error);
+        });
         if (runningRef.current) setTimeout(runCycle, 750);
       }, 1000);
     } catch (error: unknown) {

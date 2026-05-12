@@ -290,9 +290,12 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             status: next.status,
             barrierSource: next.barrierSource,
           });
-          if (next.status === "lost" || next.status === "sold") {
+          if ((next.status === "lost" || next.status === "sold") && current.status === "active") {
             void cleanupSubscription();
             void markTradeClosed(next);
+            void refreshBalances("accumulator-closed").catch((error) => {
+              console.warn("[Accumulator] balance refresh after close failed", error);
+            });
             if (next.status === "lost") {
               toast.error("Accumulator ended: barrier breached.");
             }
@@ -301,6 +304,9 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         });
       });
       toast.success(`Bought accumulator ${contractId}`);
+      void refreshBalances("accumulator-placed").catch((error) => {
+        console.warn("[Accumulator] balance refresh after buy failed", error);
+      });
     } catch (error: unknown) {
       const message = getDerivTradingErrorMessage(error);
       console.error("[Accumulator] Trade failed", error);
@@ -340,6 +346,9 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       setState(next);
       await cleanupSubscription();
       await markTradeClosed(next);
+      void refreshBalances("accumulator-sell").catch((error) => {
+        console.warn("[Accumulator] balance refresh after sell failed", error);
+      });
       toast[profit >= 0 ? "success" : "error"](
         `Accumulator sold ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${tradeCurrency}`,
       );
