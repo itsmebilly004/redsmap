@@ -216,7 +216,7 @@ function AuthPage() {
                   {busy ? "Connecting to Deriv..." : "New traders"}
                 </span>
                 <span className="mt-0.5 block text-[11px] font-normal text-primary-foreground/80">
-                  Accounts created from 2025
+                  Accounts created before late 2025
                 </span>
               </span>
               <ArrowRight className="size-4 shrink-0" />
