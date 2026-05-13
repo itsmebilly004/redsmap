@@ -19,7 +19,7 @@ export const Route = createFileRoute("/charts")({
 function computeChartHeight() {
   if (typeof window === "undefined") return 600;
   const narrow = window.innerWidth < 640;
-  return Math.max(narrow ? 300 : 400, window.innerHeight - (narrow ? 220 : 160));
+  return Math.max(narrow ? 280 : 400, window.innerHeight - (narrow ? 260 : 180));
 }
 
 function ChartsPage() {

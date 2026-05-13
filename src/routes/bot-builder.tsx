@@ -32,6 +32,7 @@ import {
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { useAuth } from "@/hooks/use-auth";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
@@ -247,6 +248,7 @@ function BotBuilderPage() {
   const { user, loading: authLoading } = useAuth();
   const { preset } = Route.useSearch();
   const { account, currency: accountCurrency, refreshBalances } = useDerivBalanceContext();
+  const isMobile = useIsMobile();
   const [settings, setSettings] = useState<BotSettings>(initialSettings);
   const [status, setStatus] = useState<BotStatus>("stopped");
   const [activeTab, setActiveTab] = useState("summary");
@@ -288,6 +290,12 @@ function BotBuilderPage() {
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    setLeftCollapsed(true);
+    setMonitorCollapsed(true);
+  }, [isMobile]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -686,10 +694,10 @@ function BotBuilderPage() {
         className="hidden"
         onChange={(event) => void importBotFile(event.target.files?.[0])}
       />
-      <div className="min-w-0 bg-[#e9eaec] p-2 text-[#171717] dark:bg-[#0f0f0f]">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[#e9eaec] p-2 text-[#171717] dark:bg-[#0f0f0f]">
         <div
           className={cn(
-            "grid min-w-0 grid-cols-1 gap-3 lg:h-[calc(100dvh-6.25rem)] lg:min-h-[620px] lg:gap-4 lg:overflow-hidden",
+            "grid h-full min-w-0 flex-1 grid-cols-1 gap-2 overflow-hidden lg:h-[calc(100dvh-6.25rem)] lg:min-h-[620px] lg:gap-4",
             leftCollapsed && monitorCollapsed && "lg:grid-cols-[52px_minmax(0,1fr)_52px]",
             leftCollapsed && !monitorCollapsed && "lg:grid-cols-[52px_minmax(0,1fr)_354px]",
             !leftCollapsed && monitorCollapsed && "lg:grid-cols-[228px_minmax(0,1fr)_52px]",
@@ -774,7 +782,7 @@ function BlocksMenu({
   }
 
   return (
-    <aside className="flex min-h-0 flex-col bg-[#f5f5f5] text-[#101213] lg:overflow-hidden dark:bg-[#151515] dark:text-[#eeeeee]">
+    <aside className="flex min-h-0 max-h-[28dvh] flex-col overflow-hidden bg-[#f5f5f5] text-[#101213] lg:max-h-none lg:overflow-hidden dark:bg-[#151515] dark:text-[#eeeeee]">
       <button
         type="button"
         onClick={onToggle}
@@ -796,7 +804,7 @@ function BlocksMenu({
         </label>
       </div>
 
-      <div className="bg-white lg:min-h-0 lg:flex-1 dark:bg-[#151515]">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-white dark:bg-[#151515]">
         {filteredMenu.map((item) => (
           <a
             key={item.title}
@@ -880,7 +888,7 @@ function WorkspaceCanvas({
   zoom: number;
 }) {
   return (
-    <section className="relative h-[72dvh] min-h-[420px] min-w-0 overflow-hidden bg-white lg:h-auto lg:min-h-0 dark:bg-[#101010]">
+    <section className="relative h-[46dvh] min-h-[320px] min-w-0 overflow-hidden bg-white lg:h-auto lg:min-h-0 dark:bg-[#101010]">
       <WorkspaceToolbar
         onImport={onImport}
         onRedo={onRedo}

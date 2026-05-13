@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Maximize2, Minimize2 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DerivChart } from "@/components/deriv-chart";
+import { MarketSelector } from "@/components/market-selector";
 import { TopShell } from "@/components/top-shell";
 import { TradePanel } from "@/components/trade-panel";
 import {
@@ -46,9 +47,18 @@ function Index() {
     profitStatus: null,
   });
   const lossOverlayTimerRef = useRef<number | null>(null);
+  const barrierFlashTimerRef = useRef<number | null>(null);
+  const breachedRef = useRef(false);
+  const lossOverlayDismissedRef = useRef(false);
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const chartHeight = isMobile ? (isDigitTrade(tradeType) ? 124 : 108) : 340;
+  const chartHeight = isMobile
+    ? tradeType === "accumulator"
+      ? 182
+      : isDigitTrade(tradeType)
+        ? 164
+        : 172
+    : 380;
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -62,6 +72,9 @@ function Index() {
     return () => {
       if (lossOverlayTimerRef.current !== null) {
         window.clearTimeout(lossOverlayTimerRef.current);
+      }
+      if (barrierFlashTimerRef.current !== null) {
+        window.clearTimeout(barrierFlashTimerRef.current);
       }
     };
   }, []);
@@ -89,25 +102,53 @@ function Index() {
       profitCurrency?: string;
       profitStatus?: "active" | "lost" | "sold" | null;
     }) => {
-      if (next.profitStatus !== "lost" && lossOverlayTimerRef.current !== null) {
+      const nextStatus = next.profitStatus ?? null;
+      const justBreached = Boolean(next.breached) && !breachedRef.current;
+      breachedRef.current = Boolean(next.breached);
+
+      if (nextStatus !== "lost" && lossOverlayTimerRef.current !== null) {
         window.clearTimeout(lossOverlayTimerRef.current);
         lossOverlayTimerRef.current = null;
       }
+      if (nextStatus !== "lost") {
+        lossOverlayDismissedRef.current = false;
+      }
 
-      if (next.profitStatus === "sold") {
-        setBarriers({ ...next, profit: null, profitStatus: null });
+      if (justBreached) {
+        if (barrierFlashTimerRef.current !== null) {
+          window.clearTimeout(barrierFlashTimerRef.current);
+        }
+        barrierFlashTimerRef.current = window.setTimeout(() => {
+          barrierFlashTimerRef.current = null;
+          setBarriers((current) => ({ ...current, breached: false }));
+        }, 1250);
+      }
+
+      if (nextStatus === "sold") {
+        setBarriers((current) => ({
+          ...current,
+          ...next,
+          breached: justBreached ? true : current.breached,
+          profit: null,
+          profitStatus: null,
+        }));
         return;
       }
 
-      setBarriers({
-        ...next,
-        profit: next.profit ?? null,
-        profitStatus: next.profitStatus ?? null,
-      });
+      const suppressLostOverlay = nextStatus === "lost" && lossOverlayDismissedRef.current;
 
-      if (next.profitStatus === "lost" && lossOverlayTimerRef.current === null) {
+      setBarriers((current) => ({
+        ...current,
+        ...next,
+        breached: justBreached ? true : current.breached,
+        profit: suppressLostOverlay ? null : (next.profit ?? null),
+        profitStatus: suppressLostOverlay ? null : nextStatus,
+      }));
+
+      if (nextStatus === "lost" && !lossOverlayDismissedRef.current && lossOverlayTimerRef.current === null) {
         lossOverlayTimerRef.current = window.setTimeout(() => {
           lossOverlayTimerRef.current = null;
+          lossOverlayDismissedRef.current = true;
           setBarriers((current) => ({ ...current, profit: null, profitStatus: null }));
         }, 2000);
       }
@@ -156,8 +197,14 @@ function Index() {
 
   return (
     <TopShell>
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:overflow-visible lg:h-[calc(100dvh-12rem)] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
-        <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-[oklch(0.92_0.005_240)] bg-white p-1 sm:p-3 md:overflow-y-auto lg:border-b-0 lg:border-r dark:border-[#242424] dark:bg-[#151515]">
+      <div
+        className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px] lg:overflow-hidden"
+        style={{
+          gridTemplateRows: isMobile ? "minmax(0, 224px) minmax(0, 1fr)" : undefined,
+          height: isMobile ? "calc(100dvh - 11rem)" : "calc(100dvh - 12rem)",
+        }}
+      >
+        <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-[oklch(0.92_0.005_240)] bg-white p-1 sm:p-3 lg:border-b-0 lg:border-r dark:border-[#242424] dark:bg-[#151515]">
           <div className="mb-1 hidden items-center justify-between sm:mb-2 md:flex">
             <div>
               <div className="text-sm font-semibold">Manual Trader</div>
@@ -166,39 +213,47 @@ function Index() {
               </div>
             </div>
           </div>
-
-
-          <DerivChart
-            symbol={symbol}
-            onSymbolChange={setSymbol}
-            onPrice={setPrice}
-            height={chartHeight}
-            entryPrice={barriers.entry}
-            highBarrier={barriers.high}
-            lowBarrier={barriers.low}
-            barrierBreached={barriers.breached}
-            accumulatorProfit={barriers.profit}
-            accumulatorProfitCurrency={barriers.profitCurrency}
-            accumulatorProfitStatus={barriers.profitStatus}
-            showDigitStats={isDigitTrade(tradeType)}
-            compact={isMobile}
-          />
+          <div className="relative min-h-0 flex-1">
+            {!isMobile && (
+              <div className="pointer-events-none absolute right-3 top-[3.5rem] z-40 hidden lg:block">
+                <div className="pointer-events-auto w-[320px]">
+                  <MarketSelector value={symbol} onValueChange={setSymbol} />
+                </div>
+              </div>
+            )}
+            <DerivChart
+              symbol={symbol}
+              onSymbolChange={setSymbol}
+              onPrice={setPrice}
+              height={chartHeight}
+              entryPrice={barriers.entry}
+              highBarrier={barriers.high}
+              lowBarrier={barriers.low}
+              barrierBreached={barriers.breached}
+              accumulatorProfit={barriers.profit}
+              accumulatorProfitCurrency={barriers.profitCurrency}
+              accumulatorProfitStatus={barriers.profitStatus}
+              showDigitStats={isDigitTrade(tradeType)}
+              showSymbolSelector={isMobile}
+              compact={isMobile}
+            />
+          </div>
 
           <p className="mt-2 hidden text-xs text-[oklch(0.5_0.02_260)] sm:block dark:text-[#999999]">
             Live data streamed from the Deriv WebSocket API. Sign in to place real trades.
           </p>
         </section>
-        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden bg-[oklch(0.97_0.003_240)] p-1.5 pb-1.5 sm:p-3 md:overflow-y-auto lg:pb-3 dark:bg-[#0e0e0e]">
+        <aside className="flex min-h-0 min-w-0 flex-col gap-1.5 overflow-hidden bg-[oklch(0.97_0.003_240)] p-1.5 pb-1.5 sm:p-3 lg:overflow-y-auto lg:pb-3 dark:bg-[#0e0e0e]">
           <TradePanel
             market={symbol}
             lastPrice={price}
             onAccumulatorBarriers={handleAccumulatorBarriers}
             onMarketChange={setSymbol}
-            onTradeTypeChange={setTradeType}          />
+            onTradeTypeChange={setTradeType}
+            showMarketSelector={false}
+          />
         </aside>
       </div>
-
-
       <div className="hidden flex-wrap items-center justify-between gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 md:flex dark:border-[#242424] dark:bg-[#151515]">
         <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-[oklch(0.45_0.02_260)] sm:gap-3 dark:text-[#999999]">
           <Link

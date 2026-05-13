@@ -133,14 +133,14 @@ export function MarketSelector({ className, onValueChange, value }: MarketSelect
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-md border border-[#9ea8ad] bg-white px-2.5 py-2 text-left shadow-sm transition hover:bg-[#f6f7f8] max-sm:py-1.5 dark:border-[#2f3337] dark:bg-[#151515] dark:hover:bg-[#202020]"
+            className="flex w-full items-center gap-2 rounded-[4px] border border-[#bcc4c9] bg-white px-3 py-2.5 text-left transition hover:bg-[#f7f8f9] max-sm:px-2.5 max-sm:py-2 dark:border-[#2f3337] dark:bg-[#151515] dark:hover:bg-[#202020]"
           >
             <MarketGlyph symbol={selected ?? value} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-bold text-[#333333] max-sm:text-xs dark:text-[#f2f2f2]">
                 {selected?.display_name ?? value}
               </span>
-              <span className="block truncate font-mono text-[11px] text-[#7a838c] max-sm:text-[10px] dark:text-[#a8b0b8]">
+              <span className="block truncate text-[11px] text-[#7a838c] max-sm:text-[10px] dark:text-[#a8b0b8]">
                 {selected
                   ? `${selected.market_display_name || "Deriv"} / ${selected.submarket_display_name || selected.symbol}`
                   : loading
@@ -159,7 +159,7 @@ export function MarketSelector({ className, onValueChange, value }: MarketSelect
 
         <PopoverContent
           align="start"
-          className="w-[calc(100vw-1rem)] overflow-hidden rounded-[3px] border-[#d6d9dc] bg-white p-0 text-[#333333] shadow-xl sm:w-[555px] dark:border-[#2f3337] dark:bg-[#151515] dark:text-[#eeeeee]"
+          className="w-[calc(100vw-1rem)] overflow-hidden rounded-[3px] border-[#d6d9dc] bg-white p-0 text-[#333333] shadow-xl sm:w-[560px] dark:border-[#2f3337] dark:bg-[#151515] dark:text-[#eeeeee]"
           sideOffset={6}
         >
           <div className="grid max-h-[min(723px,76dvh)] min-h-[420px] grid-cols-[238px_minmax(0,1fr)] overflow-hidden max-sm:grid-cols-[132px_minmax(0,1fr)] max-sm:min-h-[360px]">
@@ -243,7 +243,7 @@ export function MarketSelector({ className, onValueChange, value }: MarketSelect
                 ) : (
                   groupedItems.map((group) => (
                     <div key={group.key}>
-                      <div className="px-7 pb-2 pt-4 text-sm font-bold max-sm:px-3 max-sm:pb-1 max-sm:pt-3 max-sm:text-xs">
+                      <div className="px-7 pb-2 pt-4 text-sm font-bold max-sm:px-3 max-sm:pb-1 max-sm:pt-3 max-sm:text-[11px]">
                         {group.label}
                       </div>
                       <div className="space-y-0.5 px-4 max-sm:px-1.5">
@@ -258,7 +258,7 @@ export function MarketSelector({ className, onValueChange, value }: MarketSelect
                               className={cn(
                                 "flex min-h-10 w-full items-center gap-2 rounded-[3px] px-3 py-2 text-left transition max-sm:min-h-9 max-sm:px-2 max-sm:py-1.5",
                                 active
-                                  ? "bg-[#d9dedf] text-[#1f2328] dark:bg-[#2a3033] dark:text-[#f2f2f2]"
+                                  ? "bg-[#dfe3e4] text-[#1f2328] dark:bg-[#2a3033] dark:text-[#f2f2f2]"
                                   : "bg-transparent text-[#333333] hover:bg-[#eef1f2] dark:text-[#d8d8d8] dark:hover:bg-[#202020]",
                               )}
                             >
@@ -321,7 +321,7 @@ function CategoryButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "relative flex h-10 w-full items-center gap-4 px-5 text-left text-sm transition max-sm:h-8 max-sm:gap-2 max-sm:px-3 max-sm:text-xs",
+        "relative flex h-10 w-full items-center gap-3 px-5 text-left text-sm transition max-sm:h-8 max-sm:gap-2 max-sm:px-3 max-sm:text-[11px]",
         active
           ? "bg-white font-bold text-[#1f2328] before:absolute before:left-0 before:top-0 before:h-full before:w-1 before:bg-[#ff444f] dark:bg-[#151515] dark:text-[#f2f2f2]"
           : "font-medium text-[#4d555b] hover:bg-white/60 dark:text-[#d8d8d8] dark:hover:bg-[#202020]",

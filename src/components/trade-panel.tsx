@@ -83,6 +83,7 @@ interface TradePanelProps {
   onAccumulatorBarriers?: (b: ChartOverlay) => void;
   onMarketChange?: (market: string) => void;
   onTradeTypeChange?: (tradeType: TradeCategory) => void;
+  showMarketSelector?: boolean;
 }
 
 const EMPTY_QUOTE: ProposalQuote = {
@@ -121,12 +122,12 @@ function TradingConnectionBadge({
         ? { chip: "bg-[#fff8e7] text-[#9a6700]", label: "CONNECTING" }
         : { chip: "bg-[#fff1f2] text-[#cc2f39]", label: "DISCONNECTED" };
   return (
-    <div className="rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs shadow-sm max-sm:px-2 max-sm:py-1.5 max-sm:text-[11px] dark:border-[#2f3337] dark:bg-[#151515]">
+    <div className="rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs shadow-sm max-sm:px-2 max-sm:py-1 max-sm:text-[10px] dark:border-[#2f3337] dark:bg-[#151515]">
       <div className="flex items-center justify-between gap-3">
         <span className="font-semibold text-[#495057] dark:text-[#dce1e5]">Trading connection</span>
         <span
           className={[
-            "rounded px-2 py-1 text-[10px] font-semibold tracking-wide max-sm:px-1.5 max-sm:py-0.5 max-sm:text-[9px]",
+            "rounded px-2 py-1 text-[10px] font-semibold tracking-wide max-sm:px-1 max-sm:py-0.5 max-sm:text-[8px]",
             statusMeta.chip,
           ].join(" ")}
         >
@@ -144,6 +145,7 @@ export function TradePanel({
   onAccumulatorBarriers,
   onMarketChange,
   onTradeTypeChange,
+  showMarketSelector = true,
 }: TradePanelProps) {
   const { user } = useAuth();
   const { account, balance: accountBalance, currency, refreshBalances } = useDerivBalanceContext();
@@ -764,8 +766,10 @@ export function TradePanel({
 
   if (selectedTradeType === "accumulator") {
     return (
-      <div className="min-w-0 space-y-3 max-sm:space-y-1.5">
-        {onMarketChange && <MarketSelector value={market} onValueChange={onMarketChange} />}
+      <div className="min-w-0 space-y-2 max-sm:space-y-1.5">
+        {showMarketSelector && onMarketChange && (
+          <MarketSelector value={market} onValueChange={onMarketChange} />
+        )}
         <TradingConnectionBadge error={tradingConnectionError} status={tradingConnectionStatus} />
         <TradeTypeCard
           config={config}
@@ -783,8 +787,10 @@ export function TradePanel({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-3 max-sm:gap-1.5">
-      {onMarketChange && <MarketSelector value={market} onValueChange={onMarketChange} />}
+    <div className="flex min-w-0 flex-col gap-2 max-sm:gap-1.5">
+      {showMarketSelector && onMarketChange && (
+        <MarketSelector value={market} onValueChange={onMarketChange} />
+      )}
       <TradingConnectionBadge error={tradingConnectionError} status={tradingConnectionStatus} />
       <TradeTypeCard
         config={config}
@@ -929,8 +935,7 @@ export function TradePanel({
       )}
 
       <p className="order-9 text-[11px] text-[#6f767d] max-sm:hidden sm:order-none dark:text-[#a8b0b8]">
-        Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "-"}</span>. You can lose
-        money rapidly.
+        Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "-"}</span>
       </p>
     </div>
   );

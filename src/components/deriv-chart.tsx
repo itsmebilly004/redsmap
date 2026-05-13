@@ -28,34 +28,26 @@ import {
 import {
   fetchCandles,
   fetchTicks,
-  getActiveSymbols,
   onStatus,
   subscribeTicks,
   type ConnectionStatus,
   type Candle,
 } from "@/lib/deriv";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { MarketSelector } from "@/components/market-selector";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  CirclePlus,
   ChevronDown,
   Crosshair,
   Eye,
   EyeOff,
   LockKeyhole,
   Magnet,
-  MousePointer2,
   Network,
   Paintbrush,
+  PencilLine,
   Ruler,
   SlidersHorizontal,
   Smile,
@@ -67,7 +59,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearBarrierLines, renderBarrierLines, type BarrierLineRefs } from "@/lib/chart-barriers";
-import { fallbackActiveSymbols, groupActiveSymbols } from "@/lib/market-groups";
 
 type ChartType = "area" | "candle" | "bar";
 type ChartDrawingTool =
@@ -158,6 +149,7 @@ type Props = {
   accumulatorProfitCurrency?: string;
   accumulatorProfitStatus?: "active" | "lost" | "sold" | null;
   showDigitStats?: boolean;
+  showSymbolSelector?: boolean;
   compact?: boolean;
 };
 
@@ -216,7 +208,6 @@ const INDICATORS: IndicatorDef[] = [
 const INDICATOR_CATEGORIES: IndicatorCategory[] = ["Trend", "Momentum", "Volatility", "Reference"];
 
 const DRAWING_TOOLS: ChartToolDef[] = [
-  { tool: "pointer", label: "Pointer", icon: MousePointer2 },
   { tool: "trend", label: "Trend line", icon: Spline },
   { tool: "horizontal", label: "Horizontal level", icon: SlidersHorizontal },
   { tool: "fibonacci", label: "Fibonacci retracement", icon: Network },
@@ -298,6 +289,7 @@ export function DerivChart({
   accumulatorProfitCurrency,
   accumulatorProfitStatus,
   showDigitStats,
+  showSymbolSelector = true,
   compact = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -335,16 +327,6 @@ export function DerivChart({
     () => areaSeriesRef.current ?? candleSeriesRef.current ?? barSeriesRef.current,
     [],
   );
-  const [allSymbols, setAllSymbols] = useState<
-    {
-      symbol: string;
-      display_name: string;
-      market: string;
-      market_display_name: string;
-      submarket: string;
-      submarket_display_name: string;
-    }[]
-  >([]);
   const [digitStats, setDigitStats] = useState<{
     latest: number | null;
     percentages: number[];
@@ -730,16 +712,6 @@ export function DerivChart({
       updateAnalysisOverlays();
     });
   }, [updateAnalysisOverlays]);
-
-  useEffect(() => {
-    getActiveSymbols()
-      .then((list) => {
-        if (list?.length) setAllSymbols(list);
-      })
-      .catch(() => {
-        setAllSymbols(fallbackActiveSymbols());
-      });
-  }, []);
 
   useEffect(() => {
     const off = onStatus(setStatus);
@@ -1169,6 +1141,7 @@ export function DerivChart({
     const series = baseSeriesGetter();
     if (!series) return;
     clearBarrierLines(series, barrierLineRefs.current);
+    if (highBarrier != null && lowBarrier != null) return;
     renderBarrierLines(series, barrierLineRefs.current, {
       entryPrice,
       lowerBarrier: lowBarrier,
@@ -1186,36 +1159,19 @@ export function DerivChart({
     });
   }
 
-  const symbolGroups = useMemo(() => groupActiveSymbols(allSymbols), [allSymbols]);
-
   return (
     <div className={cn("min-w-0", className)}>
       {/* Toolbar */}
       <div
         className={cn("mb-2 flex min-w-0 flex-wrap items-center gap-2", compact && "mb-1 gap-1")}
       >
-        {/* Symbol selector */}
-        <Select value={symbol} onValueChange={(v) => onSymbolChange?.(v)}>
-          <SelectTrigger
-            className={cn("w-full min-w-0 glass-card text-xs sm:w-64", compact && "h-8")}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="max-h-80">
-            {symbolGroups.map((group) => (
-              <SelectGroup key={group.key}>
-                <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {group.label}
-                </SelectLabel>
-                {group.items.map((item) => (
-                  <SelectItem key={item.symbol} value={item.symbol}>
-                    {item.display_name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ))}
-          </SelectContent>
-        </Select>
+        {showSymbolSelector && onSymbolChange && (
+          <MarketSelector
+            className={cn("w-full min-w-0 sm:w-[320px]", compact && "max-sm:w-full")}
+            value={symbol}
+            onValueChange={onSymbolChange}
+          />
+        )}
 
         {/* Timeframe buttons */}
         <div
@@ -1431,6 +1387,7 @@ export function DerivChart({
             band={accumulatorBand}
             breached={Boolean(barrierBreached)}
             compact={compact}
+            showEntryGuide={Boolean(accumulatorProfitStatus)}
           />
         )}
         {accumulatorProfit != null &&
@@ -1449,6 +1406,14 @@ export function DerivChart({
             compact && "left-1 top-1 max-h-[calc(100%-0.5rem)] gap-0.5 p-0.5",
           )}
         >
+          <ChartToolButton
+            active={crosshairOn}
+            compact={compact}
+            label={crosshairOn ? "Hide crosshair" : "Show crosshair"}
+            onClick={() => setCrosshairOn((value) => !value)}
+          >
+            <Crosshair className={cn("size-4", compact && "size-3.5")} />
+          </ChartToolButton>
           {DRAWING_TOOLS.map(({ icon: Icon, label, tool }) => (
             <ChartToolButton
               key={tool}
@@ -1461,13 +1426,8 @@ export function DerivChart({
             </ChartToolButton>
           ))}
           <ChartToolSeparator />
-          <ChartToolButton
-            active={crosshairOn}
-            compact={compact}
-            label={crosshairOn ? "Hide crosshair" : "Show crosshair"}
-            onClick={() => setCrosshairOn((value) => !value)}
-          >
-            <Crosshair className={cn("size-4", compact && "size-3.5")} />
+          <ChartToolButton compact={compact} label="Zoom in" onClick={zoomIn}>
+            <CirclePlus className={cn("size-4", compact && "size-3.5")} />
           </ChartToolButton>
           <ChartToolButton
             active={magnetOn}
@@ -1477,8 +1437,13 @@ export function DerivChart({
           >
             <Magnet className={cn("size-4", compact && "size-3.5")} />
           </ChartToolButton>
-          <ChartToolButton compact={compact} label="Zoom in" onClick={zoomIn}>
-            <ZoomIn className={cn("size-4", compact && "size-3.5")} />
+          <ChartToolButton
+            active={activeDrawingTool === "pointer"}
+            compact={compact}
+            label="Selection mode"
+            onClick={() => setActiveDrawingTool("pointer")}
+          >
+            <PencilLine className={cn("size-4", compact && "size-3.5")} />
           </ChartToolButton>
           <ChartToolButton
             active={drawingsLocked}
@@ -1784,10 +1749,12 @@ function AccumulatorBarrierBandOverlay({
   band,
   breached,
   compact,
+  showEntryGuide,
 }: {
   band: AccumulatorBarrierBand;
   breached: boolean;
   compact?: boolean;
+  showEntryGuide?: boolean;
 }) {
   const color = breached ? "#ff444f" : "#2196f3";
   const fill = breached ? "rgba(255,68,79,0.11)" : "rgba(33,150,243,0.12)";
@@ -1808,7 +1775,7 @@ function AccumulatorBarrierBandOverlay({
           width,
         }}
       />
-      {band.entryY != null && (
+      {showEntryGuide && band.entryY != null && (
         <div
           className="absolute border-t border-dashed border-[#59646d]"
           style={{

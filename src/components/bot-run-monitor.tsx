@@ -111,7 +111,7 @@ export function BotRunMonitorPanel({
         "flex min-w-0 flex-col overflow-hidden border border-[#d8d8d8] bg-white text-[#333333] shadow-sm dark:border-[#2c2c2c] dark:bg-[#151515] dark:text-[#eeeeee]",
         mode === "footer"
           ? "fixed inset-x-2 bottom-2 z-40 max-h-[min(540px,72dvh)] rounded-lg sm:left-auto sm:w-[390px]"
-          : "h-[72dvh] min-h-[420px] lg:h-auto lg:min-h-0",
+          : "h-[72dvh] min-h-[420px] max-sm:fixed max-sm:inset-0 max-sm:z-50 max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0 lg:h-auto lg:min-h-0",
       )}
     >
       <div className="flex min-h-[49px] items-center gap-2 bg-[#f7f7f7] pr-2 dark:bg-[#1c1c1c]">
