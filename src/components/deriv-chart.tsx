@@ -6,6 +6,8 @@ import {
   useState,
   type Dispatch,
   type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import {
@@ -42,12 +44,41 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Activity, ChevronDown, Crosshair, ZoomIn } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Activity,
+  ChevronDown,
+  Crosshair,
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  Magnet,
+  MousePointer2,
+  Network,
+  Paintbrush,
+  Ruler,
+  SlidersHorizontal,
+  Smile,
+  Spline,
+  Trash2,
+  Type,
+  UnlockKeyhole,
+  ZoomIn,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearBarrierLines, renderBarrierLines, type BarrierLineRefs } from "@/lib/chart-barriers";
 import { fallbackActiveSymbols, groupActiveSymbols } from "@/lib/market-groups";
 
 type ChartType = "area" | "candle" | "bar";
+type ChartDrawingTool =
+  | "pointer"
+  | "trend"
+  | "horizontal"
+  | "fibonacci"
+  | "brush"
+  | "text"
+  | "emoji"
+  | "measure";
 type AnalysisTool =
   | "sma"
   | "ema"
@@ -73,6 +104,34 @@ type IndicatorDef = {
   category: IndicatorCategory;
 };
 
+type DrawingPoint = {
+  x: number;
+  y: number;
+};
+
+type ChartDrawing = {
+  id: string;
+  points: DrawingPoint[];
+  text?: string;
+  tool: ChartDrawingTool;
+};
+
+type AccumulatorBarrierBand = {
+  bottom: number;
+  entryY: number | null;
+  left: number;
+  lowerLabel: string;
+  right: number;
+  top: number;
+  upperLabel: string;
+};
+
+type ChartToolDef = {
+  icon: LucideIcon;
+  label: string;
+  tool: ChartDrawingTool;
+};
+
 type ResolvedTheme = "dark" | "light";
 
 type ChartPalette = {
@@ -95,6 +154,9 @@ type Props = {
   highBarrier?: number | null;
   lowBarrier?: number | null;
   barrierBreached?: boolean;
+  accumulatorProfit?: number | null;
+  accumulatorProfitCurrency?: string;
+  accumulatorProfitStatus?: "active" | "lost" | "sold" | null;
   showDigitStats?: boolean;
   compact?: boolean;
 };
@@ -152,6 +214,19 @@ const INDICATORS: IndicatorDef[] = [
 ];
 
 const INDICATOR_CATEGORIES: IndicatorCategory[] = ["Trend", "Momentum", "Volatility", "Reference"];
+
+const DRAWING_TOOLS: ChartToolDef[] = [
+  { tool: "pointer", label: "Pointer", icon: MousePointer2 },
+  { tool: "trend", label: "Trend line", icon: Spline },
+  { tool: "horizontal", label: "Horizontal level", icon: SlidersHorizontal },
+  { tool: "fibonacci", label: "Fibonacci retracement", icon: Network },
+  { tool: "brush", label: "Brush", icon: Paintbrush },
+  { tool: "text", label: "Text", icon: Type },
+  { tool: "emoji", label: "Emoji", icon: Smile },
+  { tool: "measure", label: "Ruler", icon: Ruler },
+];
+
+const FIBONACCI_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 
 const STATUS_STYLE: Record<ConnectionStatus, string> = {
   connecting: "bg-yellow-400/20 text-yellow-600",
@@ -219,6 +294,9 @@ export function DerivChart({
   highBarrier,
   lowBarrier,
   barrierBreached,
+  accumulatorProfit,
+  accumulatorProfitCurrency,
+  accumulatorProfitStatus,
   showDigitStats,
   compact = false,
 }: Props) {
@@ -242,6 +320,13 @@ export function DerivChart({
   const [analysisTools, setAnalysisTools] = useState<Set<AnalysisTool>>(new Set());
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [crosshairOn, setCrosshairOn] = useState(true);
+  const [activeDrawingTool, setActiveDrawingTool] = useState<ChartDrawingTool>("pointer");
+  const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
+  const [draftDrawing, setDraftDrawing] = useState<ChartDrawing | null>(null);
+  const [drawingsLocked, setDrawingsLocked] = useState(false);
+  const [drawingsVisible, setDrawingsVisible] = useState(true);
+  const [magnetOn, setMagnetOn] = useState(false);
+  const [accumulatorBand, setAccumulatorBand] = useState<AccumulatorBarrierBand | null>(null);
   const [indicatorsOpen, setIndicatorsOpen] = useState(false);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => readResolvedTheme());
   const chartPalette = useMemo(() => chartPaletteForTheme(resolvedTheme), [resolvedTheme]);
@@ -776,6 +861,172 @@ export function DerivChart({
     chartRef.current?.timeScale().fitContent();
   }, []);
 
+  const zoomIn = useCallback(() => {
+    const timeScale = chartRef.current?.timeScale();
+    if (!timeScale) return;
+    const range = timeScale.getVisibleLogicalRange();
+    if (!range) {
+      resetZoom();
+      return;
+    }
+    const from = Number(range.from);
+    const to = Number(range.to);
+    const center = (from + to) / 2;
+    const span = Math.max(6, (to - from) * 0.62);
+    timeScale.setVisibleLogicalRange({
+      from: center - span / 2,
+      to: center + span / 2,
+    });
+  }, [resetZoom]);
+
+  const updateAccumulatorBand = useCallback(() => {
+    const chart = chartRef.current;
+    const container = containerRef.current;
+    const series = baseSeriesGetter();
+    if (
+      !chart ||
+      !container ||
+      !series ||
+      highBarrier == null ||
+      lowBarrier == null ||
+      !Number.isFinite(highBarrier) ||
+      !Number.isFinite(lowBarrier)
+    ) {
+      setAccumulatorBand(null);
+      return;
+    }
+
+    const upperY = series.priceToCoordinate(highBarrier);
+    const lowerY = series.priceToCoordinate(lowBarrier);
+    const entryY =
+      entryPrice != null && Number.isFinite(entryPrice)
+        ? series.priceToCoordinate(entryPrice)
+        : null;
+    if (upperY == null || lowerY == null) {
+      setAccumulatorBand(null);
+      return;
+    }
+
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const latest = historyRef.current.at(-1);
+    const latestX = latest ? chart.timeScale().timeToCoordinate(latest.time) : null;
+    const left = clamp(
+      latestX == null || !Number.isFinite(latestX) ? width * 0.74 : latestX,
+      0,
+      Math.max(0, width - 12),
+    );
+    const top = clamp(Math.min(upperY, lowerY), 0, height);
+    const bottom = clamp(Math.max(upperY, lowerY), 0, height);
+
+    setAccumulatorBand({
+      bottom,
+      entryY: entryY == null ? null : clamp(entryY, 0, height),
+      left,
+      lowerLabel: signedBarrierLabel(lowBarrier, entryPrice),
+      right: width,
+      top,
+      upperLabel: signedBarrierLabel(highBarrier, entryPrice),
+    });
+  }, [baseSeriesGetter, entryPrice, highBarrier, lowBarrier]);
+
+  useEffect(() => {
+    updateAccumulatorBand();
+  }, [barrierBreached, updateAccumulatorBand]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const handler = () => updateAccumulatorBand();
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
+    return () => chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
+  }, [chartType, updateAccumulatorBand]);
+
+  const handleDrawingPointerDown = useCallback(
+    (event: ReactPointerEvent<SVGSVGElement>) => {
+      if (drawingsLocked || activeDrawingTool === "pointer") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const point = pointFromPointer(event, magnetOn);
+
+      if (activeDrawingTool === "horizontal") {
+        setDrawings((current) => [
+          ...current,
+          {
+            id: createDrawingId(),
+            points: [
+              { x: 0, y: point.y },
+              { x: 100, y: point.y },
+            ],
+            tool: "horizontal",
+          },
+        ]);
+        return;
+      }
+
+      if (activeDrawingTool === "text" || activeDrawingTool === "emoji") {
+        const label = window.prompt(
+          activeDrawingTool === "text" ? "Text" : "Emoji",
+          activeDrawingTool === "text" ? "Label" : ":)",
+        );
+        const text = label?.trim();
+        if (!text) return;
+        setDrawings((current) => [
+          ...current,
+          { id: createDrawingId(), points: [point], text, tool: activeDrawingTool },
+        ]);
+        return;
+      }
+
+      setDraftDrawing({
+        id: createDrawingId(),
+        points: activeDrawingTool === "brush" ? [point] : [point, point],
+        tool: activeDrawingTool,
+      });
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [activeDrawingTool, drawingsLocked, magnetOn],
+  );
+
+  const handleDrawingPointerMove = useCallback(
+    (event: ReactPointerEvent<SVGSVGElement>) => {
+      if (!draftDrawing || drawingsLocked) return;
+      event.preventDefault();
+      const point = pointFromPointer(event, magnetOn);
+      setDraftDrawing((current) => {
+        if (!current) return current;
+        if (current.tool === "brush") {
+          const previous = current.points.at(-1);
+          if (previous && drawingDistance(previous, point) < 0.35) return current;
+          return { ...current, points: [...current.points, point] };
+        }
+        return { ...current, points: [current.points[0], point] };
+      });
+    },
+    [draftDrawing, drawingsLocked, magnetOn],
+  );
+
+  const handleDrawingPointerUp = useCallback(
+    (event: ReactPointerEvent<SVGSVGElement>) => {
+      if (!draftDrawing) return;
+      event.preventDefault();
+      const isBrush = draftDrawing.tool === "brush";
+      const first = draftDrawing.points[0];
+      const last = draftDrawing.points.at(-1);
+      const meaningful = isBrush
+        ? draftDrawing.points.length > 2
+        : first && last && drawingDistance(first, last) > 0.8;
+      if (meaningful) {
+        setDrawings((current) => [...current, draftDrawing]);
+      }
+      setDraftDrawing(null);
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [draftDrawing],
+  );
+
   // Load history + tick subscription on symbol/granularity/chartType change.
   useEffect(() => {
     let cancelled = false;
@@ -1175,33 +1426,485 @@ export function DerivChart({
       {/* Chart canvas */}
       <div className="relative w-full max-w-full overflow-hidden rounded-lg border border-glass-border bg-foreground/[0.02]">
         <div ref={containerRef} style={{ height }} className="w-full" />
+        {accumulatorBand && (
+          <AccumulatorBarrierBandOverlay
+            band={accumulatorBand}
+            breached={Boolean(barrierBreached)}
+            compact={compact}
+          />
+        )}
+        {accumulatorProfit != null &&
+          accumulatorProfitStatus &&
+          accumulatorProfitStatus !== "sold" && (
+            <AccumulatorProfitMarker
+              band={accumulatorBand}
+              currency={accumulatorProfitCurrency}
+              status={accumulatorProfitStatus}
+              value={accumulatorProfit}
+            />
+          )}
+        <div
+          className={cn(
+            "absolute left-2 top-2 z-30 flex max-h-[calc(100%-1rem)] flex-col gap-1 overflow-y-auto rounded-md border border-[#d6d9dc] bg-white/95 p-1 shadow-sm backdrop-blur dark:border-[#303030] dark:bg-[#151515]/95",
+            compact && "left-1 top-1 max-h-[calc(100%-0.5rem)] gap-0.5 p-0.5",
+          )}
+        >
+          {DRAWING_TOOLS.map(({ icon: Icon, label, tool }) => (
+            <ChartToolButton
+              key={tool}
+              active={activeDrawingTool === tool}
+              compact={compact}
+              label={label}
+              onClick={() => setActiveDrawingTool(tool)}
+            >
+              <Icon className={cn("size-4", compact && "size-3.5")} />
+            </ChartToolButton>
+          ))}
+          <ChartToolSeparator />
+          <ChartToolButton
+            active={crosshairOn}
+            compact={compact}
+            label={crosshairOn ? "Hide crosshair" : "Show crosshair"}
+            onClick={() => setCrosshairOn((value) => !value)}
+          >
+            <Crosshair className={cn("size-4", compact && "size-3.5")} />
+          </ChartToolButton>
+          <ChartToolButton
+            active={magnetOn}
+            compact={compact}
+            label={magnetOn ? "Disable magnet" : "Enable magnet"}
+            onClick={() => setMagnetOn((value) => !value)}
+          >
+            <Magnet className={cn("size-4", compact && "size-3.5")} />
+          </ChartToolButton>
+          <ChartToolButton compact={compact} label="Zoom in" onClick={zoomIn}>
+            <ZoomIn className={cn("size-4", compact && "size-3.5")} />
+          </ChartToolButton>
+          <ChartToolButton
+            active={drawingsLocked}
+            compact={compact}
+            label={drawingsLocked ? "Unlock drawings" : "Lock drawings"}
+            onClick={() => setDrawingsLocked((value) => !value)}
+          >
+            {drawingsLocked ? (
+              <LockKeyhole className={cn("size-4", compact && "size-3.5")} />
+            ) : (
+              <UnlockKeyhole className={cn("size-4", compact && "size-3.5")} />
+            )}
+          </ChartToolButton>
+          <ChartToolButton
+            active={!drawingsVisible}
+            compact={compact}
+            label={drawingsVisible ? "Hide drawings" : "Show drawings"}
+            onClick={() => setDrawingsVisible((value) => !value)}
+          >
+            {drawingsVisible ? (
+              <Eye className={cn("size-4", compact && "size-3.5")} />
+            ) : (
+              <EyeOff className={cn("size-4", compact && "size-3.5")} />
+            )}
+          </ChartToolButton>
+          <ChartToolButton
+            compact={compact}
+            disabled={drawings.length === 0 && !draftDrawing}
+            label="Delete drawings"
+            onClick={() => {
+              setDrawings([]);
+              setDraftDrawing(null);
+            }}
+          >
+            <Trash2 className={cn("size-4", compact && "size-3.5")} />
+          </ChartToolButton>
+        </div>
+        <svg
+          className={cn(
+            "absolute inset-0 z-20 h-full w-full touch-none",
+            activeDrawingTool === "pointer" || drawingsLocked
+              ? "pointer-events-none"
+              : "pointer-events-auto cursor-crosshair",
+          )}
+          onPointerDown={handleDrawingPointerDown}
+          onPointerMove={handleDrawingPointerMove}
+          onPointerUp={handleDrawingPointerUp}
+          onPointerCancel={() => setDraftDrawing(null)}
+          preserveAspectRatio="none"
+          viewBox="0 0 100 100"
+        >
+          {drawingsVisible &&
+            [...drawings, ...(draftDrawing ? [draftDrawing] : [])].map((drawing) => (
+              <DrawingShape
+                key={drawing.id}
+                drawing={drawing}
+                draft={draftDrawing?.id === drawing.id}
+              />
+            ))}
+        </svg>
         {showDigitStats && (
-          <DigitStatsOverlay latest={digitStats.latest} percentages={digitStats.percentages} />
+          <DigitStatsOverlay
+            compact={compact}
+            latest={digitStats.latest}
+            percentages={digitStats.percentages}
+          />
         )}
       </div>
     </div>
   );
 }
 
+function createDrawingId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `drawing-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function pointFromPointer(
+  event: ReactPointerEvent<SVGSVGElement>,
+  magnetOn: boolean,
+): DrawingPoint {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const rawX = ((event.clientX - rect.left) / Math.max(1, rect.width)) * 100;
+  const rawY = ((event.clientY - rect.top) / Math.max(1, rect.height)) * 100;
+  const x = magnetOn ? Math.round(rawX / 2) * 2 : rawX;
+  const y = magnetOn ? Math.round(rawY / 2) * 2 : rawY;
+  return {
+    x: clamp(x, 0, 100),
+    y: clamp(y, 0, 100),
+  };
+}
+
+function drawingDistance(a: DrawingPoint, b: DrawingPoint) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function signedBarrierLabel(barrier: number, entry?: number | null) {
+  if (entry == null || !Number.isFinite(entry)) return barrier.toFixed(4);
+  const offset = barrier - entry;
+  const abs = Math.abs(offset);
+  const decimals = abs >= 10 ? 2 : abs >= 1 ? 3 : 4;
+  return `${offset >= 0 ? "+" : "-"}${abs.toFixed(decimals)}`;
+}
+
+function formatChartProfit(value: number, currency: string | undefined, loss: boolean) {
+  const abs = Math.abs(value);
+  const prefix = loss ? "-" : "+";
+  return `${prefix}${abs.toFixed(2)}${currency ? ` ${currency}` : ""}`;
+}
+
+function ChartToolButton({
+  active,
+  children,
+  compact,
+  disabled,
+  label,
+  onClick,
+}: {
+  active?: boolean;
+  children: ReactNode;
+  compact?: boolean;
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "flex size-8 shrink-0 items-center justify-center rounded-[3px] text-[#333333] transition hover:bg-[#edf0f2] disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#eeeeee] dark:hover:bg-[#202020]",
+        active && "bg-[#eef2f3] text-[#ff444f] dark:bg-[#202020] dark:text-[#ff6b73]",
+        compact && "size-6",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ChartToolSeparator() {
+  return <span className="my-0.5 h-px w-full bg-[#e0e3e5] dark:bg-[#303030]" />;
+}
+
+function DrawingShape({ draft, drawing }: { draft?: boolean; drawing: ChartDrawing }) {
+  const stroke = draft ? "#ff7a83" : "#ff444f";
+  const [first, second] = drawing.points;
+
+  if (!first) return null;
+
+  if (drawing.tool === "horizontal" && second) {
+    return (
+      <line
+        x1={0}
+        x2={100}
+        y1={first.y}
+        y2={second.y}
+        stroke={stroke}
+        strokeDasharray="3 2"
+        strokeLinecap="round"
+        strokeWidth={0.45}
+        vectorEffect="non-scaling-stroke"
+      />
+    );
+  }
+
+  if (drawing.tool === "trend" && second) {
+    return (
+      <line
+        x1={first.x}
+        x2={second.x}
+        y1={first.y}
+        y2={second.y}
+        stroke={stroke}
+        strokeLinecap="round"
+        strokeWidth={0.55}
+        vectorEffect="non-scaling-stroke"
+      />
+    );
+  }
+
+  if (drawing.tool === "measure" && second) {
+    const midX = (first.x + second.x) / 2;
+    const midY = (first.y + second.y) / 2;
+    return (
+      <g>
+        <line
+          x1={first.x}
+          x2={second.x}
+          y1={first.y}
+          y2={second.y}
+          stroke="#4bb4b3"
+          strokeLinecap="round"
+          strokeWidth={0.55}
+          vectorEffect="non-scaling-stroke"
+        />
+        <text
+          x={midX}
+          y={midY}
+          dominantBaseline="middle"
+          fill="#111111"
+          fontSize={3}
+          fontWeight={700}
+          paintOrder="stroke"
+          stroke="white"
+          strokeWidth={0.8}
+          textAnchor="middle"
+          vectorEffect="non-scaling-stroke"
+        >
+          {`${Math.abs(second.x - first.x).toFixed(1)} x ${Math.abs(second.y - first.y).toFixed(1)}`}
+        </text>
+      </g>
+    );
+  }
+
+  if (drawing.tool === "fibonacci" && second) {
+    const top = Math.min(first.y, second.y);
+    const bottom = Math.max(first.y, second.y);
+    const x1 = Math.min(first.x, second.x);
+    const x2 = Math.max(first.x, second.x);
+    const width = Math.max(8, x2 - x1);
+    return (
+      <g>
+        <rect fill="rgba(75,180,179,0.08)" height={bottom - top} width={width} x={x1} y={top} />
+        {FIBONACCI_LEVELS.map((level) => {
+          const y = first.y + (second.y - first.y) * level;
+          return (
+            <g key={level}>
+              <line
+                x1={x1}
+                x2={x1 + width}
+                y1={y}
+                y2={y}
+                stroke={level === 0 || level === 1 ? "#ff444f" : "#4bb4b3"}
+                strokeWidth={0.4}
+                vectorEffect="non-scaling-stroke"
+              />
+              <text
+                x={x1 + width + 1}
+                y={y}
+                dominantBaseline="middle"
+                fill="#333333"
+                fontSize={2.2}
+                fontWeight={700}
+                paintOrder="stroke"
+                stroke="white"
+                strokeWidth={0.7}
+                vectorEffect="non-scaling-stroke"
+              >
+                {`${Math.round(level * 1000) / 10}%`}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    );
+  }
+
+  if (drawing.tool === "brush") {
+    return (
+      <polyline
+        fill="none"
+        points={drawing.points.map((point) => `${point.x},${point.y}`).join(" ")}
+        stroke={stroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={0.65}
+        vectorEffect="non-scaling-stroke"
+      />
+    );
+  }
+
+  if (drawing.tool === "text" || drawing.tool === "emoji") {
+    return (
+      <text
+        x={first.x}
+        y={first.y}
+        dominantBaseline="middle"
+        fill={drawing.tool === "emoji" ? "#111111" : "#ff444f"}
+        fontSize={drawing.tool === "emoji" ? 5 : 3.2}
+        fontWeight={700}
+        paintOrder="stroke"
+        stroke="white"
+        strokeWidth={0.8}
+        vectorEffect="non-scaling-stroke"
+      >
+        {drawing.text}
+      </text>
+    );
+  }
+
+  return null;
+}
+
+function AccumulatorBarrierBandOverlay({
+  band,
+  breached,
+  compact,
+}: {
+  band: AccumulatorBarrierBand;
+  breached: boolean;
+  compact?: boolean;
+}) {
+  const color = breached ? "#ff444f" : "#2196f3";
+  const fill = breached ? "rgba(255,68,79,0.11)" : "rgba(33,150,243,0.12)";
+  const height = Math.max(2, band.bottom - band.top);
+  const width = Math.max(0, band.right - band.left);
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10">
+      <div
+        className="absolute"
+        style={{
+          background: fill,
+          borderBottom: `2px solid ${color}`,
+          borderTop: `2px solid ${color}`,
+          height,
+          left: band.left,
+          top: band.top,
+          width,
+        }}
+      />
+      {band.entryY != null && (
+        <div
+          className="absolute border-t border-dashed border-[#59646d]"
+          style={{
+            left: band.left,
+            right: 0,
+            top: band.entryY,
+          }}
+        />
+      )}
+      <BarrierAxisLabel color={color} compact={compact} text={band.upperLabel} y={band.top} />
+      <BarrierAxisLabel color={color} compact={compact} text={band.lowerLabel} y={band.bottom} />
+    </div>
+  );
+}
+
+function BarrierAxisLabel({
+  color,
+  compact,
+  text,
+  y,
+}: {
+  color: string;
+  compact?: boolean;
+  text: string;
+  y: number;
+}) {
+  return (
+    <span
+      className={cn(
+        "absolute right-1 rounded bg-white/90 px-1.5 py-0.5 font-mono text-xs font-bold shadow-sm dark:bg-[#151515]/90",
+        compact && "right-0.5 px-1 text-[10px]",
+      )}
+      style={{ color, top: y, transform: "translateY(-50%)" }}
+    >
+      {text}
+    </span>
+  );
+}
+
+function AccumulatorProfitMarker({
+  band,
+  currency,
+  status,
+  value,
+}: {
+  band: AccumulatorBarrierBand | null;
+  currency?: string;
+  status: "active" | "lost" | "sold";
+  value: number;
+}) {
+  const loss = status === "lost" || value < 0;
+  const x = band ? clamp(band.left + 18, 44, Math.max(44, band.right - 112)) : 72;
+  const y = band?.entryY ?? (band ? band.top - 22 : 28);
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-none absolute z-30 rounded-[3px] px-2 py-1 font-mono text-sm font-black shadow-sm",
+        loss
+          ? "bg-[#fff1f2] text-[#cc2f39] ring-1 ring-[#ffd1d4]"
+          : "bg-[#e7f8f2] text-[#078a5b] ring-1 ring-[#b8eadb]",
+      )}
+      style={{ left: x, top: y, transform: "translateY(-50%)" }}
+    >
+      {formatChartProfit(value, currency, loss)}
+    </div>
+  );
+}
+
 function DigitStatsOverlay({
+  compact,
   latest,
   percentages,
 }: {
+  compact?: boolean;
   latest: number | null;
   percentages: number[];
 }) {
   const max = Math.max(...percentages);
   return (
-    <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-10 overflow-x-auto rounded-md border border-[#e6e6e6] bg-white/95 px-2 py-2 shadow-sm backdrop-blur dark:border-[#303030] dark:bg-[#151515]/95">
-      <div className="flex min-w-max items-end justify-center gap-2">
+    <div
+      className={cn(
+        "pointer-events-none absolute bottom-2 left-2 right-2 z-10 overflow-x-auto rounded-md border border-[#e6e6e6] bg-white/95 px-2 py-2 shadow-sm backdrop-blur dark:border-[#303030] dark:bg-[#151515]/95",
+        compact && "bottom-1 left-10 right-1 px-1 py-1",
+      )}
+    >
+      <div className={cn("flex min-w-max items-end justify-center gap-2", compact && "gap-1")}>
         {percentages.map((pct, digit) => {
           const highlighted = pct === max && max > 0;
           const current = latest === digit;
           return (
-            <div key={digit} className="flex w-11 flex-col items-center">
+            <div key={digit} className={cn("flex w-11 flex-col items-center", compact && "w-7")}>
               <div
                 className={cn(
                   "relative flex size-8 items-center justify-center rounded-full border-2 bg-white text-sm font-bold text-[#333333] dark:bg-[#101010] dark:text-[#f2f2f2]",
+                  compact && "size-5 border text-[10px]",
                   highlighted
                     ? "border-[#4bb4b3] shadow-[0_0_0_3px_#e5f7f6] dark:shadow-[0_0_0_3px_rgba(75,180,179,0.25)]"
                     : "border-[#d6d6d6] dark:border-[#444]",
@@ -1218,12 +1921,18 @@ function DigitStatsOverlay({
                   }}
                 />
               </div>
-              <div className="mt-0.5 text-[10px] font-semibold text-[#646464] dark:text-[#d8d8d8]">
+              <div
+                className={cn(
+                  "mt-0.5 text-[10px] font-semibold text-[#646464] dark:text-[#d8d8d8]",
+                  compact && "text-[8px]",
+                )}
+              >
                 {pct.toFixed(1)}%
               </div>
               <div
                 className={cn(
                   "mt-0.5 h-0 w-0 border-x-[5px] border-t-[6px] border-x-transparent",
+                  compact && "border-x-[3px] border-t-[4px]",
                   current
                     ? highlighted
                       ? "border-t-[#4bb4b3]"

@@ -464,7 +464,7 @@ export function TopShell({
               asChild
               className="h-[40px] w-[82px] rounded-none bg-[#4bb4b3] text-base font-bold text-white hover:bg-[#43a5a4]"
             >
-              <Link to="/bot-builder">Open</Link>
+              <Link to="/bot-builder">Run</Link>
             </Button>
           }
           setActiveTab={setBotMonitorTab}

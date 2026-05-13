@@ -17,24 +17,28 @@ export function TradeTypeCard({
 }) {
   return (
     <section className="rounded-md border border-[#d6d9dc] bg-white shadow-sm">
-      <div className="border-b border-[#eceded] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#6f767d]">
+      <div className="border-b border-[#eceded] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#6f767d] max-sm:px-2 max-sm:py-1 max-sm:text-[9px]">
         Contract type
       </div>
-      <div className="flex items-center gap-2 px-2 py-2">
+      <div className="flex items-center gap-2 px-2 py-2 max-sm:gap-1.5 max-sm:py-1">
         <NavButton label="Previous trade type" onClick={onPrevious}>
-          <ChevronLeft className="size-4" />
+          <ChevronLeft className="size-4 max-sm:size-3.5" />
         </NavButton>
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md border border-[#eceded] bg-[#fafafa] px-2 py-2">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-[11px] font-black text-[#ff444f] ring-1 ring-[#e5e5e5]">
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md border border-[#eceded] bg-[#fafafa] px-2 py-2 max-sm:gap-1.5 max-sm:py-1.5">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-[11px] font-black text-[#ff444f] ring-1 ring-[#e5e5e5] max-sm:size-6 max-sm:text-[9px]">
             {config.icon}
           </span>
           <div className="min-w-0 text-center">
-            <div className="truncate text-sm font-semibold text-[#1f2328]">{config.label}</div>
-            <p className="truncate text-[11px] text-[#6f767d]">{config.description}</p>
+            <div className="truncate text-sm font-semibold text-[#1f2328] max-sm:text-xs">
+              {config.label}
+            </div>
+            <p className="truncate text-[11px] text-[#6f767d] max-sm:hidden">
+              {config.description}
+            </p>
           </div>
         </div>
         <NavButton label="Next trade type" onClick={onNext}>
-          <ChevronRight className="size-4" />
+          <ChevronRight className="size-4 max-sm:size-3.5" />
         </NavButton>
       </div>
     </section>
@@ -55,33 +59,33 @@ export function TickDurationSelector({
   showUnits: boolean;
 }) {
   return (
-    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:p-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-sm font-semibold text-[#1f2328]">Duration</div>
-        <div className="rounded-full bg-[#f2f4f5] px-2 py-0.5 text-xs font-semibold text-[#495057]">
+        <div className="text-sm font-semibold text-[#1f2328] max-sm:text-xs">Duration</div>
+        <div className="rounded-full bg-[#f2f4f5] px-2 py-0.5 text-xs font-semibold text-[#495057] max-sm:text-[10px]">
           {durationUnit === "t" ? "Ticks" : durationUnit === "s" ? "Seconds" : "Minutes"}
         </div>
       </div>
       <Slider
-        className="mt-3"
+        className="mt-3 max-sm:mt-2"
         min={1}
         max={10}
         step={1}
         value={[duration]}
         onValueChange={(value) => onDurationChange(value[0])}
       />
-      <div className="mt-2 text-center font-mono text-sm font-semibold text-[#1f2328]">
+      <div className="mt-2 text-center font-mono text-sm font-semibold text-[#1f2328] max-sm:mt-1 max-sm:text-xs">
         {duration} {durationUnit === "t" ? `Tick${duration === 1 ? "" : "s"}` : durationUnit}
       </div>
       {showUnits && (
-        <div className="mt-2 grid grid-cols-3 gap-1">
+        <div className="mt-2 grid grid-cols-3 gap-1 max-sm:mt-1">
           {(["t", "s", "m"] as const).map((unit) => (
             <button
               key={unit}
               type="button"
               onClick={() => onUnitChange(unit)}
               className={cn(
-                "rounded border px-2 py-1 text-xs font-semibold transition",
+                "rounded border px-2 py-1 text-xs font-semibold transition max-sm:px-1.5 max-sm:py-0.5 max-sm:text-[10px]",
                 durationUnit === unit
                   ? "border-[#ff444f] bg-[#fff1f2] text-[#cc2f39]"
                   : "border-[#e1e4e8] bg-white text-[#495057] hover:bg-[#f6f7f8]",
@@ -108,23 +112,23 @@ export function DigitSelector({
   onDigitChange: (digit: number) => void;
 }) {
   return (
-    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-[#1f2328]">
+    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:p-2">
+      <div className="mb-2 flex items-center justify-between gap-3 max-sm:mb-1">
+        <div className="text-sm font-semibold text-[#1f2328] max-sm:text-xs">
           {mode === "barrier" ? "Last digit barrier" : "Last digit prediction"}
         </div>
-        <span className="rounded border border-[#ffd4d8] bg-[#fff1f2] px-2 py-0.5 text-xs font-bold text-[#cc2f39]">
+        <span className="rounded border border-[#ffd4d8] bg-[#fff1f2] px-2 py-0.5 text-xs font-bold text-[#cc2f39] max-sm:px-1.5 max-sm:text-[10px]">
           {currentDigit ?? "-"}
         </span>
       </div>
-      <div className="grid grid-cols-5 gap-1.5">
+      <div className="grid grid-cols-5 gap-1.5 max-sm:grid-cols-10 max-sm:gap-1">
         {Array.from({ length: 10 }, (_, digit) => (
           <button
             key={digit}
             type="button"
             onClick={() => onDigitChange(digit)}
             className={cn(
-              "h-9 rounded border text-sm font-semibold transition",
+              "h-9 rounded border text-sm font-semibold transition max-sm:h-7 max-sm:text-xs",
               selectedDigit === digit
                 ? "border-[#ff444f] bg-[#ff444f] text-white"
                 : "border-[#d6d9dc] bg-white text-[#1f2328] hover:bg-[#f6f7f8]",
@@ -152,15 +156,15 @@ export function StakePayoutToggle({
   stake: number;
 }) {
   return (
-    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
-      <div className="grid grid-cols-2 rounded-md border border-[#d6d9dc] bg-[#f8f9fa] p-1">
+    <section className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:p-2">
+      <div className="grid grid-cols-2 rounded-md border border-[#d6d9dc] bg-[#f8f9fa] p-1 max-sm:p-0.5">
         {(["stake", "payout"] as const).map((item) => (
           <button
             key={item}
             type="button"
             onClick={() => onModeChange(item)}
             className={cn(
-              "rounded px-2 py-1.5 text-sm font-semibold capitalize transition",
+              "rounded px-2 py-1.5 text-sm font-semibold capitalize transition max-sm:py-1 max-sm:text-xs",
               mode === item
                 ? "bg-white text-[#1f2328] shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
                 : "text-[#6f767d] hover:text-[#343a40]",
@@ -170,10 +174,10 @@ export function StakePayoutToggle({
           </button>
         ))}
       </div>
-      <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-[#6f767d]">
+      <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-[#6f767d] max-sm:mt-1.5 max-sm:text-[10px]">
         {mode === "stake" ? "Stake amount" : "Payout target"}
       </div>
-      <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+      <div className="mt-1.5 flex min-w-0 items-center gap-1.5 max-sm:gap-1">
         <StepperButton
           icon={Minus}
           label="Decrease amount"
@@ -185,14 +189,14 @@ export function StakePayoutToggle({
           step={1}
           value={stake}
           onChange={(event) => onStakeChange(Number(event.target.value))}
-          className="h-10 min-w-0 rounded border-[#d6d9dc] text-center font-mono text-base font-semibold"
+          className="h-10 min-w-0 rounded border-[#d6d9dc] text-center font-mono text-base font-semibold max-sm:h-8 max-sm:text-sm"
         />
         <StepperButton
           icon={Plus}
           label="Increase amount"
           onClick={() => onStakeChange(+(stake + 1).toFixed(2))}
         />
-        <span className="w-12 shrink-0 truncate text-center text-xs font-semibold text-[#495057]">
+        <span className="w-12 shrink-0 truncate text-center text-xs font-semibold text-[#495057] max-sm:w-9 max-sm:text-[10px]">
           {currency}
         </span>
       </div>
@@ -242,13 +246,20 @@ export function ProposalButton({
         toneStyles.body,
       )}
     >
-      <div className={cn("flex items-center justify-between px-3 py-1.5 text-xs", toneStyles.head)}>
+      <div
+        className={cn(
+          "flex items-center justify-between px-3 py-1.5 text-xs max-sm:px-2 max-sm:py-1 max-sm:text-[10px]",
+          toneStyles.head,
+        )}
+      >
         <span className="font-medium">Payout {payout ?? "-"}</span>
         <span className={cn("font-mono font-semibold", toneStyles.accent)}>{pct ?? ""}</span>
       </div>
-      <div className="flex items-center justify-between px-3 py-2.5">
-        <span className="text-sm font-semibold">{loading ? "Loading quote..." : label}</span>
-        <ToneIcon className="size-5" />
+      <div className="flex items-center justify-between px-3 py-2.5 max-sm:px-2 max-sm:py-1.5">
+        <span className="truncate text-sm font-semibold max-sm:text-xs">
+          {loading ? "Loading quote..." : label}
+        </span>
+        <ToneIcon className="size-5 shrink-0 max-sm:size-4" />
       </div>
     </button>
   );
@@ -291,10 +302,10 @@ function StepperButton({
     <button
       type="button"
       onClick={onClick}
-      className="shrink-0 rounded border border-[#d6d9dc] bg-white p-2 text-[#495057] hover:bg-[#f6f7f8]"
+      className="shrink-0 rounded border border-[#d6d9dc] bg-white p-2 text-[#495057] hover:bg-[#f6f7f8] max-sm:p-1.5"
       aria-label={label}
     >
-      <Icon className="size-4" />
+      <Icon className="size-4 max-sm:size-3.5" />
     </button>
   );
 }
@@ -312,7 +323,7 @@ function NavButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex size-8 items-center justify-center rounded border border-[#d6d9dc] bg-white text-[#495057] transition hover:bg-[#f6f7f8]"
+      className="flex size-8 items-center justify-center rounded border border-[#d6d9dc] bg-white text-[#495057] transition hover:bg-[#f6f7f8] max-sm:size-7"
       aria-label={label}
     >
       {children}

@@ -42,7 +42,7 @@ export function renderBarrierLines(
       lineWidth: 2,
       lineStyle: 2,
       axisLabelVisible: true,
-      title: "Upper barrier",
+      title: barrierLabel(lines.upperBarrier, lines.entryPrice, "Upper barrier"),
     });
   }
   if (lines.lowerBarrier != null && Number.isFinite(lines.lowerBarrier)) {
@@ -52,7 +52,7 @@ export function renderBarrierLines(
       lineWidth: 2,
       lineStyle: 2,
       axisLabelVisible: true,
-      title: "Lower barrier",
+      title: barrierLabel(lines.lowerBarrier, lines.entryPrice, "Lower barrier"),
     });
   }
   if (lines.entryPrice != null && Number.isFinite(lines.entryPrice)) {
@@ -62,7 +62,15 @@ export function renderBarrierLines(
       lineWidth: 1,
       lineStyle: 1,
       axisLabelVisible: true,
-      title: "Entry",
+      title: "Spot",
     });
   }
+}
+
+function barrierLabel(barrier: number, entry: number | null | undefined, fallback: string) {
+  if (entry == null || !Number.isFinite(entry)) return fallback;
+  const offset = barrier - entry;
+  const abs = Math.abs(offset);
+  const decimals = abs >= 10 ? 2 : abs >= 1 ? 3 : 4;
+  return `${offset >= 0 ? "+" : "-"}${abs.toFixed(decimals)}`;
 }

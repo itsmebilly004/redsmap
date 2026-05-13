@@ -36,6 +36,9 @@ type BarrierUpdate = {
   high: number | null;
   low: number | null;
   breached?: boolean;
+  profit?: number | null;
+  profitCurrency?: string;
+  profitStatus?: "active" | "lost" | "sold" | null;
 };
 
 type Props = {
@@ -106,13 +109,46 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
   }, []);
 
   useEffect(() => {
+    const referenceSpot =
+      state.status === "active" || state.status === "lost" || state.status === "sold"
+        ? (state.currentSpot ?? state.entrySpot ?? lastPrice)
+        : lastPrice;
+    const fallback = estimateAccumulatorBarriers(referenceSpot, growthRate);
+    const profitStatus =
+      state.status === "active" || state.status === "lost" || state.status === "sold"
+        ? state.status
+        : null;
     onBarriers?.({
-      entry: state.entrySpot,
-      high: state.upperBarrier,
-      low: state.lowerBarrier,
+      entry:
+        state.status === "active" || state.status === "lost" || state.status === "sold"
+          ? (state.currentSpot ?? state.entrySpot ?? lastPrice ?? null)
+          : (lastPrice ?? null),
+      high: state.upperBarrier ?? fallback.high,
+      low: state.lowerBarrier ?? fallback.low,
       breached: state.barrierBreached,
+      profit:
+        profitStatus === "active"
+          ? (state.currentProfit ?? 0)
+          : profitStatus === "lost"
+            ? (state.currentProfit ?? -stake)
+            : null,
+      profitCurrency: tradeCurrency,
+      profitStatus,
     });
-  }, [onBarriers, state.barrierBreached, state.entrySpot, state.lowerBarrier, state.upperBarrier]);
+  }, [
+    growthRate,
+    lastPrice,
+    onBarriers,
+    stake,
+    state.barrierBreached,
+    state.currentProfit,
+    state.currentSpot,
+    state.entrySpot,
+    state.lowerBarrier,
+    state.status,
+    state.upperBarrier,
+    tradeCurrency,
+  ]);
 
   useEffect(() => {
     if (!state.contractId || state.status !== "active") return;
@@ -287,14 +323,10 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             void refreshBalances("accumulator-closed").catch((error) => {
               console.warn("[Accumulator] balance refresh after close failed", error);
             });
-            if (next.status === "lost") {
-              toast.error("Accumulator ended: barrier breached.");
-            }
           }
           return next;
         });
       });
-      toast.success(`Bought accumulator ${contractId}`);
       void refreshBalances("accumulator-placed").catch((error) => {
         console.warn("[Accumulator] balance refresh after buy failed", error);
       });
@@ -340,9 +372,6 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       void refreshBalances("accumulator-sell").catch((error) => {
         console.warn("[Accumulator] balance refresh after sell failed", error);
       });
-      toast[profit >= 0 ? "success" : "error"](
-        `Accumulator sold ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${tradeCurrency}`,
-      );
     } catch (error: unknown) {
       const message = getDerivTradingErrorMessage(error);
       setState((current) => ({ ...current, status: "error", error: message }));
@@ -356,23 +385,23 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
   const canSell = state.status === "active" && state.isValidToSell && state.sellPrice != null;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="order-3 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
-        <div className="mb-2 flex items-center justify-between gap-2 text-sm font-semibold text-[#1f2328] dark:text-[#f2f2f2]">
+    <div className="flex flex-col gap-3 max-sm:gap-1.5">
+      <div className="order-3 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:p-2 sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
+        <div className="mb-2 flex items-center justify-between gap-2 text-sm font-semibold text-[#1f2328] max-sm:mb-1 max-sm:text-xs dark:text-[#f2f2f2]">
           <span>Growth rate</span>
-          <span className="flex items-center gap-1 text-xs font-medium text-[#6f767d] dark:text-[#a8b0b8]">
+          <span className="flex items-center gap-1 text-xs font-medium text-[#6f767d] max-sm:hidden dark:text-[#a8b0b8]">
             <Info className="h-3.5 w-3.5" />
             Risk scales with rate
           </span>
         </div>
-        <div className="grid grid-cols-5 gap-1.5">
+        <div className="grid grid-cols-5 gap-1.5 max-sm:gap-1">
           {ACCUMULATOR_GROWTH_RATES.map((rate) => (
             <button
               key={rate}
               onClick={() => setGrowthRate(rate)}
               disabled={state.status === "active"}
               className={cn(
-                "rounded border py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60",
+                "rounded border py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 max-sm:py-1.5 max-sm:text-xs",
                 growthRate === rate
                   ? "border-[#ff444f] bg-[#fff1f2] text-[#cc2f39]"
                   : "border-[#d6d9dc] bg-white text-[#1f2328] hover:bg-[#f6f7f8] dark:border-[#30343a] dark:bg-[#101010] dark:text-[#f2f2f2] dark:hover:bg-[#202020]",
@@ -382,23 +411,23 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             </button>
           ))}
         </div>
-        <p className="mt-2 text-[11px] text-[#6f767d] dark:text-[#a8b0b8]">
+        <p className="mt-2 text-[11px] text-[#6f767d] max-sm:hidden dark:text-[#a8b0b8]">
           Higher growth rates increase payout speed and tighten barrier tolerance.
         </p>
       </div>
 
-      <div className="order-1 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[#6f767d] dark:text-[#a8b0b8]">
+      <div className="order-1 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:p-2 sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
+        <div className="text-xs font-semibold uppercase tracking-wide text-[#6f767d] max-sm:text-[10px] dark:text-[#a8b0b8]">
           Stake
         </div>
-        <div className="mt-1.5 flex min-w-0 items-center gap-1.5 sm:gap-2">
+        <div className="mt-1.5 flex min-w-0 items-center gap-1.5 max-sm:gap-1 sm:gap-2">
           <button
             onClick={() => setStake((value) => Math.max(1, +(value - 1).toFixed(2)))}
             disabled={state.status === "active"}
-            className="shrink-0 rounded border border-[#d6d9dc] bg-white p-2 text-[#495057] hover:bg-[#f6f7f8] disabled:opacity-60 dark:border-[#30343a] dark:bg-[#101010] dark:text-[#dce1e5] dark:hover:bg-[#202020]"
+            className="shrink-0 rounded border border-[#d6d9dc] bg-white p-2 text-[#495057] hover:bg-[#f6f7f8] disabled:opacity-60 max-sm:p-1.5 dark:border-[#30343a] dark:bg-[#101010] dark:text-[#dce1e5] dark:hover:bg-[#202020]"
             aria-label="Decrease stake"
           >
-            <Minus className="h-4 w-4" />
+            <Minus className="h-4 w-4 max-sm:h-3.5 max-sm:w-3.5" />
           </button>
           <Input
             type="number"
@@ -407,24 +436,24 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             value={stake}
             disabled={state.status === "active"}
             onChange={(event) => setStake(Number(event.target.value))}
-            className="h-10 min-w-0 rounded border-[#d6d9dc] text-center font-mono text-base font-semibold dark:border-[#30343a] dark:bg-[#101010] dark:text-[#f2f2f2]"
+            className="h-10 min-w-0 rounded border-[#d6d9dc] text-center font-mono text-base font-semibold max-sm:h-8 max-sm:text-sm dark:border-[#30343a] dark:bg-[#101010] dark:text-[#f2f2f2]"
           />
           <button
             onClick={() => setStake((value) => +(value + 1).toFixed(2))}
             disabled={state.status === "active"}
-            className="shrink-0 rounded border border-[#d6d9dc] bg-white p-2 text-[#495057] hover:bg-[#f6f7f8] disabled:opacity-60 dark:border-[#30343a] dark:bg-[#101010] dark:text-[#dce1e5] dark:hover:bg-[#202020]"
+            className="shrink-0 rounded border border-[#d6d9dc] bg-white p-2 text-[#495057] hover:bg-[#f6f7f8] disabled:opacity-60 max-sm:p-1.5 dark:border-[#30343a] dark:bg-[#101010] dark:text-[#dce1e5] dark:hover:bg-[#202020]"
             aria-label="Increase stake"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-4 w-4 max-sm:h-3.5 max-sm:w-3.5" />
           </button>
-          <span className="w-10 shrink-0 truncate text-center text-xs font-semibold text-[#495057] sm:w-14 dark:text-[#dce1e5]">
+          <span className="w-10 shrink-0 truncate text-center text-xs font-semibold text-[#495057] max-sm:w-9 max-sm:text-[10px] sm:w-14 dark:text-[#dce1e5]">
             {tradeCurrency}
           </span>
         </div>
       </div>
 
-      <div className="order-4 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
-        <label className="flex items-center justify-between text-sm">
+      <div className="order-4 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:p-2 sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
+        <label className="flex items-center justify-between text-sm max-sm:text-xs">
           <span className="flex items-center gap-2 font-semibold text-[#1f2328] dark:text-[#f2f2f2]">
             <input
               type="checkbox"
@@ -445,14 +474,14 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             value={takeProfit}
             disabled={state.status === "active"}
             onChange={(event) => setTakeProfit(Number(event.target.value))}
-            className="mt-2 h-10 rounded border-[#d6d9dc] text-center font-mono font-semibold dark:border-[#30343a] dark:bg-[#101010] dark:text-[#f2f2f2]"
+            className="mt-2 h-10 rounded border-[#d6d9dc] text-center font-mono font-semibold max-sm:mt-1.5 max-sm:h-8 max-sm:text-sm dark:border-[#30343a] dark:bg-[#101010] dark:text-[#f2f2f2]"
             placeholder={`Amount (${tradeCurrency})`}
           />
         )}
       </div>
 
       {state.error && (
-        <div className="order-5 rounded-md border border-[#ffd1d4] bg-[#fff7f7] p-2 text-xs font-medium text-[#cc2f39] sm:order-none dark:border-[#5b2227] dark:bg-[#2a1114] dark:text-[#ff8b92]">
+        <div className="order-5 rounded-md border border-[#ffd1d4] bg-[#fff7f7] p-2 text-xs font-medium text-[#cc2f39] max-sm:text-[11px] sm:order-none dark:border-[#5b2227] dark:bg-[#2a1114] dark:text-[#ff8b92]">
           {state.error}
         </div>
       )}
@@ -478,7 +507,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         }}
         disabled={busy || (state.status === "active" && !canSell)}
         className={cn(
-          "order-2 h-12 w-full rounded-md text-base font-semibold text-white sm:order-none",
+          "order-2 h-12 w-full rounded-md text-base font-semibold text-white max-sm:h-10 max-sm:text-sm sm:order-none",
           state.status === "active"
             ? "bg-[#ff444f] hover:bg-[#eb3e48]"
             : "bg-[#13a883] hover:bg-[#119875]",
@@ -504,4 +533,21 @@ function moneyLabel(value?: number | null, currency?: string, signed = false) {
   if (value == null || !Number.isFinite(value)) return "-";
   const prefix = signed && value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(2)}${currency ? ` ${currency}` : ""}`;
+}
+
+function estimateAccumulatorBarriers(spot: number | null | undefined, growthRate: number) {
+  if (spot == null || !Number.isFinite(spot)) return { high: null, low: null };
+  const ratioByGrowthRate: Record<string, number> = {
+    "0.01": 0.00072,
+    "0.02": 0.00052,
+    "0.03": 0.00038,
+    "0.04": 0.00031,
+    "0.05": 0.00025,
+  };
+  const ratio = ratioByGrowthRate[growthRate.toFixed(2)] ?? 0.00038;
+  const distance = Math.max(Math.abs(spot) * ratio, 0.0001);
+  return {
+    high: spot + distance,
+    low: spot - distance,
+  };
 }

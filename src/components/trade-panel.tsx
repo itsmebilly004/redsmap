@@ -64,6 +64,9 @@ type ChartOverlay = {
   high: number | null;
   low: number | null;
   breached?: boolean;
+  profit?: number | null;
+  profitCurrency?: string;
+  profitStatus?: "active" | "lost" | "sold" | null;
 };
 
 type ProposalQuote = {
@@ -118,12 +121,12 @@ function TradingConnectionBadge({
         ? { chip: "bg-[#fff8e7] text-[#9a6700]", label: "CONNECTING" }
         : { chip: "bg-[#fff1f2] text-[#cc2f39]", label: "DISCONNECTED" };
   return (
-    <div className="rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs shadow-sm dark:border-[#2f3337] dark:bg-[#151515]">
+    <div className="rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs shadow-sm max-sm:px-2 max-sm:py-1.5 max-sm:text-[11px] dark:border-[#2f3337] dark:bg-[#151515]">
       <div className="flex items-center justify-between gap-3">
         <span className="font-semibold text-[#495057] dark:text-[#dce1e5]">Trading connection</span>
         <span
           className={[
-            "rounded px-2 py-1 text-[10px] font-semibold tracking-wide",
+            "rounded px-2 py-1 text-[10px] font-semibold tracking-wide max-sm:px-1.5 max-sm:py-0.5 max-sm:text-[9px]",
             statusMeta.chip,
           ].join(" ")}
         >
@@ -680,7 +683,6 @@ export function TradePanel({
           return next;
         });
       });
-      toast.success(`Bought ${side.label}`);
       setQuotesVersion((value) => value + 1);
       void refreshBalances("trade-placed").catch((error) => {
         console.warn("[Manual Trader] balance refresh after buy failed", error);
@@ -727,9 +729,6 @@ export function TradePanel({
       void refreshBalances("manual-sell").catch((error) => {
         console.warn("[Manual Trader] balance refresh after sell failed", error);
       });
-      toast[profit >= 0 ? "success" : "error"](
-        `Closed ${profit >= 0 ? "+" : ""}${profit.toFixed(2)} ${tradeCurrency}`,
-      );
     } catch (error) {
       const message = getDerivTradingErrorMessage(error);
       setErrorMessage(message);
@@ -765,7 +764,7 @@ export function TradePanel({
 
   if (selectedTradeType === "accumulator") {
     return (
-      <div className="min-w-0 space-y-3">
+      <div className="min-w-0 space-y-3 max-sm:space-y-1.5">
         {onMarketChange && <MarketSelector value={market} onValueChange={onMarketChange} />}
         <TradingConnectionBadge error={tradingConnectionError} status={tradingConnectionStatus} />
         <TradeTypeCard
@@ -784,7 +783,7 @@ export function TradePanel({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3 max-sm:gap-1.5">
       {onMarketChange && <MarketSelector value={market} onValueChange={onMarketChange} />}
       <TradingConnectionBadge error={tradingConnectionError} status={tradingConnectionStatus} />
       <TradeTypeCard
@@ -817,55 +816,61 @@ export function TradePanel({
       )}
 
       {config.needsBarrier && (
-        <div className="order-6 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
-          <div className="mb-2 text-sm font-semibold text-[#1f2328]">Barrier offset</div>
+        <div className="order-6 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:flex max-sm:items-center max-sm:gap-2 max-sm:p-2 sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
+          <div className="mb-2 text-sm font-semibold text-[#1f2328] max-sm:mb-0 max-sm:w-20 max-sm:shrink-0 max-sm:text-xs">
+            Barrier offset
+          </div>
           <Input
             value={barrier}
             onChange={(event) => setBarrier(event.target.value)}
-            className="h-10 rounded border-[#d6d9dc] text-center font-mono font-semibold"
+            className="h-10 rounded border-[#d6d9dc] text-center font-mono font-semibold max-sm:h-8 max-sm:min-w-0 max-sm:flex-1 max-sm:text-sm"
             placeholder="+0.10"
           />
-          <div className="mt-2 text-xs text-[#6f767d]">
+          <div className="mt-2 text-xs text-[#6f767d] max-sm:hidden">
             Distance from barrier: {distanceFromBarrierLabel(lastPrice, barrier)}
           </div>
         </div>
       )}
 
       {config.supportsMultiplier && (
-        <div className="order-6 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
-          <div className="mb-2 text-sm font-semibold text-[#1f2328]">Multiplier</div>
-          <Select
-            value={String(multiplier)}
-            onValueChange={(value) => setMultiplier(Number(value))}
-          >
-            <SelectTrigger className="h-10 rounded border-[#d6d9dc] font-semibold">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {[10, 20, 30, 50, 100, 200, 300, 500].map((item) => (
-                <SelectItem key={item} value={String(item)}>
-                  x{item}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Input
-              type="number"
-              min={0}
-              value={takeProfit}
-              onChange={(event) => setTakeProfit(Number(event.target.value))}
-              className="h-9 rounded border-[#d6d9dc] text-center font-mono"
-              placeholder="Take profit"
-            />
-            <Input
-              type="number"
-              min={0}
-              value={stopLoss}
-              onChange={(event) => setStopLoss(Number(event.target.value))}
-              className="h-9 rounded border-[#d6d9dc] text-center font-mono"
-              placeholder="Stop loss"
-            />
+        <div className="order-6 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:p-2 sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
+          <div className="mb-2 text-sm font-semibold text-[#1f2328] max-sm:mb-1 max-sm:text-xs">
+            Multiplier
+          </div>
+          <div className="max-sm:grid max-sm:grid-cols-3 max-sm:gap-1.5">
+            <Select
+              value={String(multiplier)}
+              onValueChange={(value) => setMultiplier(Number(value))}
+            >
+              <SelectTrigger className="h-10 rounded border-[#d6d9dc] font-semibold max-sm:h-8 max-sm:text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 20, 30, 50, 100, 200, 300, 500].map((item) => (
+                  <SelectItem key={item} value={String(item)}>
+                    x{item}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="mt-3 grid grid-cols-2 gap-2 max-sm:col-span-2 max-sm:mt-0 max-sm:gap-1.5">
+              <Input
+                type="number"
+                min={0}
+                value={takeProfit}
+                onChange={(event) => setTakeProfit(Number(event.target.value))}
+                className="h-9 rounded border-[#d6d9dc] text-center font-mono max-sm:h-8 max-sm:text-xs"
+                placeholder="Take profit"
+              />
+              <Input
+                type="number"
+                min={0}
+                value={stopLoss}
+                onChange={(event) => setStopLoss(Number(event.target.value))}
+                className="h-9 rounded border-[#d6d9dc] text-center font-mono max-sm:h-8 max-sm:text-xs"
+                placeholder="Stop loss"
+              />
+            </div>
           </div>
         </div>
       )}
@@ -880,7 +885,7 @@ export function TradePanel({
         />
       </div>
 
-      <div className="order-5 space-y-2 sm:order-none">
+      <div className="order-5 space-y-2 max-sm:grid max-sm:grid-cols-2 max-sm:gap-1.5 max-sm:space-y-0 sm:order-none">
         {config.sides.map((side) => {
           const quote = quotes[side.value] ?? EMPTY_QUOTE;
           return (
@@ -908,7 +913,7 @@ export function TradePanel({
         <Button
           onClick={() => void handleSell()}
           disabled={busy || !activeContract.isValidToSell}
-          className="order-5 h-11 w-full rounded-md bg-[#ff444f] text-sm font-semibold text-white hover:bg-[#eb3e48] sm:order-none"
+          className="order-5 h-11 w-full rounded-md bg-[#ff444f] text-sm font-semibold text-white hover:bg-[#eb3e48] max-sm:h-9 max-sm:text-xs sm:order-none"
         >
           <X className="mr-2 size-4" />
           {activeContract.isValidToSell
@@ -918,12 +923,12 @@ export function TradePanel({
       )}
 
       {(errorMessage || activeContract.error || activeQuote?.error) && (
-        <div className="order-8 rounded-md border border-[#ffd1d4] bg-[#fff7f7] p-3 text-xs font-medium text-[#cc2f39] sm:order-none dark:border-[#5b2227] dark:bg-[#2a1114] dark:text-[#ff8b92]">
+        <div className="order-8 rounded-md border border-[#ffd1d4] bg-[#fff7f7] p-3 text-xs font-medium text-[#cc2f39] max-sm:p-2 max-sm:text-[11px] sm:order-none dark:border-[#5b2227] dark:bg-[#2a1114] dark:text-[#ff8b92]">
           {errorMessage || activeContract.error || activeQuote?.error}
         </div>
       )}
 
-      <p className="order-9 text-[11px] text-[#6f767d] sm:order-none dark:text-[#a8b0b8]">
+      <p className="order-9 text-[11px] text-[#6f767d] max-sm:hidden sm:order-none dark:text-[#a8b0b8]">
         Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "-"}</span>. You can lose
         money rapidly.
       </p>
