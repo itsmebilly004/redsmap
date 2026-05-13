@@ -117,7 +117,6 @@ function Index() {
             </div>
           </div>
 
-
           <DerivChart
             symbol={symbol}
             onSymbolChange={setSymbol}
