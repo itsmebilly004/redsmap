@@ -18,7 +18,6 @@ import {
   buildOAuthUrl,
   redirectToDerivOAuth,
   sanitizeDerivOAuthUrl,
-  subscribeTicks,
   SYNTHETIC_MARKETS,
 } from "@/lib/deriv";
 import { Link } from "@tanstack/react-router";
@@ -41,15 +40,15 @@ function StatCard({
   accent?: string;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-4 shadow-sm backdrop-blur-sm sm:p-5">
+    <div className="min-w-0 rounded-xl border border-border bg-card/80 p-4 text-card-foreground shadow-sm backdrop-blur-sm sm:p-5">
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-xs uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
+        <span className="min-w-0 truncate text-xs uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
-        <Icon className="size-4 text-[oklch(0.6_0.02_260)]" />
+        <Icon className="size-4 text-muted-foreground" />
       </div>
       <div
-        className={`mt-3 break-words font-mono text-xl sm:text-2xl ${accent ?? "text-[oklch(0.2_0.02_260)]"}`}
+        className={`mt-3 break-words font-mono text-xl sm:text-2xl ${accent ?? "text-foreground"}`}
       >
         {value}
       </div>
@@ -62,7 +61,6 @@ function DashboardHome() {
   const { balance, currency } = useDerivBalanceContext();
   const [hasDeriv, setHasDeriv] = useState<boolean | null>(null);
   const [trades, setTrades] = useState<Tables<"trades">[]>([]);
-  const [tick, setTick] = useState<number | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -102,24 +100,6 @@ function DashboardHome() {
     };
   }, [user]);
 
-  useEffect(() => {
-    let mounted = true;
-    let off: (() => void) | undefined;
-    subscribeTicks("R_100", (price) => {
-      if (mounted) setTick(price);
-    }).then((unsub) => {
-      if (mounted) {
-        off = unsub;
-      } else {
-        unsub();
-      }
-    });
-    return () => {
-      mounted = false;
-      off?.();
-    };
-  }, []);
-
   const totalPL = trades.reduce((a, t) => a + Number(t.profit_loss ?? 0), 0);
   const wins = trades.filter((t) => t.status === "won").length;
   const losses = trades.filter((t) => t.status === "lost").length;
@@ -139,19 +119,15 @@ function DashboardHome() {
   return (
     <div className="min-w-0 space-y-6 sm:space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-[oklch(0.2_0.02_260)]">
-          Welcome back
-        </h1>
-        <p className="text-sm text-[oklch(0.5_0.02_260)]">
-          Here's a snapshot of your trading activity.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Welcome back</h1>
+        <p className="text-sm text-muted-foreground">Here's a snapshot of your trading activity.</p>
       </div>
 
       {hasDeriv === false && (
-        <div className="flex flex-col items-start gap-4 rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-6 shadow-sm backdrop-blur-sm md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col items-start gap-4 rounded-xl border border-border bg-card/80 p-6 text-card-foreground shadow-sm backdrop-blur-sm md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <div className="font-medium text-[oklch(0.2_0.02_260)]">Connect your Deriv account</div>
-            <p className="mt-1 text-sm text-[oklch(0.5_0.02_260)]">
+            <div className="font-medium text-foreground">Connect your Deriv account</div>
+            <p className="mt-1 text-sm text-muted-foreground">
               Authorize ArkTrader through Deriv's official OAuth — no passwords stored.
             </p>
           </div>
@@ -169,13 +145,13 @@ function DashboardHome() {
           icon={Wallet}
           label="Account balance"
           value={balance != null ? `${balance.toFixed(2)} ${currency}` : "—"}
-          accent="text-[oklch(0.2_0.02_260)]"
+          accent="text-foreground"
         />
         <StatCard
           icon={Wallet}
           label="Total P&L"
           value={`${totalPL >= 0 ? "+" : ""}${totalPL.toFixed(2)}`}
-          accent={totalPL >= 0 ? "text-[oklch(0.45_0.17_150)]" : "text-[oklch(0.5_0.22_25)]"}
+          accent={totalPL >= 0 ? "text-success" : "text-destructive"}
         />
         <StatCard icon={Activity} label="Trades" value={trades.length} />
         <StatCard icon={TrendingUp} label="Win rate" value={`${winRate}%`} />
@@ -183,19 +159,16 @@ function DashboardHome() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Recent trades */}
-        <div className="min-w-0 rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-4 shadow-sm backdrop-blur-sm sm:p-5 lg:col-span-2">
+        <div className="min-w-0 rounded-xl border border-border bg-card/80 p-4 text-card-foreground shadow-sm backdrop-blur-sm sm:p-5 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-[oklch(0.2_0.02_260)]">Recent trades</h3>
-            <Link
-              to="/dashboard/analytics"
-              className="text-xs text-[oklch(0.55_0.22_265)] hover:underline"
-            >
+            <h3 className="text-sm font-medium text-foreground">Recent trades</h3>
+            <Link to="/dashboard/analytics" className="text-xs text-primary hover:underline">
               View all →
             </Link>
           </div>
           {trades.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
-              <p className="text-sm text-[oklch(0.5_0.02_260)]">
+              <p className="text-sm text-muted-foreground">
                 No trades yet — head to the Trade desk.
               </p>
               <Button
@@ -207,7 +180,7 @@ function DashboardHome() {
               </Button>
             </div>
           ) : (
-            <ul className="divide-y divide-[oklch(0.93_0.005_240)]">
+            <ul className="divide-y divide-border">
               {trades.map((t) => {
                 const win = t.status === "won";
                 const loss = t.status === "lost";
@@ -218,17 +191,15 @@ function DashboardHome() {
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       {win ? (
-                        <ArrowUpRight className="size-4 text-[oklch(0.55_0.17_150)]" />
+                        <ArrowUpRight className="size-4 text-success" />
                       ) : loss ? (
-                        <ArrowDownRight className="size-4 text-[oklch(0.55_0.22_25)]" />
+                        <ArrowDownRight className="size-4 text-destructive" />
                       ) : (
-                        <Activity className="size-4 text-[oklch(0.6_0.02_260)]" />
+                        <Activity className="size-4 text-muted-foreground" />
                       )}
                       <div className="min-w-0">
-                        <div className="truncate font-mono text-xs text-[oklch(0.3_0.02_260)]">
-                          {t.symbol}
-                        </div>
-                        <div className="truncate text-[10px] uppercase tracking-wider text-[oklch(0.55_0.02_260)]">
+                        <div className="truncate font-mono text-xs text-foreground">{t.symbol}</div>
+                        <div className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">
                           {t.trade_type}
                         </div>
                       </div>
@@ -236,17 +207,13 @@ function DashboardHome() {
                     <div className="shrink-0 text-right font-mono">
                       <div
                         className={
-                          win
-                            ? "text-[oklch(0.45_0.17_150)]"
-                            : loss
-                              ? "text-[oklch(0.5_0.22_25)]"
-                              : "text-[oklch(0.4_0.02_260)]"
+                          win ? "text-success" : loss ? "text-destructive" : "text-muted-foreground"
                         }
                       >
                         {Number(t.profit_loss ?? 0) >= 0 ? "+" : ""}
                         {Number(t.profit_loss ?? 0).toFixed(2)}
                       </div>
-                      <div className="text-[10px] text-[oklch(0.55_0.02_260)]">
+                      <div className="text-[10px] text-muted-foreground">
                         stake {Number(t.stake).toFixed(2)}
                       </div>
                     </div>
@@ -258,24 +225,20 @@ function DashboardHome() {
         </div>
 
         {/* Markets quick-launch */}
-        <div className="min-w-0 rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-4 shadow-sm backdrop-blur-sm sm:p-5">
-          <h3 className="text-sm font-medium text-[oklch(0.2_0.02_260)]">Markets</h3>
+        <div className="min-w-0 rounded-xl border border-border bg-card/80 p-4 text-card-foreground shadow-sm backdrop-blur-sm sm:p-5">
+          <h3 className="text-sm font-medium text-foreground">Markets</h3>
           <ul className="mt-4 space-y-2 text-sm">
             {SYNTHETIC_MARKETS.slice(0, 5).map((m) => (
               <li
                 key={m.symbol}
-                className="flex items-center justify-between rounded-lg border border-[oklch(0.93_0.005_240)] bg-[oklch(0.985_0.003_240)] px-3 py-2"
+                className="flex items-center justify-between rounded-lg border border-border bg-background/70 px-3 py-2"
               >
-                <span className="min-w-0 truncate text-[oklch(0.45_0.02_260)]">{m.name}</span>
-                <span className="font-mono text-xs text-[oklch(0.3_0.02_260)]">{m.symbol}</span>
+                <span className="min-w-0 truncate text-muted-foreground">{m.name}</span>
+                <span className="font-mono text-xs text-foreground">{m.symbol}</span>
               </li>
             ))}
           </ul>
-          <Button
-            asChild
-            variant="outline"
-            className="mt-4 w-full border-[oklch(0.92_0.005_240)] bg-white/50 text-[oklch(0.3_0.02_260)] hover:bg-white"
-          >
+          <Button asChild variant="outline" className="mt-4 w-full">
             <Link to="/">Open trade desk</Link>
           </Button>
 

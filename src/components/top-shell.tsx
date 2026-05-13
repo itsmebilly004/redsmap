@@ -248,19 +248,19 @@ export function TopShell({
               </Button>
               <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex min-w-0 max-w-[min(58vw,17rem)] items-center gap-1.5 rounded-full border border-[#d6d6d6] bg-white px-2 py-1.5 transition hover:bg-[#f2f3f4] sm:max-w-full sm:gap-2 sm:px-3">
+                  <button className="flex min-w-0 max-w-[min(58vw,17rem)] items-center gap-1.5 rounded-full border border-[#d6d6d6] bg-white px-2 py-1.5 transition hover:bg-[#f2f3f4] sm:max-w-full sm:gap-2 sm:px-3 dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:hover:bg-[#222]">
                     <AccountIcon account={account} size="sm" />
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate text-xs font-bold tabular-nums text-[#333333] sm:text-sm">
+                      <span className="truncate text-xs font-bold tabular-nums text-[#333333] sm:text-sm dark:text-[#e6e6e6]">
                         {formatBalance(balance ?? account.balance, "").trim()}
                       </span>
-                      <span className="shrink-0 text-[11px] font-bold text-[#646464]">
+                      <span className="shrink-0 text-[11px] font-bold text-[#646464] dark:text-[#b7b7b7]">
                         {currency || account.currency}
                       </span>
                     </div>
                     <ChevronDown
                       className={cn(
-                        "size-4 text-[#999999] transition-transform duration-200",
+                        "size-4 text-[#999999] transition-transform duration-200 dark:text-[#b7b7b7]",
                         dropdownOpen && "rotate-180",
                       )}
                     />
@@ -269,23 +269,23 @@ export function TopShell({
 
                 <DropdownMenuContent
                   align="end"
-                  className="w-[min(calc(100vw-1.5rem),380px)] overflow-hidden rounded-lg border border-[#d6d6d6] bg-white p-0 shadow-xl"
+                  className="w-[min(calc(100vw-1.5rem),380px)] overflow-hidden rounded-lg border border-[#d6d6d6] bg-white p-0 text-[#333333] shadow-xl dark:border-[#2b2b2b] dark:bg-[#151515] dark:text-[#e6e6e6]"
                 >
                   <Tabs
                     value={activeAccountTab}
                     onValueChange={(value) => setActiveAccountTab(value as "real" | "demo")}
                     className="w-full"
                   >
-                    <TabsList className="grid h-12 w-full grid-cols-2 rounded-none border-b border-[#eeeeee] bg-white p-0">
+                    <TabsList className="grid h-12 w-full grid-cols-2 rounded-none border-b border-[#eeeeee] bg-white p-0 dark:border-[#2b2b2b] dark:bg-[#151515]">
                       <TabsTrigger
                         value="real"
-                        className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none"
+                        className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none dark:text-[#b7b7b7] dark:data-[state=active]:text-[#f2f2f2]"
                       >
                         Real
                       </TabsTrigger>
                       <TabsTrigger
                         value="demo"
-                        className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none"
+                        className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none dark:text-[#b7b7b7] dark:data-[state=active]:text-[#f2f2f2]"
                       >
                         Demo
                       </TabsTrigger>
@@ -293,8 +293,10 @@ export function TopShell({
 
                     <div className="px-4 pb-2 pt-4">
                       <div className="mb-2 flex items-center justify-between">
-                        <span className="text-sm font-bold text-[#333333]">Deriv accounts</span>
-                        <ChevronUp className="size-4 text-[#333333]" />
+                        <span className="text-sm font-bold text-[#333333] dark:text-[#f2f2f2]">
+                          Deriv accounts
+                        </span>
+                        <ChevronUp className="size-4 text-[#333333] dark:text-[#f2f2f2]" />
                       </div>
 
                       <TabsContent value="real" className="mt-0 space-y-1">
@@ -323,32 +325,35 @@ export function TopShell({
                     </div>
                   </Tabs>
 
-                  <div className="border-t border-[#eeeeee] bg-white px-4 py-3">
+                  <div className="border-t border-[#eeeeee] bg-white px-4 py-3 dark:border-[#2b2b2b] dark:bg-[#151515]">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <div className="text-sm font-bold text-[#333333]">
+                        <div className="text-sm font-bold text-[#333333] dark:text-[#f2f2f2]">
                           {totalAssetsLabel(visibleAccounts)}
                         </div>
-                        <div className="mt-0.5 text-xs text-[#777777]">
+                        <div className="mt-0.5 text-xs text-[#777777] dark:text-[#b7b7b7]">
                           Total assets in your Deriv accounts.
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="border-t border-[#eeeeee] bg-[#f9f9f9] px-4 py-3 text-center">
-                    <p className="text-[13px] text-[#333333]">
+                  <div className="border-t border-[#eeeeee] bg-[#f9f9f9] px-4 py-3 text-center dark:border-[#2b2b2b] dark:bg-[#101010]">
+                    <p className="text-[13px] text-[#333333] dark:text-[#d8d8d8]">
                       Looking for CFD accounts?{" "}
-                      <a href="#" className="font-bold text-[#333333] hover:underline">
+                      <a
+                        href="#"
+                        className="font-bold text-[#333333] hover:underline dark:text-[#f2f2f2]"
+                      >
                         Go to Trader&apos;s Hub
                       </a>
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-4 py-3 dark:bg-[#151515]">
                     <Button
                       variant="outline"
-                      className="h-9 rounded-md border-[#999999] px-4 text-sm font-bold text-[#333333] hover:bg-[#f2f3f4]"
+                      className="h-9 rounded-md border-[#999999] px-4 text-sm font-bold text-[#333333] hover:bg-[#f2f3f4] dark:border-[#3a3a3a] dark:bg-[#101010] dark:text-[#e6e6e6] dark:hover:bg-[#202020]"
                       onClick={handleRefreshBalances}
                       disabled={refreshing}
                     >
@@ -357,7 +362,7 @@ export function TopShell({
                     </Button>
                     <button
                       onClick={handleLogout}
-                      className="flex items-center gap-2 text-sm font-medium text-[#333333] hover:text-[#ff444f]"
+                      className="flex items-center gap-2 text-sm font-medium text-[#333333] hover:text-[#ff444f] dark:text-[#e6e6e6] dark:hover:text-[#ff6b73]"
                     >
                       Logout <LogOut className="size-4" />
                     </button>
@@ -379,7 +384,7 @@ export function TopShell({
               <button
                 type="button"
                 onClick={handleConnectLegacyDeriv}
-                className="text-[10px] font-medium text-[#646464] hover:text-[#ff444f] hover:underline"
+                className="text-[10px] font-medium text-[#646464] hover:text-[#ff444f] hover:underline dark:text-[#b7b7b7] dark:hover:text-[#ff6b73]"
               >
                 Have an older Deriv API token? Connect here.
               </button>
@@ -461,7 +466,9 @@ function AccountList({
   onSelect: (accountId: string) => void;
 }) {
   if (!accounts.length) {
-    return <div className="py-8 text-center text-xs text-[#999999]">{emptyText}</div>;
+    return (
+      <div className="py-8 text-center text-xs text-[#999999] dark:text-[#b7b7b7]">{emptyText}</div>
+    );
   }
 
   return (
@@ -495,22 +502,24 @@ function AccountItem({
       onClick={onSelect}
       className={cn(
         "flex w-full items-center justify-between rounded-lg p-3 transition-colors",
-        isActive ? "bg-[#e6e9e9]" : "bg-transparent hover:bg-[#f2f3f4]",
+        isActive
+          ? "bg-[#e6e9e9] dark:bg-[#242424]"
+          : "bg-transparent hover:bg-[#f2f3f4] dark:hover:bg-[#202020]",
       )}
     >
       <div className="flex min-w-0 items-center gap-3">
         <AccountIcon account={account} />
         <div className="min-w-0 text-left leading-tight">
-          <div className="truncate text-sm font-bold text-[#333333]">
+          <div className="truncate text-sm font-bold text-[#333333] dark:text-[#f2f2f2]">
             {demo ? "Demo" : account.label || meta.name}
           </div>
-          <div className="truncate text-[11px] font-medium text-[#999999]">
+          <div className="truncate text-[11px] font-medium text-[#999999] dark:text-[#b7b7b7]">
             {account.account_id}
           </div>
         </div>
       </div>
       <div className="shrink-0 pl-2 text-right leading-tight sm:pl-3">
-        <div className="text-sm font-bold text-[#333333]">
+        <div className="text-sm font-bold text-[#333333] dark:text-[#f2f2f2]">
           {formatBalance(account.balance, account.currency)}
         </div>
       </div>
@@ -552,7 +561,7 @@ function AccountIcon({
     return (
       <div
         className={cn(
-          "flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f2f3f4] bg-white",
+          "flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f2f3f4] bg-white dark:border-[#333] dark:bg-[#101010]",
           box,
         )}
         title={meta.name}
@@ -570,7 +579,7 @@ function AccountIcon({
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-full border border-[#d6d6d6] bg-white text-[#333333]",
+        "flex shrink-0 items-center justify-center rounded-full border border-[#d6d6d6] bg-white text-[#333333] dark:border-[#333] dark:bg-[#101010] dark:text-[#f2f2f2]",
         box,
       )}
       title={meta.name}
@@ -594,7 +603,7 @@ export function PageHero({
   return (
     <div className="mx-auto w-full max-w-6xl min-w-0 px-3 py-6 sm:px-4 sm:py-10 md:px-8">
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">{title}</h1>
-      <p className="mt-2 max-w-2xl text-[#646464]">{subtitle}</p>
+      <p className="mt-2 max-w-2xl text-[#646464] dark:text-[#b7b7b7]">{subtitle}</p>
       {children && <div className="mt-8">{children}</div>}
     </div>
   );

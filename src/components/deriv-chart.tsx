@@ -73,6 +73,18 @@ type IndicatorDef = {
   category: IndicatorCategory;
 };
 
+type ResolvedTheme = "dark" | "light";
+
+type ChartPalette = {
+  areaBottomColor: string;
+  areaLineColor: string;
+  areaTopColor: string;
+  gridColor: string;
+  priceLineColor: string;
+  scaleBorderColor: string;
+  textColor: string;
+};
+
 // Order in which Deriv groups its market categories. Anything we don't have
 // a custom rank for sorts to the end alphabetically (preserves new Deriv
 // markets without code changes).
@@ -131,7 +143,12 @@ const INDICATORS: IndicatorDef[] = [
   { value: "ema", label: "EMA", description: "Exponential Moving Average (20)", category: "Trend" },
   { value: "wma", label: "WMA", description: "Weighted Moving Average (20)", category: "Trend" },
   { value: "bollinger", label: "Bollinger Bands", description: "Period 20, 2σ", category: "Trend" },
-  { value: "donchian", label: "Donchian Channel", description: "Period 20 high/low channel", category: "Trend" },
+  {
+    value: "donchian",
+    label: "Donchian Channel",
+    description: "Period 20 high/low channel",
+    category: "Trend",
+  },
   { value: "psar", label: "Parabolic SAR", description: "Step 0.02, max 0.2", category: "Trend" },
   // Momentum (own pane)
   { value: "rsi", label: "RSI", description: "Relative Strength Index (14)", category: "Momentum" },
@@ -139,11 +156,21 @@ const INDICATORS: IndicatorDef[] = [
   { value: "stochastic", label: "Stochastic", description: "%K/%D (14, 3)", category: "Momentum" },
   { value: "cci", label: "CCI", description: "Commodity Channel Index (20)", category: "Momentum" },
   { value: "williams_r", label: "Williams %R", description: "Period 14", category: "Momentum" },
-  { value: "awesome", label: "Awesome Oscillator", description: "(5,34) histogram", category: "Momentum" },
+  {
+    value: "awesome",
+    label: "Awesome Oscillator",
+    description: "(5,34) histogram",
+    category: "Momentum",
+  },
   // Volatility (own pane)
   { value: "atr", label: "ATR", description: "Average True Range (14)", category: "Volatility" },
   // Reference (overlay)
-  { value: "highlow", label: "Period High / Low", description: "Visible-range high/low markers", category: "Reference" },
+  {
+    value: "highlow",
+    label: "Period High / Low",
+    description: "Visible-range high/low markers",
+    category: "Reference",
+  },
 ];
 
 const INDICATOR_CATEGORIES: IndicatorCategory[] = ["Trend", "Momentum", "Volatility", "Reference"];
@@ -154,6 +181,55 @@ const STATUS_STYLE: Record<ConnectionStatus, string> = {
   reconnecting: "bg-orange-500/20 text-orange-600",
   disconnected: "bg-red-500/20 text-red-600",
 };
+
+function readResolvedTheme(): ResolvedTheme {
+  if (typeof document === "undefined") return "light";
+  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
+
+function chartPaletteForTheme(theme: ResolvedTheme): ChartPalette {
+  if (theme === "dark") {
+    return {
+      areaBottomColor: "rgba(75,180,179,0)",
+      areaLineColor: "#4bb4b3",
+      areaTopColor: "rgba(75,180,179,0.22)",
+      gridColor: "rgba(230,230,230,0.08)",
+      priceLineColor: "#4bb4b3",
+      scaleBorderColor: "rgba(230,230,230,0.16)",
+      textColor: "rgba(230,230,230,0.88)",
+    };
+  }
+
+  return {
+    areaBottomColor: "rgba(31,41,55,0)",
+    areaLineColor: "#1f2937",
+    areaTopColor: "rgba(31,41,55,0.18)",
+    gridColor: "rgba(120,120,140,0.08)",
+    priceLineColor: "#111827",
+    scaleBorderColor: "rgba(120,120,140,0.15)",
+    textColor: "rgba(82,82,96,0.9)",
+  };
+}
+
+function applyChartAppearance(chart: IChartApi, palette: ChartPalette, granularity: number) {
+  chart.applyOptions({
+    layout: {
+      background: { color: "transparent" },
+      textColor: palette.textColor,
+      fontFamily: "Inter, system-ui, sans-serif",
+    },
+    grid: {
+      vertLines: { color: palette.gridColor },
+      horzLines: { color: palette.gridColor },
+    },
+    rightPriceScale: { borderColor: palette.scaleBorderColor },
+    timeScale: {
+      borderColor: palette.scaleBorderColor,
+      timeVisible: true,
+      secondsVisible: granularity < 60,
+    },
+  });
+}
 
 export function DerivChart({
   symbol,
@@ -175,10 +251,12 @@ export function DerivChart({
   const indicatorSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const highLowLineRefs = useRef<IPriceLine[]>([]);
   const barrierLineRefs = useRef<BarrierLineRefs>({ entry: null, lower: null, upper: null });
+  const analysisOverlayFrameRef = useRef<number | null>(null);
   const candleBufferRef = useRef<Map<number, Candle>>(new Map());
   const historyRef = useRef<LineData[]>([]);
   const candleHistoryRef = useRef<Candle[]>([]);
   const digitHistoryRef = useRef<number[]>([]);
+  const showDigitStatsRef = useRef(showDigitStats);
 
   const [granularity, setGranularity] = useState(0);
   const [chartType, setChartType] = useState<ChartType>("area");
@@ -186,6 +264,8 @@ export function DerivChart({
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [crosshairOn, setCrosshairOn] = useState(true);
   const [indicatorsOpen, setIndicatorsOpen] = useState(false);
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => readResolvedTheme());
+  const chartPalette = useMemo(() => chartPaletteForTheme(resolvedTheme), [resolvedTheme]);
 
   const baseSeriesGetter = useCallback(
     () => areaSeriesRef.current ?? candleSeriesRef.current ?? barSeriesRef.current,
@@ -210,6 +290,30 @@ export function DerivChart({
   useEffect(() => {
     analysisToolsRef.current = analysisTools;
   }, [analysisTools]);
+
+  useEffect(() => {
+    showDigitStatsRef.current = showDigitStats;
+  }, [showDigitStats]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    const syncTheme = () => setResolvedTheme(readResolvedTheme());
+    syncTheme();
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(root, { attributes: true, attributeFilter: ["class", "data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (analysisOverlayFrameRef.current !== null) {
+        window.cancelAnimationFrame(analysisOverlayFrameRef.current);
+        analysisOverlayFrameRef.current = null;
+      }
+    },
+    [],
+  );
 
   const clearAnalysisOverlays = useCallback(() => {
     const chart = chartRef.current;
@@ -554,6 +658,15 @@ export function DerivChart({
     }
   }, [baseSeriesGetter, clearAnalysisOverlays]);
 
+  const scheduleAnalysisOverlayUpdate = useCallback(() => {
+    if (analysisToolsRef.current.size === 0) return;
+    if (analysisOverlayFrameRef.current !== null) return;
+    analysisOverlayFrameRef.current = window.requestAnimationFrame(() => {
+      analysisOverlayFrameRef.current = null;
+      updateAnalysisOverlays();
+    });
+  }, [updateAnalysisOverlays]);
+
   useEffect(() => {
     getActiveSymbols()
       .then((list) => {
@@ -580,24 +693,31 @@ export function DerivChart({
     };
   }, []);
 
+  useEffect(() => {
+    if (showDigitStats) {
+      setDigitStats(calculateDigitStats(digitHistoryRef.current));
+    }
+  }, [showDigitStats]);
+
   // Build chart once; rebuild when chart type changes.
   useEffect(() => {
     if (!containerRef.current) return;
+    const initialPalette = chartPaletteForTheme(readResolvedTheme());
 
     const chart = createChart(containerRef.current, {
       autoSize: true,
       layout: {
         background: { color: "transparent" },
-        textColor: "rgba(120,120,140,0.9)",
+        textColor: initialPalette.textColor,
         fontFamily: "Inter, system-ui, sans-serif",
       },
       grid: {
-        vertLines: { color: "rgba(120,120,140,0.08)" },
-        horzLines: { color: "rgba(120,120,140,0.08)" },
+        vertLines: { color: initialPalette.gridColor },
+        horzLines: { color: initialPalette.gridColor },
       },
-      rightPriceScale: { borderColor: "rgba(120,120,140,0.15)" },
+      rightPriceScale: { borderColor: initialPalette.scaleBorderColor },
       timeScale: {
-        borderColor: "rgba(120,120,140,0.15)",
+        borderColor: initialPalette.scaleBorderColor,
         timeVisible: true,
         secondsVisible: granularity < 60,
       },
@@ -631,12 +751,12 @@ export function DerivChart({
       areaSeriesRef.current = null;
     } else {
       const series = chart.addSeries(AreaSeries, {
-        lineColor: "#1f2937",
+        lineColor: initialPalette.areaLineColor,
         lineWidth: 2,
-        topColor: "rgba(31,41,55,0.18)",
-        bottomColor: "rgba(31,41,55,0.0)",
+        topColor: initialPalette.areaTopColor,
+        bottomColor: initialPalette.areaBottomColor,
         priceLineVisible: true,
-        priceLineColor: "#111827",
+        priceLineColor: initialPalette.priceLineColor,
         priceLineWidth: 1,
         lastValueVisible: true,
         crosshairMarkerVisible: true,
@@ -660,6 +780,18 @@ export function DerivChart({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    applyChartAppearance(chart, chartPalette, granularity);
+    areaSeriesRef.current?.applyOptions({
+      bottomColor: chartPalette.areaBottomColor,
+      lineColor: chartPalette.areaLineColor,
+      priceLineColor: chartPalette.priceLineColor,
+      topColor: chartPalette.areaTopColor,
+    });
+  }, [chartPalette, granularity]);
 
   // React to crosshair toggle without rebuilding the chart.
   useEffect(() => {
@@ -705,6 +837,7 @@ export function DerivChart({
             data.map((point) => point.value),
             digitHistoryRef,
             setDigitStats,
+            showDigitStatsRef.current,
           );
           areaSeriesRef.current?.setData(data);
         } else if (isOhlc) {
@@ -733,6 +866,7 @@ export function DerivChart({
             candles.map((c) => c.close),
             digitHistoryRef,
             setDigitStats,
+            showDigitStatsRef.current,
           );
         }
         updateAnalysisOverlays();
@@ -786,8 +920,8 @@ export function DerivChart({
             { time: barTime as UTCTimestamp, value: bar.close },
           ];
         }
-        pushDigit(price, digitHistoryRef, setDigitStats);
-        updateAnalysisOverlays();
+        pushDigit(price, digitHistoryRef, setDigitStats, showDigitStatsRef.current);
+        scheduleAnalysisOverlayUpdate();
       });
     }
 
@@ -796,7 +930,14 @@ export function DerivChart({
       cancelled = true;
       unsubTicks?.();
     };
-  }, [symbol, granularity, chartType, onPrice, updateAnalysisOverlays]);
+  }, [
+    symbol,
+    granularity,
+    chartType,
+    onPrice,
+    scheduleAnalysisOverlayUpdate,
+    updateAnalysisOverlays,
+  ]);
 
   useEffect(() => {
     updateAnalysisOverlays();
@@ -839,8 +980,7 @@ export function DerivChart({
     const byMarket = new Map<string, { label: string; items: typeof source }>();
     for (const item of source) {
       const key = item.market || "other";
-      const label =
-        item.market_display_name || MARKET_FALLBACK_LABEL[key] || key || "Other";
+      const label = item.market_display_name || MARKET_FALLBACK_LABEL[key] || key || "Other";
       let bucket = byMarket.get(key);
       if (!bucket) {
         bucket = { label, items: [] };
@@ -974,10 +1114,7 @@ export function DerivChart({
               <ChevronDown className="size-3.5" />
             </button>
           </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            className="w-72 max-h-[60vh] overflow-y-auto p-0"
-          >
+          <PopoverContent align="start" className="w-72 max-h-[60vh] overflow-y-auto p-0">
             <div className="flex items-center justify-between border-b border-glass-border px-3 py-2">
               <span className="text-xs font-semibold">Indicators</span>
               {analysisTools.size > 0 && (
@@ -1029,9 +1166,7 @@ export function DerivChart({
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-medium">{ind.label}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {ind.description}
-                          </div>
+                          <div className="text-[10px] text-muted-foreground">{ind.description}</div>
                         </div>
                       </button>
                     );
@@ -1098,7 +1233,7 @@ function DigitStatsOverlay({
 }) {
   const max = Math.max(...percentages);
   return (
-    <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-10 overflow-x-auto rounded-md border border-[#e6e6e6] bg-white/95 px-2 py-2 shadow-sm backdrop-blur">
+    <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-10 overflow-x-auto rounded-md border border-[#e6e6e6] bg-white/95 px-2 py-2 shadow-sm backdrop-blur dark:border-[#303030] dark:bg-[#151515]/95">
       <div className="flex min-w-max items-end justify-center gap-2">
         {percentages.map((pct, digit) => {
           const highlighted = pct === max && max > 0;
@@ -1107,8 +1242,10 @@ function DigitStatsOverlay({
             <div key={digit} className="flex w-11 flex-col items-center">
               <div
                 className={cn(
-                  "relative flex size-8 items-center justify-center rounded-full border-2 bg-white text-sm font-bold text-[#333333]",
-                  highlighted ? "border-[#4bb4b3] shadow-[0_0_0_3px_#e5f7f6]" : "border-[#d6d6d6]",
+                  "relative flex size-8 items-center justify-center rounded-full border-2 bg-white text-sm font-bold text-[#333333] dark:bg-[#101010] dark:text-[#f2f2f2]",
+                  highlighted
+                    ? "border-[#4bb4b3] shadow-[0_0_0_3px_#e5f7f6] dark:shadow-[0_0_0_3px_rgba(75,180,179,0.25)]"
+                    : "border-[#d6d6d6] dark:border-[#444]",
                   current && "border-[#ff444f]",
                 )}
               >
@@ -1122,7 +1259,7 @@ function DigitStatsOverlay({
                   }}
                 />
               </div>
-              <div className="mt-0.5 text-[10px] font-semibold text-[#646464]">
+              <div className="mt-0.5 text-[10px] font-semibold text-[#646464] dark:text-[#d8d8d8]">
                 {pct.toFixed(1)}%
               </div>
               <div
@@ -1147,32 +1284,33 @@ function updateDigitStatsFromPrices(
   prices: number[],
   ref: MutableRefObject<number[]>,
   setStats: Dispatch<SetStateAction<{ latest: number | null; percentages: number[] }>>,
+  publish = true,
 ) {
   const digits = prices
     .map(lastDigitFromPrice)
     .filter((digit): digit is number => digit != null)
     .slice(-500);
   ref.current = digits;
-  setStats(calculateDigitStats(digits));
+  if (publish) setStats(calculateDigitStats(digits));
 }
 
 function pushDigit(
   price: number,
   ref: MutableRefObject<number[]>,
   setStats: Dispatch<SetStateAction<{ latest: number | null; percentages: number[] }>>,
+  publish = true,
 ) {
   const digit = lastDigitFromPrice(price);
   if (digit == null) return;
-  ref.current = [...ref.current.slice(-499), digit];
-  setStats(calculateDigitStats(ref.current));
+  ref.current.push(digit);
+  if (ref.current.length > 500) ref.current.splice(0, ref.current.length - 500);
+  if (publish) setStats(calculateDigitStats(ref.current));
 }
 
 function calculateDigitStats(digits: number[]) {
   const total = Math.max(digits.length, 1);
-  const counts = Array.from(
-    { length: 10 },
-    (_, digit) => digits.filter((item) => item === digit).length,
-  );
+  const counts = Array.from({ length: 10 }, () => 0);
+  for (const digit of digits) counts[digit] += 1;
   return {
     latest: digits.at(-1) ?? null,
     percentages: counts.map((count) => (count / total) * 100),
@@ -1332,11 +1470,7 @@ function donchianChannel(
   return { upper, lower };
 }
 
-function parabolicSar(
-  candles: Candle[],
-  step: number,
-  maxStep: number,
-): LineData[] {
+function parabolicSar(candles: Candle[], step: number, maxStep: number): LineData[] {
   if (candles.length < 2) {
     return candles.map((c) => ({ time: c.time as UTCTimestamp, value: c.low }));
   }
@@ -1384,8 +1518,7 @@ function commodityChannelIndex(candles: Candle[], period: number): LineData[] {
     const window = candles.slice(Math.max(0, i - period + 1), i + 1);
     const typical = window.map((c) => (c.high + c.low + c.close) / 3);
     const mean = typical.reduce((sum, v) => sum + v, 0) / typical.length;
-    const meanDeviation =
-      typical.reduce((sum, v) => sum + Math.abs(v - mean), 0) / typical.length;
+    const meanDeviation = typical.reduce((sum, v) => sum + Math.abs(v - mean), 0) / typical.length;
     const currentTp = (candle.high + candle.low + candle.close) / 3;
     const value = meanDeviation === 0 ? 0 : (currentTp - mean) / (0.015 * meanDeviation);
     return { time: candle.time as UTCTimestamp, value };
@@ -1403,11 +1536,7 @@ function williamsR(candles: Candle[], period: number): LineData[] {
   });
 }
 
-function awesomeOscillator(
-  candles: Candle[],
-  fastPeriod: number,
-  slowPeriod: number,
-): LineData[] {
+function awesomeOscillator(candles: Candle[], fastPeriod: number, slowPeriod: number): LineData[] {
   const medians = candles.map((c) => (c.high + c.low) / 2);
   const fast = medians.map((_, i) => {
     const window = medians.slice(Math.max(0, i - fastPeriod + 1), i + 1);

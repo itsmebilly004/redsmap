@@ -16,23 +16,39 @@ export const Route = createFileRoute("/charts")({
   component: ChartsPage,
 });
 
+function computeChartHeight() {
+  if (typeof window === "undefined") return 600;
+  const narrow = window.innerWidth < 640;
+  return Math.max(narrow ? 300 : 400, window.innerHeight - (narrow ? 220 : 160));
+}
+
 function ChartsPage() {
   const [symbol, setSymbol] = useState("R_100");
-  const [chartHeight, setChartHeight] = useState(600);
+  const [chartHeight, setChartHeight] = useState(() => computeChartHeight());
 
   useEffect(() => {
+    let frame = 0;
     const compute = () => {
-      const narrow = window.innerWidth < 640;
-      setChartHeight(Math.max(narrow ? 300 : 400, window.innerHeight - (narrow ? 220 : 160)));
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const nextHeight = computeChartHeight();
+        setChartHeight((current) => (current === nextHeight ? current : nextHeight));
+      });
     };
     compute();
-    window.addEventListener("resize", compute);
-    return () => window.removeEventListener("resize", compute);
+    window.addEventListener("resize", compute, { passive: true });
+    window.addEventListener("orientationchange", compute);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", compute);
+      window.removeEventListener("orientationchange", compute);
+    };
   }, []);
 
   return (
     <TopShell>
-      <div className="min-w-0 bg-white p-2 sm:p-3">
+      <div className="min-w-0 bg-card p-2 text-card-foreground sm:p-3 dark:bg-[#101010]">
         <DerivChart symbol={symbol} onSymbolChange={setSymbol} height={chartHeight} />
       </div>
     </TopShell>

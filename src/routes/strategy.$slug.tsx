@@ -42,30 +42,30 @@ function StrategyDetail() {
 
         <header className="mt-6">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="min-w-0 text-2xl font-bold text-slate-900 sm:text-3xl md:text-4xl">
+            <h1 className="min-w-0 text-2xl font-bold text-foreground sm:text-3xl md:text-4xl">
               {s.name}
             </h1>
             <span className={`rounded-full px-3 py-1 text-xs font-semibold ${riskColor}`}>
               {s.riskLevel} risk
             </span>
           </div>
-          <p className="mt-2 text-base text-slate-600">{s.tagline}</p>
+          <p className="mt-2 text-base text-muted-foreground">{s.tagline}</p>
         </header>
 
-        <section className="mt-8 rounded-xl bg-white p-4 ring-1 ring-slate-200/70 sm:p-6">
-          <h2 className="text-lg font-semibold text-slate-800">Overview</h2>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.overview}</p>
+        <section className="mt-8 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-border sm:p-6">
+          <h2 className="text-lg font-semibold text-foreground">Overview</h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.overview}</p>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Best for
               </h3>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {s.bestFor.map((b: string) => (
                   <li
                     key={b}
-                    className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
+                    className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground"
                   >
                     {b}
                   </li>
@@ -73,7 +73,7 @@ function StrategyDetail() {
               </ul>
             </div>
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Recommended markets
               </h3>
               <ul className="mt-2 flex flex-wrap gap-2">
@@ -87,8 +87,8 @@ function StrategyDetail() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-xl bg-white p-4 ring-1 ring-slate-200/70 sm:p-6">
-          <h2 className="text-lg font-semibold text-slate-800">Step-by-step execution</h2>
+        <section className="mt-6 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-border sm:p-6">
+          <h2 className="text-lg font-semibold text-foreground">Step-by-step execution</h2>
           <ol className="mt-4 space-y-4">
             {s.steps.map((step: StrategyStep, idx: number) => (
               <li key={idx} className="flex min-w-0 gap-3 sm:gap-4">
@@ -96,8 +96,8 @@ function StrategyDetail() {
                   {idx + 1}
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-sm font-semibold text-slate-800">{step.title}</h3>
-                  <p className="mt-1 text-sm text-slate-600">{step.body}</p>
+                  <h3 className="text-sm font-semibold text-foreground">{step.title}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{step.body}</p>
                 </div>
               </li>
             ))}
@@ -105,13 +105,13 @@ function StrategyDetail() {
         </section>
 
         <div className="mt-6 grid gap-6 md:grid-cols-2">
-          <section className="rounded-xl bg-white p-4 ring-1 ring-slate-200/70 sm:p-6">
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-800">
+          <section className="rounded-xl bg-card p-4 text-card-foreground ring-1 ring-border sm:p-6">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
               <Lightbulb className="h-5 w-5 text-amber-500" /> Tips
             </h2>
             <ul className="mt-3 space-y-2">
               {s.tips.map((t: string) => (
-                <li key={t} className="flex items-start gap-2 text-sm text-slate-600">
+                <li key={t} className="flex items-start gap-2 text-sm text-muted-foreground">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
                   <span>{t}</span>
                 </li>
@@ -119,13 +119,13 @@ function StrategyDetail() {
             </ul>
           </section>
 
-          <section className="rounded-xl bg-white p-4 ring-1 ring-slate-200/70 sm:p-6">
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-800">
+          <section className="rounded-xl bg-card p-4 text-card-foreground ring-1 ring-border sm:p-6">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
               <AlertTriangle className="h-5 w-5 text-rose-500" /> Pitfalls to avoid
             </h2>
             <ul className="mt-3 space-y-2">
               {s.pitfalls.map((p: string) => (
-                <li key={p} className="flex items-start gap-2 text-sm text-slate-600">
+                <li key={p} className="flex items-start gap-2 text-sm text-muted-foreground">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
                   <span>{p}</span>
                 </li>
@@ -148,7 +148,7 @@ function StrategyDetail() {
         </section>
 
         <section className="mt-10">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             More strategies
           </h2>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -157,7 +157,7 @@ function StrategyDetail() {
                 key={other.slug}
                 to="/strategy/$slug"
                 params={{ slug: other.slug }}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:border-blue-400 hover:text-blue-600"
+                className="rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-card-foreground hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
               >
                 {other.name}
               </Link>
