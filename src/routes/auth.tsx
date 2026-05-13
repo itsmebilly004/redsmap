@@ -209,20 +209,32 @@ function AuthPage() {
               onClick={handleDeriv}
               size="lg"
               disabled={busy}
-              className="h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
+              className="h-auto w-full justify-start px-4 py-3 text-left shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
             >
-              {busy ? "Connecting to Deriv..." : "New traders"}
-              <ArrowRight className="ml-1 size-4" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-base font-medium">
+                  {busy ? "Connecting to Deriv..." : "New traders"}
+                </span>
+                <span className="mt-0.5 block text-[11px] font-normal text-primary-foreground/80">
+                  Accounts created from 2025
+                </span>
+              </span>
+              <ArrowRight className="size-4 shrink-0" />
             </Button>
             <Button
               type="button"
               onClick={handleConnectLegacyDeriv}
               size="lg"
               disabled={busy}
-              className="h-12 w-full text-base shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
+              className="h-auto w-full justify-start px-4 py-3 text-left shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
             >
-              Veteran traders
-              <ArrowRight className="ml-1 size-4" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-base font-medium">Veteran traders</span>
+                <span className="mt-0.5 block text-[11px] font-normal text-primary-foreground/80">
+                  Accounts created from late 2025 to date
+                </span>
+              </span>
+              <ArrowRight className="size-4 shrink-0" />
             </Button>
           </div>
 
