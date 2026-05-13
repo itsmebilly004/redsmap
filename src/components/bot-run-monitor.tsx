@@ -97,7 +97,9 @@ export function BotRunMonitorPanel({
     ) : (
       <CollapsedBuilderMonitor
         currency={currency}
+        onRun={onRun}
         onToggleCollapse={onToggleCollapse}
+        primaryAction={primaryAction}
         stats={stats}
         status={status}
         title={title}
@@ -111,7 +113,7 @@ export function BotRunMonitorPanel({
         "flex min-w-0 flex-col overflow-hidden border border-[#d8d8d8] bg-white text-[#333333] shadow-sm dark:border-[#2c2c2c] dark:bg-[#151515] dark:text-[#eeeeee]",
         mode === "footer"
           ? "fixed inset-x-2 bottom-2 z-40 max-h-[min(540px,72dvh)] rounded-lg sm:left-auto sm:w-[390px]"
-          : "h-[72dvh] min-h-[420px] max-sm:fixed max-sm:inset-0 max-sm:z-50 max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0 lg:h-auto lg:min-h-0",
+          : "h-[72dvh] min-h-[420px] max-sm:fixed max-sm:inset-x-2 max-sm:bottom-2 max-sm:top-24 max-sm:z-50 max-sm:min-h-0 max-sm:rounded-lg lg:h-auto lg:min-h-0",
       )}
     >
       <div className="flex min-h-[49px] items-center gap-2 bg-[#f7f7f7] pr-2 dark:bg-[#1c1c1c]">
@@ -136,16 +138,18 @@ export function BotRunMonitorPanel({
         </div>
         {onToggleCollapse && (
           <button
-            aria-label={mode === "footer" ? "Collapse bot monitor" : "Hide bot monitor"}
+            aria-label="Collapse bot monitor"
             className="flex size-9 shrink-0 items-center justify-center rounded border border-[#d6d6d6] bg-white text-[#333333] transition hover:bg-[#f1f2f3] dark:border-[#333] dark:bg-[#101010] dark:text-[#eeeeee] dark:hover:bg-[#202020]"
             type="button"
             onClick={onToggleCollapse}
           >
-            {mode === "footer" ? (
-              <ChevronDown className="size-4" />
-            ) : (
-              <ChevronRight className="size-4" />
-            )}
+            {mode === "footer" ? <ChevronDown className="size-4" /> : null}
+            {mode === "builder" ? (
+              <>
+                <ChevronDown className="size-4 lg:hidden" />
+                <ChevronRight className="hidden size-4 lg:block" />
+              </>
+            ) : null}
           </button>
         )}
       </div>
@@ -305,37 +309,56 @@ function RunButton({ onRun, status }: { onRun?: () => void; status: BotMonitorSt
 
 function CollapsedBuilderMonitor({
   currency,
+  onRun,
   onToggleCollapse,
+  primaryAction,
   stats,
   status,
   title,
 }: {
   currency: string;
+  onRun?: () => void;
   onToggleCollapse?: () => void;
+  primaryAction?: ReactNode;
   stats: BotMonitorStats;
   status: BotMonitorStatus;
   title: string;
 }) {
   return (
-    <aside className="flex h-[72dvh] min-h-[420px] min-w-0 flex-col items-center gap-3 border border-[#d8d8d8] bg-white py-2 text-[#333333] shadow-sm lg:h-auto lg:min-h-0 dark:border-[#2c2c2c] dark:bg-[#151515] dark:text-[#eeeeee]">
-      <button
-        aria-label="Show bot monitor"
-        className="flex size-9 items-center justify-center rounded border border-[#d6d6d6] bg-white transition hover:bg-[#f1f2f3] dark:border-[#333] dark:bg-[#101010] dark:hover:bg-[#202020]"
-        type="button"
-        onClick={onToggleCollapse}
-      >
-        <ChevronLeft className="size-4" />
-      </button>
-      <StatusDot status={status} />
-      <div className="mt-2 flex flex-1 items-center justify-center">
-        <div className="-rotate-90 whitespace-nowrap text-xs font-bold uppercase tracking-[0.18em] text-[#646464] dark:text-[#b7b7b7]">
-          {title}
+    <>
+      <aside className="fixed inset-x-2 bottom-2 z-40 flex items-center gap-2 rounded-lg border border-[#d8d8d8] bg-white p-1.5 text-[#333333] shadow-lg lg:hidden dark:border-[#2c2c2c] dark:bg-[#151515] dark:text-[#eeeeee]">
+        <div className="shrink-0">{primaryAction ?? <RunButton onRun={onRun} status={status} />}</div>
+        <button
+          aria-label="Expand bot monitor"
+          className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-md border border-[#d6d6d6] bg-white px-3 text-sm font-bold transition hover:bg-[#f1f2f3] dark:border-[#333] dark:bg-[#101010] dark:hover:bg-[#202020]"
+          type="button"
+          onClick={onToggleCollapse}
+        >
+          <ChevronUp className="size-4 shrink-0" />
+          <span>Expand</span>
+        </button>
+      </aside>
+
+      <aside className="hidden h-[72dvh] min-h-[420px] min-w-0 flex-col items-center gap-3 border border-[#d8d8d8] bg-white py-2 text-[#333333] shadow-sm lg:flex lg:h-auto lg:min-h-0 dark:border-[#2c2c2c] dark:bg-[#151515] dark:text-[#eeeeee]">
+        <button
+          aria-label="Show bot monitor"
+          className="flex size-9 items-center justify-center rounded border border-[#d6d6d6] bg-white transition hover:bg-[#f1f2f3] dark:border-[#333] dark:bg-[#101010] dark:hover:bg-[#202020]"
+          type="button"
+          onClick={onToggleCollapse}
+        >
+          <ChevronLeft className="size-4" />
+        </button>
+        <StatusDot status={status} />
+        <div className="mt-2 flex flex-1 items-center justify-center">
+          <div className="-rotate-90 whitespace-nowrap text-xs font-bold uppercase tracking-[0.18em] text-[#646464] dark:text-[#b7b7b7]">
+            {title}
+          </div>
         </div>
-      </div>
-      <div className="-rotate-90 whitespace-nowrap text-[11px] font-bold text-[#333333] dark:text-[#eeeeee]">
-        {formatMoney(stats.totalProfitLoss, currency)}
-      </div>
-    </aside>
+        <div className="-rotate-90 whitespace-nowrap text-[11px] font-bold text-[#333333] dark:text-[#eeeeee]">
+          {formatMoney(stats.totalProfitLoss, currency)}
+        </div>
+      </aside>
+    </>
   );
 }
 

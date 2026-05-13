@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Maximize2, Minimize2 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DerivChart } from "@/components/deriv-chart";
-import { MarketSelector } from "@/components/market-selector";
 import { TopShell } from "@/components/top-shell";
 import { TradePanel } from "@/components/trade-panel";
 import {
@@ -214,13 +213,6 @@ function Index() {
             </div>
           </div>
           <div className="relative min-h-0 flex-1">
-            {!isMobile && (
-              <div className="pointer-events-none absolute right-3 top-[3.5rem] z-40 hidden lg:block">
-                <div className="pointer-events-auto w-[320px]">
-                  <MarketSelector value={symbol} onValueChange={setSymbol} />
-                </div>
-              </div>
-            )}
             <DerivChart
               symbol={symbol}
               onSymbolChange={setSymbol}
@@ -234,7 +226,7 @@ function Index() {
               accumulatorProfitCurrency={barriers.profitCurrency}
               accumulatorProfitStatus={barriers.profitStatus}
               showDigitStats={isDigitTrade(tradeType)}
-              showSymbolSelector={isMobile}
+              showSymbolSelector
               compact={isMobile}
             />
           </div>

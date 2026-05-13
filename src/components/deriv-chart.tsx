@@ -1165,14 +1165,6 @@ export function DerivChart({
       <div
         className={cn("mb-2 flex min-w-0 flex-wrap items-center gap-2", compact && "mb-1 gap-1")}
       >
-        {showSymbolSelector && onSymbolChange && (
-          <MarketSelector
-            className={cn("w-full min-w-0 sm:w-[320px]", compact && "max-sm:w-full")}
-            value={symbol}
-            onValueChange={onSymbolChange}
-          />
-        )}
-
         {/* Timeframe buttons */}
         <div
           className={cn(
@@ -1382,6 +1374,20 @@ export function DerivChart({
       {/* Chart canvas */}
       <div className="relative w-full max-w-full overflow-hidden rounded-lg border border-glass-border bg-foreground/[0.02]">
         <div ref={containerRef} style={{ height }} className="w-full" />
+        {showSymbolSelector && onSymbolChange && (
+          <div
+            className={cn(
+              "pointer-events-none absolute left-12 right-2 top-2 z-30 sm:left-14 sm:right-auto sm:w-[320px]",
+              compact && "left-10 right-1 top-1 sm:left-12",
+            )}
+          >
+            <MarketSelector
+              className="pointer-events-auto min-w-0"
+              value={symbol}
+              onValueChange={onSymbolChange}
+            />
+          </div>
+        )}
         {accumulatorBand && (
           <AccumulatorBarrierBandOverlay
             band={accumulatorBand}
