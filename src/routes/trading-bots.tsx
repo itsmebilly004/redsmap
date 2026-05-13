@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { TopShell, PageHero } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { recordBotPresetActivity } from "@/lib/activity-memory";
 import { BOT_PRESET_CONFIGS } from "@/lib/bot-presets";
 import { markDeployedBotPresetId } from "@/lib/bot-preset-storage";
 import { Zap, Target, ShieldCheck, Cpu, BrainCircuit, Flame, Radar } from "lucide-react";
@@ -77,7 +78,10 @@ function TradingBots() {
                         <Link
                           to="/bot-builder"
                           search={{ preset: b.id }}
-                          onClick={() => markDeployedBotPresetId(user.id, b.id)}
+                          onClick={() => {
+                            markDeployedBotPresetId(user.id, b.id);
+                            recordBotPresetActivity(user.id, "deployed", b.name, b.id);
+                          }}
                         >
                           Deploy Bot
                         </Link>

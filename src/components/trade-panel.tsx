@@ -22,6 +22,7 @@ import {
 } from "@/components/trade-option-components";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
+import { updateTrackedTrade, upsertTrackedTrade } from "@/lib/activity-memory";
 import { isDemoAccount } from "@/lib/deriv-account";
 import {
   DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE,
@@ -557,6 +558,17 @@ export function TradePanel({
     if (!["sold", "won", "lost"].includes(nextState.status)) return;
     closedRef.current = true;
     const profit = Number(nextState.currentProfit ?? 0);
+    updateTrackedTrade(user?.id, nextState.contractId ?? "", {
+      closedAt: new Date().toISOString(),
+      payout: nextState.payout ?? null,
+      profitLoss: profit,
+      status:
+        nextState.status === "won"
+          ? "won"
+          : nextState.status === "lost"
+            ? "lost"
+            : "sold",
+    });
     const { error } = await supabase
       .from("trades")
       .update({
@@ -654,6 +666,19 @@ export function TradePanel({
       }
       tradeIdRef.current = trade?.id ?? null;
       activeAccountIdRef.current = tradingSession.account_id;
+      upsertTrackedTrade(user.id, {
+        contractId,
+        contractType,
+        currency: tradeCurrency,
+        id: trade?.id ?? `manual-${contractId}`,
+        market,
+        openedAt: new Date().toISOString(),
+        payout: Number(buy.payout ?? quote?.payout ?? 0),
+        profitLoss: 0,
+        source: "manual",
+        stake,
+        status: "open",
+      });
       setActiveContract({
         ...EMPTY_CONTRACT_STATE,
         buyPrice: numberFrom(buy.buy_price) ?? askPrice,

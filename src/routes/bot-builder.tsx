@@ -34,6 +34,13 @@ import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
+  persistBotMonitorSnapshot,
+  recordBotPresetActivity,
+  rememberMarketSelection,
+  updateTrackedTrade,
+  upsertTrackedTrade,
+} from "@/lib/activity-memory";
+import {
   ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
   type TradeCategory,
@@ -327,6 +334,7 @@ function BotBuilderPage() {
       setActiveSavedPresetId(null);
       setActivePresetName(deployedPreset.name);
       writeCurrentBotSettings(user?.id, nextSettings);
+      recordBotPresetActivity(user?.id, "deployed", deployedPreset.name, deployedPreset.id);
       addJournal(`Loaded deployed preset: ${deployedPreset.name}.`, "success");
       toast.success(`${deployedPreset.name} loaded in the bot builder.`);
       return;
@@ -369,6 +377,20 @@ function BotBuilderPage() {
     if (!accountCurrency) return;
     updateSettings({ currency: accountCurrency });
   }, [accountCurrency]);
+
+  useEffect(() => {
+    rememberMarketSelection(user?.id, "bot-builder", settings.symbol);
+  }, [settings.symbol, user?.id]);
+
+  useEffect(() => {
+    persistBotMonitorSnapshot(user?.id, {
+      journal,
+      stats,
+      status,
+      transactions,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [journal, stats, status, transactions, user?.id]);
 
   const filteredMenu = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -450,6 +472,7 @@ function BotBuilderPage() {
     setActivePresetName(name);
     writeSavedBotPresets(user?.id, nextPresets);
     writeCurrentBotSettings(user?.id, settingsRef.current);
+    recordBotPresetActivity(user?.id, "saved", name, savedPreset.id);
     addJournal(`Preset "${name}" saved locally.`, "success");
     toast.success("Bot preset saved.");
   }
@@ -462,6 +485,7 @@ function BotBuilderPage() {
     setActiveSavedPresetId(savedPreset.id);
     setActivePresetName(savedPreset.name);
     writeCurrentBotSettings(user?.id, savedPreset.settings);
+    recordBotPresetActivity(user?.id, "loaded", savedPreset.name, savedPreset.id);
     addJournal(`Loaded saved preset: ${savedPreset.name}.`, "success");
     toast.success(`${savedPreset.name} loaded.`);
   }
@@ -479,6 +503,7 @@ function BotBuilderPage() {
       setActiveSavedPresetId(null);
       setActivePresetName("Unsaved bot");
     }
+    recordBotPresetActivity(user?.id, "deleted", presetToDelete.name, presetToDelete.id);
     addJournal(`Deleted preset: ${presetToDelete.name}.`, "warning");
     toast.success("Bot preset deleted.");
   }
@@ -508,6 +533,7 @@ function BotBuilderPage() {
       setActivePresetName(imported.name);
       writeSavedBotPresets(user?.id, nextPresets);
       writeCurrentBotSettings(user?.id, imported.settings);
+      recordBotPresetActivity(user?.id, "imported", imported.name, savedPreset.id);
       addJournal(`Imported bot file: ${file.name}.`, "success");
       toast.success("Bot imported into the builder.");
     } catch (error) {
@@ -596,6 +622,19 @@ function BotBuilderPage() {
               time: formatTime(),
             };
             setTransactions((items) => [record, ...items]);
+            upsertTrackedTrade(user?.id, {
+              contractId,
+              contractType: String(payload.contract_type ?? context.contractType),
+              currency: snapshot.currency,
+              id: record.id,
+              market: snapshot.symbol,
+              openedAt: new Date().toISOString(),
+              payout: 0,
+              profitLoss: 0,
+              source: "bot-builder",
+              stake,
+              status: "open",
+            });
             addJournal(`Bought contract ${contractId}. Waiting for settlement.`, "success");
             settlement = await waitForSettlement(contractId);
 
@@ -611,6 +650,17 @@ function BotBuilderPage() {
                   : item,
               ),
             );
+            updateTrackedTrade(user?.id, contractId, {
+              closedAt: new Date().toISOString(),
+              payout: settlement?.payout ?? 0,
+              profitLoss: settlement?.profit ?? 0,
+              status:
+                settlement?.status === "won"
+                  ? "won"
+                  : settlement?.status === "lost"
+                    ? "lost"
+                    : "open",
+            });
             tradeError = null;
             break;
           } catch (error) {

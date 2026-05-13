@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { TopShell } from "@/components/top-shell";
-import { subscribeTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
+import { fetchTicks, subscribeTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
 import {
   Select,
   SelectContent,
@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Info } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { readRememberedMarket, rememberMarketSelection } from "@/lib/activity-memory";
 import { calculateDigitStats, digitsFromPrices, lastDigitFromPrice } from "@/lib/digit-stats";
 import { cn } from "@/lib/utils";
 
@@ -44,25 +46,55 @@ const DIGIT_COLORS = [
 ];
 
 function Analysis() {
+  const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("Dcircles");
-  const [symbol, setSymbol] = useState("1HZ10V");
+  const [symbol, setSymbol] = useState(
+    () => readRememberedMarket(undefined, "analysis", "1HZ10V") ?? "1HZ10V",
+  );
   const [window, setWindow] = useState<number>(1000);
   const [windowInput, setWindowInput] = useState<string>("1000");
   const [ticks, setTicks] = useState<number[]>([]);
   const [last, setLast] = useState<number | null>(null);
 
   useEffect(() => {
+    const remembered = readRememberedMarket(user?.id, "analysis");
+    if (!remembered) return;
+    setSymbol((current) => (current === remembered ? current : remembered));
+  }, [user?.id]);
+
+  useEffect(() => {
+    let active = true;
     let off: (() => void) | undefined;
     setTicks([]);
-    subscribeTicks(symbol, (price) => {
-      setLast(price);
-      setTicks((prev) => {
-        const next = [...prev, price];
-        if (next.length > 5000) next.splice(0, next.length - 5000);
-        return next;
+    setLast(null);
+    fetchTicks(symbol, 500)
+      .then((initialTicks) => {
+        if (!active) return;
+        setTicks(initialTicks.map((tick) => tick.value));
+        const latest = initialTicks.at(-1)?.value;
+        if (latest != null) setLast(latest);
+      })
+      .catch(() => {
+        /* network/timeout handled by live subscription */
+      })
+      .finally(() => {
+        subscribeTicks(symbol, (price) => {
+          if (!active) return;
+          setLast(price);
+          setTicks((prev) => {
+            const next = [...prev, price];
+            if (next.length > 5000) next.splice(0, next.length - 5000);
+            return next;
+          });
+        }).then((unsubscribe) => {
+          if (active) off = unsubscribe;
+          else unsubscribe();
+        });
       });
-    }).then((u) => (off = u));
-    return () => off?.();
+    return () => {
+      active = false;
+      off?.();
+    };
   }, [symbol]);
 
   const slice = useMemo(() => ticks.slice(-window), [ticks, window]);
@@ -70,7 +102,7 @@ function Analysis() {
     () => slice.map(lastDigitFromPrice).filter((digit): digit is number => digit != null),
     [slice],
   );
-  const dcircleDigits = useMemo(() => digitsFromPrices(slice, 500), [slice]);
+  const dcircleDigits = useMemo(() => digitsFromPrices(ticks, 500), [ticks]);
   const dcircleStats = useMemo(() => calculateDigitStats(dcircleDigits), [dcircleDigits]);
   const counts = useMemo(() => dcircleStats.counts, [dcircleStats]);
   const total = Math.max(dcircleDigits.length, 1);
@@ -131,7 +163,13 @@ function Analysis() {
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] lg:flex lg:flex-wrap lg:items-end lg:gap-4">
           <div className="min-w-0 lg:min-w-[200px] lg:flex-1">
             <label className="block text-sm font-semibold text-foreground">Market</label>
-            <Select value={symbol} onValueChange={setSymbol}>
+            <Select
+              value={symbol}
+              onValueChange={(value) => {
+                setSymbol(value);
+                rememberMarketSelection(user?.id, "analysis", value);
+              }}
+            >
               <SelectTrigger className="mt-1 h-10 w-full rounded-md border-input bg-background text-foreground">
                 <SelectValue />
               </SelectTrigger>
@@ -176,7 +214,7 @@ function Analysis() {
         {tab === "Dcircles" && (
           <div className="mt-6">
             <div className="text-sm font-semibold text-foreground">
-              Last {window} ticks — digit distribution
+              Last {dcircleDigits.length} ticks — digit distribution
             </div>
             <div className="mt-6 grid grid-cols-5 gap-y-8 sm:grid-cols-10">
               {counts.map((_c, i) => {

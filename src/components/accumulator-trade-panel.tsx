@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
+import { updateTrackedTrade, upsertTrackedTrade } from "@/lib/activity-memory";
 import { isDemoAccount } from "@/lib/deriv-account";
 import {
   buildOAuthUrl,
@@ -235,6 +236,12 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     if (nextState.status !== "sold" && nextState.status !== "lost") return;
     closedRef.current = true;
     const profit = Number(nextState.currentProfit ?? 0);
+    updateTrackedTrade(user?.id, nextState.contractId ?? "", {
+      closedAt: new Date().toISOString(),
+      payout: nextState.currentPayout ?? null,
+      profitLoss: profit,
+      status: nextState.status,
+    });
     const { error } = await supabase
       .from("trades")
       .update({
@@ -320,6 +327,19 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         toast.error("Trade placed, but history could not be saved.");
       }
       tradeIdRef.current = trade?.id ?? null;
+      upsertTrackedTrade(user?.id, {
+        contractId,
+        contractType: payload.contract_type,
+        currency: tradeCurrency,
+        id: trade?.id ?? `accumulator-${contractId}`,
+        market,
+        openedAt: new Date().toISOString(),
+        payout: Number(contract.payout ?? askPrice),
+        profitLoss: 0,
+        source: "accumulator",
+        stake,
+        status: "open",
+      });
 
       setState((current) => ({
         ...current,

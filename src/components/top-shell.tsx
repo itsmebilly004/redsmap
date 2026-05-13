@@ -1,5 +1,6 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
+import { AiAssistant } from "@/components/ai-assistant";
 import {
   BotRunMonitorPanel,
   DEFAULT_BOT_MONITOR_JOURNAL,
@@ -12,6 +13,12 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  persistBotMonitorSnapshot,
+  readBotMonitorSnapshot,
+  updateTrackedTrade,
+  upsertTrackedTrade,
+} from "@/lib/activity-memory";
 import {
   ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
@@ -38,7 +45,6 @@ import {
   Microscope,
   Target,
   Users,
-  Sparkles,
   Plug,
   ChevronDown,
   LogOut,
@@ -145,6 +151,7 @@ export function TopShell({
   const [botMonitorJournal, setBotMonitorJournal] = useState<BotMonitorJournalEntry[]>(
     DEFAULT_BOT_MONITOR_JOURNAL,
   );
+  const [botMonitorMemoryReady, setBotMonitorMemoryReady] = useState(false);
   const footerBotRunningRef = useRef(false);
   const footerBotStatsRef = useRef(EMPTY_BOT_MONITOR_STATS);
 
@@ -167,6 +174,41 @@ export function TopShell({
   useEffect(() => {
     footerBotStatsRef.current = botMonitorStats;
   }, [botMonitorStats]);
+
+  useEffect(() => {
+    const snapshot = readBotMonitorSnapshot(user?.id);
+    if (!snapshot) {
+      setBotMonitorStatus("stopped");
+      setBotMonitorStats(EMPTY_BOT_MONITOR_STATS);
+      setBotMonitorTransactions([]);
+      setBotMonitorJournal(DEFAULT_BOT_MONITOR_JOURNAL);
+      setBotMonitorMemoryReady(true);
+      return;
+    }
+    setBotMonitorStatus(snapshot.status);
+    setBotMonitorStats(snapshot.stats);
+    setBotMonitorTransactions(snapshot.transactions);
+    setBotMonitorJournal(snapshot.journal.length ? snapshot.journal : DEFAULT_BOT_MONITOR_JOURNAL);
+    setBotMonitorMemoryReady(true);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!botMonitorMemoryReady) return;
+    persistBotMonitorSnapshot(user?.id, {
+      journal: botMonitorJournal,
+      stats: botMonitorStats,
+      status: botMonitorStatus,
+      transactions: botMonitorTransactions,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [
+    botMonitorJournal,
+    botMonitorMemoryReady,
+    botMonitorStats,
+    botMonitorStatus,
+    botMonitorTransactions,
+    user?.id,
+  ]);
 
   useEffect(() => {
     console.info(
@@ -365,6 +407,19 @@ export function TopShell({
               time: formatTime(),
             };
             setBotMonitorTransactions((items) => [record, ...items]);
+            upsertTrackedTrade(user?.id, {
+              contractId,
+              contractType: String(payload.contract_type ?? context.contractType),
+              currency: snapshot.currency,
+              id: record.id,
+              market: snapshot.symbol,
+              openedAt: new Date().toISOString(),
+              payout: 0,
+              profitLoss: 0,
+              source: "bot-footer",
+              stake,
+              status: "open",
+            });
             addFooterBotJournal(`Bought contract ${contractId}. Waiting for settlement.`, "success");
             settlement = await waitForSettlement(contractId);
 
@@ -380,6 +435,17 @@ export function TopShell({
                   : item,
               ),
             );
+            updateTrackedTrade(user?.id, contractId, {
+              closedAt: new Date().toISOString(),
+              payout: settlement?.payout ?? 0,
+              profitLoss: settlement?.profit ?? 0,
+              status:
+                settlement?.status === "won"
+                  ? "won"
+                  : settlement?.status === "lost"
+                    ? "lost"
+                    : "open",
+            });
             tradeError = null;
             break;
           } catch (error) {
@@ -703,17 +769,7 @@ export function TopShell({
       )}
 
       {showAssistantButton && (
-        <button
-          aria-label="AI assistant"
-          className={cn(
-            "fixed right-3 z-50 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[#8e44ad] to-[#2c3e50] text-white shadow-lg transition-transform hover:scale-105 sm:right-6 sm:size-14",
-            showBotMonitor ? "bottom-16 sm:bottom-20" : "bottom-3 sm:bottom-6",
-          )}
-        >
-          <Sparkles className="size-4 sm:size-5" />
-          <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-[#4bb4b3]" />
-          <span className="absolute -bottom-1 text-[9px] font-bold sm:text-[10px]">AI</span>
-        </button>
+        <AiAssistant currentPath={pathname} showBotMonitor={showBotMonitor} />
       )}
     </div>
   );

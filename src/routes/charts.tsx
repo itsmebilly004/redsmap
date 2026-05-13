@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { DerivChart } from "@/components/deriv-chart";
+import { useAuth } from "@/hooks/use-auth";
+import { readRememberedMarket, rememberMarketSelection } from "@/lib/activity-memory";
 
 export const Route = createFileRoute("/charts")({
   head: () => ({
@@ -23,8 +25,17 @@ function computeChartHeight() {
 }
 
 function ChartsPage() {
-  const [symbol, setSymbol] = useState("R_100");
+  const { user } = useAuth();
+  const [symbol, setSymbol] = useState(
+    () => readRememberedMarket(undefined, "charts", "R_100") ?? "R_100",
+  );
   const [chartHeight, setChartHeight] = useState(() => computeChartHeight());
+
+  useEffect(() => {
+    const remembered = readRememberedMarket(user?.id, "charts");
+    if (!remembered) return;
+    setSymbol((current) => (current === remembered ? current : remembered));
+  }, [user?.id]);
 
   useEffect(() => {
     let frame = 0;
@@ -49,7 +60,14 @@ function ChartsPage() {
   return (
     <TopShell>
       <div className="min-w-0 bg-card p-2 text-card-foreground sm:p-3 dark:bg-[#101010]">
-        <DerivChart symbol={symbol} onSymbolChange={setSymbol} height={chartHeight} />
+        <DerivChart
+          symbol={symbol}
+          onSymbolChange={(nextSymbol) => {
+            setSymbol(nextSymbol);
+            rememberMarketSelection(user?.id, "charts", nextSymbol);
+          }}
+          height={chartHeight}
+        />
       </div>
     </TopShell>
   );

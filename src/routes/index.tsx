@@ -5,6 +5,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { DerivChart } from "@/components/deriv-chart";
 import { TopShell } from "@/components/top-shell";
 import { TradePanel } from "@/components/trade-panel";
+import { useAuth } from "@/hooks/use-auth";
+import { readRememberedMarket, rememberMarketSelection } from "@/lib/activity-memory";
 import {
   DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE,
   recordDerivOAuthTrace,
@@ -27,7 +29,10 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const [symbol, setSymbol] = useState("1HZ100V");
+  const { user } = useAuth();
+  const [symbol, setSymbol] = useState(
+    () => readRememberedMarket(undefined, "manual", "1HZ100V") ?? "1HZ100V",
+  );
   const [price, setPrice] = useState<number | null>(null);
   const [tradeType, setTradeType] = useState<TradeCategory>("accumulator");
   const [barriers, setBarriers] = useState<{
@@ -61,6 +66,12 @@ function Index() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
+    const remembered = readRememberedMarket(user?.id, "manual");
+    if (!remembered) return;
+    setSymbol((current) => (current === remembered ? current : remembered));
+  }, [user?.id]);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener("fullscreenchange", onChange);
@@ -90,6 +101,14 @@ function Index() {
       /* user dismissed prompt or browser blocked it — ignore */
     }
   }, []);
+
+  const handleMarketChange = useCallback(
+    (nextSymbol: string) => {
+      setSymbol(nextSymbol);
+      rememberMarketSelection(user?.id, "manual", nextSymbol);
+    },
+    [user?.id],
+  );
 
   const handleAccumulatorBarriers = useCallback(
     (next: {
@@ -215,7 +234,7 @@ function Index() {
           <div className="relative min-h-0 flex-1">
             <DerivChart
               symbol={symbol}
-              onSymbolChange={setSymbol}
+              onSymbolChange={handleMarketChange}
               onPrice={setPrice}
               height={chartHeight}
               entryPrice={barriers.entry}
@@ -239,7 +258,7 @@ function Index() {
             market={symbol}
             lastPrice={price}
             onAccumulatorBarriers={handleAccumulatorBarriers}
-            onMarketChange={setSymbol}
+            onMarketChange={handleMarketChange}
             onTradeTypeChange={setTradeType}
             showMarketSelector={false}
           />
