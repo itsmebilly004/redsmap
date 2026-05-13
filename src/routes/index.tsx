@@ -167,6 +167,7 @@ function Index() {
             </div>
           </div>
 
+
           <DerivChart
             symbol={symbol}
             onSymbolChange={setSymbol}
@@ -193,10 +194,10 @@ function Index() {
             lastPrice={price}
             onAccumulatorBarriers={handleAccumulatorBarriers}
             onMarketChange={setSymbol}
-            onTradeTypeChange={setTradeType}
-          />
+            onTradeTypeChange={setTradeType}          />
         </aside>
       </div>
+
 
       <div className="hidden flex-wrap items-center justify-between gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 md:flex dark:border-[#242424] dark:bg-[#151515]">
         <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-[oklch(0.45_0.02_260)] sm:gap-3 dark:text-[#999999]">
