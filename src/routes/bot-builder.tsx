@@ -173,6 +173,10 @@ const blockMenu = [
   { collapsible: true, section: "utility", title: "Utility" },
 ];
 
+const BOT_TRADE_MAX_ATTEMPTS = 2;
+const DERIV_TEMPORARY_PROCESSING_MESSAGE =
+  "Sorry, an error occurred while processing your request.";
+
 function currentSettingsStorageKey(userId?: string | null) {
   return `arktrader:bot-builder:${userId ?? "guest"}:current-settings`;
 }
@@ -548,17 +552,18 @@ function BotBuilderPage() {
 
     try {
       const session = await ensureDerivTradingConnection(account, { context: "bot-builder-run" });
+      const runCurrency = accountCurrency || account.currency || settingsRef.current.currency;
       const context = {
         adapter: session.adapter,
         contractType: contractTypeLabel(settingsRef.current),
-        selectedAccountId: account.account_id,
-        selectedAccountType: account.normalizedType,
+        selectedAccountId: session.account_id,
+        selectedAccountType: session.normalizedType,
       };
       let currentStake = settingsRef.current.stake;
       let runningProfit = stats.totalProfitLoss;
 
       for (let index = 0; runningRef.current && index < settingsRef.current.maxRuns; index += 1) {
-        const snapshot = settingsRef.current;
+        const snapshot = normalizeSettings({ ...settingsRef.current, currency: runCurrency });
         const stake = clampNumber(currentStake, 0.35, snapshot.maxStake);
         if (!conditionAllowsTrade(snapshot, stake, index + 1, runningProfit)) {
           addJournal("Purchase condition is false. Waiting for the next run cycle.", "warning");
@@ -568,50 +573,77 @@ function BotBuilderPage() {
         }
 
         const input = proposalInput(snapshot, stake);
-        let settlement: Settlement;
-        try {
-          const payload = buildStandardProposalPayload(input, session.adapter as TradingAdapter);
-          addJournal(
-            `Requesting proposal for ${contractTypeLabel(snapshot)} with ${stake.toFixed(2)} ${snapshot.currency}.`,
-          );
-          const proposal = await requestProposal(payload, context);
-          const proposalId = String(proposal.proposal?.id ?? "");
-          const askPrice = Number(proposal.proposal?.ask_price ?? stake);
-          const buy = await buyProposal(proposalId, askPrice, context);
-          const contractId = String(buy.buy?.contract_id ?? "");
-          const record: Transaction = {
-            contractId,
-            id: crypto.randomUUID(),
-            payout: 0,
-            profit: 0,
-            stake,
-            status: "open",
-            time: formatTime(),
-          };
-          setTransactions((items) => [record, ...items]);
-          addJournal(`Bought contract ${contractId}. Waiting for settlement.`, "success");
-          settlement = await waitForSettlement(contractId);
+        let settlement: Settlement | null = null;
+        let tradeError: unknown = null;
+        for (let attempt = 1; attempt <= BOT_TRADE_MAX_ATTEMPTS; attempt += 1) {
+          let contractWasBought = false;
+          try {
+            const payload = buildStandardProposalPayload(input, session.adapter as TradingAdapter);
+            addJournal(
+              `Requesting proposal for ${contractTypeLabel(snapshot)} with ${stake.toFixed(2)} ${snapshot.currency}.`,
+            );
+            const proposal = await requestProposal(payload, {
+              ...context,
+              contractType: String(payload.contract_type ?? context.contractType),
+            });
+            const proposalId = String(proposal.proposal?.id ?? "");
+            const askPrice = positiveNumberFrom(proposal.proposal?.ask_price, stake) ?? stake;
+            const buy = await buyProposal(proposalId, askPrice, {
+              ...context,
+              contractType: String(payload.contract_type ?? context.contractType),
+            });
+            const contractId = String(buy.buy?.contract_id ?? "");
+            contractWasBought = true;
+            const record: Transaction = {
+              contractId,
+              id: crypto.randomUUID(),
+              payout: 0,
+              profit: 0,
+              stake,
+              status: "open",
+              time: formatTime(),
+            };
+            setTransactions((items) => [record, ...items]);
+            addJournal(`Bought contract ${contractId}. Waiting for settlement.`, "success");
+            settlement = await waitForSettlement(contractId);
 
-          setTransactions((items) =>
-            items.map((item) =>
-              item.id === record.id
-                ? {
-                    ...item,
-                    payout: settlement.payout,
-                    profit: settlement.profit,
-                    status: settlement.status,
-                  }
-                : item,
-            ),
-          );
-        } catch (error) {
-          const message = getDerivTradingErrorMessage(error);
+            setTransactions((items) =>
+              items.map((item) =>
+                item.id === record.id
+                  ? {
+                      ...item,
+                      payout: settlement?.payout ?? 0,
+                      profit: settlement?.profit ?? 0,
+                      status: settlement?.status ?? "open",
+                    }
+                  : item,
+              ),
+            );
+            tradeError = null;
+            break;
+          } catch (error) {
+            tradeError = error;
+            if (
+              !contractWasBought &&
+              attempt < BOT_TRADE_MAX_ATTEMPTS &&
+              shouldRetryBotTrade(error)
+            ) {
+              addJournal("Deriv returned a temporary processing error. Retrying once.", "warning");
+              await sleep(1500);
+              continue;
+            }
+            break;
+          }
+        }
+
+        if (!settlement) {
+          const message = getDerivTradingErrorMessage(tradeError);
           if (snapshot.restartBuySellOnError || snapshot.restartLastTradeOnError) {
-            addJournal(`Trade error recovered: ${message}`, "warning");
+            addJournal(`Skipped one bot run after Deriv rejected the trade: ${message}`, "warning");
             await sleep(700);
             continue;
           }
-          throw error;
+          throw tradeError;
         }
 
         runningProfit += settlement.profit;
@@ -1991,6 +2023,13 @@ function normalizeSettings(settings: BotSettings): BotSettings {
   ) {
     patch.purchaseDirection = purchaseDirectionOptions(settings)[0]?.value ?? "even";
   }
+  const digitContract = patch.digitContract ?? settings.digitContract;
+  const purchaseDirection = patch.purchaseDirection ?? settings.purchaseDirection;
+  let selectedDigit = Math.max(0, Math.min(9, Math.round(Number(settings.selectedDigit) || 0)));
+  if (settings.tradeType === "digits" && digitContract === "over_under") {
+    if (purchaseDirection === "over") selectedDigit = Math.min(8, selectedDigit);
+    if (purchaseDirection === "under") selectedDigit = Math.max(1, selectedDigit);
+  }
   return {
     ...settings,
     ...patch,
@@ -1998,7 +2037,7 @@ function normalizeSettings(settings: BotSettings): BotSettings {
     martingale: clampNumber(settings.martingale, 1, 100),
     maxRuns: Math.max(1, Math.round(Number(settings.maxRuns) || 1)),
     maxStake: clampNumber(settings.maxStake, 0.35, 50000),
-    selectedDigit: Math.max(0, Math.min(9, Math.round(Number(settings.selectedDigit) || 0))),
+    selectedDigit,
     stake: clampNumber(settings.stake, 0.35, 50000),
     stopLoss: Math.max(0, Number(settings.stopLoss) || 0),
     takeProfit: Math.max(0, Number(settings.takeProfit) || 0),
@@ -2195,6 +2234,27 @@ async function waitForSettlement(contractId: string): Promise<Settlement> {
 
 function sleep(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function shouldRetryBotTrade(error: unknown) {
+  const message = getDerivTradingErrorMessage(error).toLowerCase();
+  const code = String((error as { code?: unknown })?.code ?? "").toLowerCase();
+  return (
+    message.includes(DERIV_TEMPORARY_PROCESSING_MESSAGE.toLowerCase()) ||
+    message.includes("timed out") ||
+    code.includes("internal") ||
+    code.includes("rate") ||
+    code.includes("timeout")
+  );
+}
+
+function positiveNumberFrom(...values: unknown[]) {
+  for (const value of values) {
+    if (value == null || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+  return null;
 }
 
 function clampNumber(value: number, min: number, max: number) {

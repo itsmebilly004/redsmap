@@ -101,7 +101,7 @@ export type DerivOAuthPkceBackup = {
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
 
 type DerivRecord = Record<string, unknown>;
-type DerivError = { message?: string };
+type DerivError = { code?: string; message?: string };
 export type DerivMessage = DerivRecord & {
   req_id?: number;
   msg_type?: string;
@@ -1545,6 +1545,7 @@ function isInvalidDerivTokenMessage(message: string | undefined, code?: string) 
 
 function derivMessageError(error: DerivError | undefined) {
   const message = textFrom(error?.message, "Deriv request failed.");
+  const code = textFrom(error?.code, "DERIV_REQUEST_FAILED");
   if (isInvalidDerivTokenMessage(message)) {
     return createDerivSocketError(
       "Your Deriv session expired. Please reconnect your Deriv account.",
@@ -1553,7 +1554,7 @@ function derivMessageError(error: DerivError | undefined) {
       false,
     );
   }
-  return createDerivSocketError(message, "DERIV_REQUEST_FAILED", undefined, true);
+  return createDerivSocketError(message, code, undefined, true);
 }
 
 function explicitTokenSourceForAccount(account: DerivAccountLike): DerivTokenSource | null {

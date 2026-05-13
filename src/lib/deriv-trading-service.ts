@@ -82,6 +82,12 @@ export async function buyProposal(
   price: number,
   context: TradeRequestContext = {},
 ) {
+  if (!proposalId.trim()) {
+    throw new Error("Deriv did not return a valid proposal id.");
+  }
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error("Deriv did not return a valid proposal price.");
+  }
   const payload = { buy: proposalId, price };
   console.info("[Deriv Trading] Buy request", {
     adapter: context.adapter ?? "unknown",
