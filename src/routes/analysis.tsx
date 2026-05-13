@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Info } from "lucide-react";
+import { calculateDigitStats, digitsFromPrices, lastDigitFromPrice } from "@/lib/digit-stats";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/analysis")({
@@ -65,16 +66,18 @@ function Analysis() {
   }, [symbol]);
 
   const slice = useMemo(() => ticks.slice(-window), [ticks, window]);
-  const digits = useMemo(() => slice.map((p) => Number(p.toFixed(2).slice(-1))), [slice]);
-  const counts = useMemo(
-    () => Array.from({ length: 10 }, (_, i) => digits.filter((d) => d === i).length),
-    [digits],
+  const digits = useMemo(
+    () => slice.map(lastDigitFromPrice).filter((digit): digit is number => digit != null),
+    [slice],
   );
-  const total = Math.max(digits.length, 1);
-  const pcts = counts.map((c) => (c / total) * 100);
+  const dcircleDigits = useMemo(() => digitsFromPrices(slice, 500), [slice]);
+  const dcircleStats = useMemo(() => calculateDigitStats(dcircleDigits), [dcircleDigits]);
+  const counts = useMemo(() => dcircleStats.counts, [dcircleStats]);
+  const total = Math.max(dcircleDigits.length, 1);
+  const pcts = dcircleStats.percentages;
   const maxPct = Math.max(...pcts);
   const minPct = Math.min(...pcts);
-  const currentDigit = digits.length ? digits[digits.length - 1] : null;
+  const currentDigit = dcircleStats.latest;
   const marketName = SYNTHETIC_MARKETS.find((m) => m.symbol === symbol)?.name ?? symbol;
 
   // Signals: last-N streak analysis
@@ -165,7 +168,7 @@ function Analysis() {
             </div>
           </div>
           <div className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-1">
-            Samples: {digits.length}
+            Samples: {tab === "Dcircles" ? dcircleDigits.length : digits.length}
           </div>
         </div>
 

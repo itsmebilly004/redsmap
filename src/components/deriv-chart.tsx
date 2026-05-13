@@ -35,6 +35,7 @@ import {
 } from "@/lib/deriv";
 import { MarketSelector } from "@/components/market-selector";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { calculateDigitStats, digitsFromPrices, lastDigitFromPrice } from "@/lib/digit-stats";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -1927,10 +1928,7 @@ function updateDigitStatsFromPrices(
   setStats: Dispatch<SetStateAction<{ latest: number | null; percentages: number[] }>>,
   publish = true,
 ) {
-  const digits = prices
-    .map(lastDigitFromPrice)
-    .filter((digit): digit is number => digit != null)
-    .slice(-500);
+  const digits = digitsFromPrices(prices, 500);
   ref.current = digits;
   if (publish) setStats(calculateDigitStats(digits));
 }
@@ -1946,22 +1944,6 @@ function pushDigit(
   ref.current.push(digit);
   if (ref.current.length > 500) ref.current.splice(0, ref.current.length - 500);
   if (publish) setStats(calculateDigitStats(ref.current));
-}
-
-function calculateDigitStats(digits: number[]) {
-  const total = Math.max(digits.length, 1);
-  const counts = Array.from({ length: 10 }, () => 0);
-  for (const digit of digits) counts[digit] += 1;
-  return {
-    latest: digits.at(-1) ?? null,
-    percentages: counts.map((count) => (count / total) * 100),
-  };
-}
-
-function lastDigitFromPrice(price: number) {
-  if (!Number.isFinite(price)) return null;
-  const text = price.toFixed(2);
-  return Number(text.slice(-1));
 }
 
 function movingAverage(data: LineData[], period: number): LineData[] {
