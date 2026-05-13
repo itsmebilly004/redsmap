@@ -49,6 +49,7 @@ import {
 import { BOT_PRESET_CONFIGS, type BotPresetConfig } from "@/lib/bot-presets";
 import { buyProposal, requestProposal, subscribeOpenContract } from "@/lib/deriv-trading-service";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
+import { numberFrom } from "@/lib/contract-state";
 import { cn } from "@/lib/utils";
 
 const search = z.object({
@@ -95,6 +96,8 @@ type BotStats = BotMonitorStats;
 type Transaction = BotMonitorTransaction;
 type JournalEntry = BotMonitorJournalEntry;
 type Settlement = {
+  entrySpot: number | null;
+  exitSpot: number | null;
   payout: number;
   profit: number;
   status: "lost" | "open" | "won";
@@ -614,6 +617,8 @@ function BotBuilderPage() {
             contractWasBought = true;
             const record: Transaction = {
               contractId,
+              entrySpot: null,
+              exitSpot: null,
               id: crypto.randomUUID(),
               payout: 0,
               profit: 0,
@@ -643,6 +648,8 @@ function BotBuilderPage() {
                 item.id === record.id
                   ? {
                       ...item,
+                      entrySpot: settlement?.entrySpot ?? null,
+                      exitSpot: settlement?.exitSpot ?? null,
                       payout: settlement?.payout ?? 0,
                       profit: settlement?.profit ?? 0,
                       status: settlement?.status ?? "open",
@@ -2031,7 +2038,7 @@ async function waitForSettlement(contractId: string): Promise<Settlement> {
     const timeout = window.setTimeout(() => {
       if (settled) return;
       settled = true;
-      resolve({ payout: 0, profit: 0, status: "open" });
+      resolve({ entrySpot: null, exitSpot: null, payout: 0, profit: 0, status: "open" });
       void unsubscribe?.();
     }, 45000);
 
@@ -2048,9 +2055,25 @@ async function waitForSettlement(contractId: string): Promise<Settlement> {
       if (!isSold || settled) return;
       settled = true;
       window.clearTimeout(timeout);
+      const entrySpot = numberFrom(
+        contract.entry_spot,
+        contract.entry_tick,
+        contract.entry_tick_display_value,
+      );
+      const exitSpot = numberFrom(
+        contract.exit_spot,
+        contract.exit_tick,
+        contract.exit_tick_display_value,
+        contract.sell_spot,
+        contract.current_spot,
+        contract.current_tick,
+        contract.current_spot_display_value,
+      );
       const profit = Number(contract.profit ?? 0);
       const payout = Number(contract.payout ?? contract.sell_price ?? contract.bid_price ?? 0);
       resolve({
+        entrySpot,
+        exitSpot,
         payout: Number.isFinite(payout) ? payout : 0,
         profit: Number.isFinite(profit) ? profit : 0,
         status: profit >= 0 ? "won" : "lost",

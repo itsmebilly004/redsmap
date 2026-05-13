@@ -1,4 +1,5 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
+import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import { AiAssistant } from "@/components/ai-assistant";
 import {
@@ -62,6 +63,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { type DerivAccount } from "@/hooks/use-deriv-balance";
+import { numberFrom } from "@/lib/contract-state";
 import { hasDerivAccountPrefix, isDemoAccount } from "@/lib/deriv-account";
 
 const CURRENCY_META: Record<string, { country?: string; name: string; symbol?: string }> = {
@@ -121,6 +123,8 @@ const DERIV_TEMPORARY_PROCESSING_MESSAGE =
   "Sorry, an error occurred while processing your request.";
 
 type Settlement = {
+  entrySpot: number | null;
+  exitSpot: number | null;
   payout: number;
   profit: number;
   status: "lost" | "open" | "won";
@@ -399,6 +403,8 @@ export function TopShell({
             contractWasBought = true;
             const record: BotMonitorTransaction = {
               contractId,
+              entrySpot: null,
+              exitSpot: null,
               id: crypto.randomUUID(),
               payout: 0,
               profit: 0,
@@ -428,6 +434,8 @@ export function TopShell({
                 item.id === record.id
                   ? {
                       ...item,
+                      entrySpot: settlement?.entrySpot ?? null,
+                      exitSpot: settlement?.exitSpot ?? null,
                       payout: settlement?.payout ?? 0,
                       profit: settlement?.profit ?? 0,
                       status: settlement?.status ?? "open",
@@ -530,10 +538,10 @@ export function TopShell({
     <div className="flex min-h-dvh min-w-0 flex-col overflow-x-hidden bg-[#f2f3f4] text-[#333333] dark:bg-[#0e0e0e] dark:text-[#e6e6e6]">
       <header className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-[#e5e5e5] bg-white px-3 py-2 sm:flex-nowrap md:px-6 dark:border-[#242424] dark:bg-[#151515]">
         <Link to="/" className="flex min-w-0 items-center gap-2">
-          <div className="size-5 shrink-0 rotate-45 rounded-sm bg-[#ff444f] sm:size-6" />
-          <span className="truncate text-base font-bold tracking-tight text-[#333333] sm:text-lg dark:text-[#e6e6e6]">
-            ArkTrader Hub
-          </span>
+          <BrandLogo
+            imageClassName="size-10 rounded-[12px] sm:size-11"
+            labelClassName="truncate text-base font-bold tracking-tight text-[#333333] sm:text-lg dark:text-[#e6e6e6]"
+          />
         </Link>
 
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none sm:gap-4">
@@ -879,7 +887,7 @@ async function waitForSettlement(contractId: string): Promise<Settlement> {
     const timeout = window.setTimeout(() => {
       if (settled) return;
       settled = true;
-      resolve({ payout: 0, profit: 0, status: "open" });
+      resolve({ entrySpot: null, exitSpot: null, payout: 0, profit: 0, status: "open" });
       void unsubscribe?.();
     }, 45000);
 
@@ -896,9 +904,25 @@ async function waitForSettlement(contractId: string): Promise<Settlement> {
       if (!isSold || settled) return;
       settled = true;
       window.clearTimeout(timeout);
+      const entrySpot = numberFrom(
+        contract.entry_spot,
+        contract.entry_tick,
+        contract.entry_tick_display_value,
+      );
+      const exitSpot = numberFrom(
+        contract.exit_spot,
+        contract.exit_tick,
+        contract.exit_tick_display_value,
+        contract.sell_spot,
+        contract.current_spot,
+        contract.current_tick,
+        contract.current_spot_display_value,
+      );
       const profit = Number(contract.profit ?? 0);
       const payout = Number(contract.payout ?? contract.sell_price ?? contract.bid_price ?? 0);
       resolve({
+        entrySpot,
+        exitSpot,
         payout: Number.isFinite(payout) ? payout : 0,
         profit: Number.isFinite(profit) ? profit : 0,
         status: profit >= 0 ? "won" : "lost",

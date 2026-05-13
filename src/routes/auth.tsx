@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { z } from "zod";
+import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import {
   DERIV_OAUTH_ENDPOINT_VALUE,
@@ -187,8 +188,7 @@ function AuthPage() {
       </div>
       <div className="relative w-full max-w-md">
         <Link to="/" className="mb-8 flex items-center justify-center gap-2.5">
-          <div className="size-7 rotate-45 rounded-sm bg-primary" />
-          <span className="text-lg font-semibold tracking-tight">ArkTrader Hub</span>
+          <BrandLogo imageClassName="size-12 rounded-[14px]" />
         </Link>
 
         <div className="glass-card rounded-2xl p-5 sm:p-8">
