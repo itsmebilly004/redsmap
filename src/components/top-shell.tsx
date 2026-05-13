@@ -1,5 +1,10 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
+import {
+  BotRunMonitorPanel,
+  DEFAULT_BOT_MONITOR_JOURNAL,
+  EMPTY_BOT_MONITOR_STATS,
+} from "@/components/bot-run-monitor";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { useTheme } from "@/hooks/use-theme";
@@ -97,9 +102,11 @@ export const TOP_TABS: TabDef[] = [
 export function TopShell({
   children,
   showAssistantButton = true,
+  showBotMonitor = true,
 }: {
   children: ReactNode;
   showAssistantButton?: boolean;
+  showBotMonitor?: boolean;
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -109,6 +116,8 @@ export function TopShell({
   const { theme, toggleTheme } = useTheme();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeAccountTab, setActiveAccountTab] = useState<"real" | "demo">("real");
+  const [botMonitorCollapsed, setBotMonitorCollapsed] = useState(true);
+  const [botMonitorTab, setBotMonitorTab] = useState("summary");
 
   const realAccounts = useMemo(
     () => accounts.filter((account) => account.normalizedType === "real"),
@@ -422,14 +431,14 @@ export function TopShell({
                 to={t.to}
                 aria-label={t.label}
                 className={cn(
-                  "flex shrink-0 items-center justify-center px-2 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:py-3 sm:text-sm",
+                  "flex min-w-max shrink-0 items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] font-medium transition-colors sm:gap-2 sm:px-4 sm:py-3 sm:text-sm",
                   active
                     ? "bg-[#4bb4b3] text-white"
                     : "text-[#333333] hover:bg-[#f2f3f4] dark:text-[#cccccc] dark:hover:bg-[#1f1f1f]",
                 )}
               >
                 <Icon className="size-4" />
-                <span className={cn("hidden sm:inline", active && "uppercase tracking-wide")}>
+                <span className={cn("whitespace-nowrap", active && "uppercase tracking-wide")}>
                   {t.label}
                 </span>
               </Link>
@@ -438,12 +447,41 @@ export function TopShell({
         </div>
       </nav>
 
-      <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+      <main className={cn("flex min-w-0 flex-1 flex-col", showBotMonitor && "pb-14")}>
+        {children}
+      </main>
+
+      {showBotMonitor && (
+        <BotRunMonitorPanel
+          activeTab={botMonitorTab}
+          collapsed={botMonitorCollapsed}
+          currency={currency || account?.currency || "USD"}
+          journal={DEFAULT_BOT_MONITOR_JOURNAL}
+          mode="footer"
+          onToggleCollapse={() => setBotMonitorCollapsed((value) => !value)}
+          primaryAction={
+            <Button
+              asChild
+              className="h-[40px] w-[82px] rounded-none bg-[#4bb4b3] text-base font-bold text-white hover:bg-[#43a5a4]"
+            >
+              <Link to="/bot-builder">Open</Link>
+            </Button>
+          }
+          setActiveTab={setBotMonitorTab}
+          stats={EMPTY_BOT_MONITOR_STATS}
+          status="stopped"
+          title="Bot monitor"
+          transactions={[]}
+        />
+      )}
 
       {showAssistantButton && (
         <button
           aria-label="AI assistant"
-          className="fixed bottom-3 right-3 z-50 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[#8e44ad] to-[#2c3e50] text-white shadow-lg transition-transform hover:scale-105 sm:bottom-6 sm:right-6 sm:size-14"
+          className={cn(
+            "fixed right-3 z-50 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[#8e44ad] to-[#2c3e50] text-white shadow-lg transition-transform hover:scale-105 sm:right-6 sm:size-14",
+            showBotMonitor ? "bottom-16 sm:bottom-20" : "bottom-3 sm:bottom-6",
+          )}
         >
           <Sparkles className="size-4 sm:size-5" />
           <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-[#4bb4b3]" />

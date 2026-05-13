@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AccumulatorTradePanel } from "@/components/accumulator-trade-panel";
+import { MarketSelector } from "@/components/market-selector";
 import {
   DigitSelector,
   ProposalButton,
@@ -117,9 +118,9 @@ function TradingConnectionBadge({
         ? { chip: "bg-[#fff8e7] text-[#9a6700]", label: "CONNECTING" }
         : { chip: "bg-[#fff1f2] text-[#cc2f39]", label: "DISCONNECTED" };
   return (
-    <div className="rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs shadow-sm">
+    <div className="rounded-md border border-[#d6d9dc] bg-white px-3 py-2 text-xs shadow-sm dark:border-[#2f3337] dark:bg-[#151515]">
       <div className="flex items-center justify-between gap-3">
-        <span className="font-semibold text-[#495057]">Trading connection</span>
+        <span className="font-semibold text-[#495057] dark:text-[#dce1e5]">Trading connection</span>
         <span
           className={[
             "rounded px-2 py-1 text-[10px] font-semibold tracking-wide",
@@ -129,7 +130,7 @@ function TradingConnectionBadge({
           {statusMeta.label}
         </span>
       </div>
-      {error && <div className="mt-1 text-[#cc2f39]">{error}</div>}
+      {error && <div className="mt-1 text-[#cc2f39] dark:text-[#ff8b92]">{error}</div>}
     </div>
   );
 }
@@ -765,6 +766,7 @@ export function TradePanel({
   if (selectedTradeType === "accumulator") {
     return (
       <div className="min-w-0 space-y-3">
+        {onMarketChange && <MarketSelector value={market} onValueChange={onMarketChange} />}
         <TradingConnectionBadge error={tradingConnectionError} status={tradingConnectionStatus} />
         <TradeTypeCard
           config={config}
@@ -782,7 +784,8 @@ export function TradePanel({
   }
 
   return (
-    <div className="min-w-0 space-y-3">
+    <div className="flex min-w-0 flex-col gap-3">
+      {onMarketChange && <MarketSelector value={market} onValueChange={onMarketChange} />}
       <TradingConnectionBadge error={tradingConnectionError} status={tradingConnectionStatus} />
       <TradeTypeCard
         config={config}
@@ -791,26 +794,30 @@ export function TradePanel({
       />
 
       {config.needsDuration && (
-        <TickDurationSelector
-          duration={duration}
-          durationUnit={durationUnit}
-          onDurationChange={setDuration}
-          onUnitChange={setDurationUnit}
-          showUnits={!isDigitTrade(selectedTradeType)}
-        />
+        <div className="order-6 sm:order-none">
+          <TickDurationSelector
+            duration={duration}
+            durationUnit={durationUnit}
+            onDurationChange={setDuration}
+            onUnitChange={setDurationUnit}
+            showUnits={!isDigitTrade(selectedTradeType)}
+          />
+        </div>
       )}
 
       {config.needsDigit && (
-        <DigitSelector
-          currentDigit={currentDigit}
-          mode={config.digitMode === "prediction" ? "prediction" : "barrier"}
-          selectedDigit={selectedDigit}
-          onDigitChange={setSelectedDigit}
-        />
+        <div className="order-6 sm:order-none">
+          <DigitSelector
+            currentDigit={currentDigit}
+            mode={config.digitMode === "prediction" ? "prediction" : "barrier"}
+            selectedDigit={selectedDigit}
+            onDigitChange={setSelectedDigit}
+          />
+        </div>
       )}
 
       {config.needsBarrier && (
-        <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+        <div className="order-6 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
           <div className="mb-2 text-sm font-semibold text-[#1f2328]">Barrier offset</div>
           <Input
             value={barrier}
@@ -825,7 +832,7 @@ export function TradePanel({
       )}
 
       {config.supportsMultiplier && (
-        <div className="rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm">
+        <div className="order-6 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
           <div className="mb-2 text-sm font-semibold text-[#1f2328]">Multiplier</div>
           <Select
             value={String(multiplier)}
@@ -863,15 +870,17 @@ export function TradePanel({
         </div>
       )}
 
-      <StakePayoutToggle
-        currency={tradeCurrency}
-        mode={payoutMode}
-        onModeChange={setPayoutMode}
-        onStakeChange={setStake}
-        stake={stake}
-      />
+      <div className="order-4 sm:order-none">
+        <StakePayoutToggle
+          currency={tradeCurrency}
+          mode={payoutMode}
+          onModeChange={setPayoutMode}
+          onStakeChange={setStake}
+          stake={stake}
+        />
+      </div>
 
-      <div className="space-y-2">
+      <div className="order-5 space-y-2 sm:order-none">
         {config.sides.map((side) => {
           const quote = quotes[side.value] ?? EMPTY_QUOTE;
           return (
@@ -890,14 +899,16 @@ export function TradePanel({
       </div>
 
       {(activeContract.contractId || activeContract.status === "error") && (
-        <ProposalSummary rows={activeRows} />
+        <div className="order-7 sm:order-none">
+          <ProposalSummary rows={activeRows} />
+        </div>
       )}
 
       {activeContract.status === "active" && (
         <Button
           onClick={() => void handleSell()}
           disabled={busy || !activeContract.isValidToSell}
-          className="h-11 w-full rounded-md bg-[#ff444f] text-sm font-semibold text-white hover:bg-[#eb3e48]"
+          className="order-5 h-11 w-full rounded-md bg-[#ff444f] text-sm font-semibold text-white hover:bg-[#eb3e48] sm:order-none"
         >
           <X className="mr-2 size-4" />
           {activeContract.isValidToSell
@@ -907,12 +918,12 @@ export function TradePanel({
       )}
 
       {(errorMessage || activeContract.error || activeQuote?.error) && (
-        <div className="rounded-md border border-[#ffd1d4] bg-[#fff7f7] p-3 text-xs font-medium text-[#cc2f39]">
+        <div className="order-8 rounded-md border border-[#ffd1d4] bg-[#fff7f7] p-3 text-xs font-medium text-[#cc2f39] sm:order-none dark:border-[#5b2227] dark:bg-[#2a1114] dark:text-[#ff8b92]">
           {errorMessage || activeContract.error || activeQuote?.error}
         </div>
       )}
 
-      <p className="text-[11px] text-[#6f767d]">
+      <p className="order-9 text-[11px] text-[#6f767d] sm:order-none dark:text-[#a8b0b8]">
         Last price: <span className="font-mono">{lastPrice?.toFixed(4) ?? "-"}</span>. You can lose
         money rapidly.
       </p>

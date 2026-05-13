@@ -9,12 +9,10 @@ import {
   FolderOpen,
   LayoutList,
   LineChart,
-  Play,
   Redo2,
   RefreshCw,
   Save,
   Search,
-  Square,
   Trash2,
   Undo2,
   ZoomIn,
@@ -24,9 +22,14 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { TopShell } from "@/components/top-shell";
-import { Button } from "@/components/ui/button";
+import {
+  BotRunMonitorPanel,
+  type BotMonitorJournalEntry,
+  type BotMonitorStats,
+  type BotMonitorStatus,
+  type BotMonitorTransaction,
+} from "@/components/bot-run-monitor";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -49,7 +52,7 @@ export const Route = createFileRoute("/bot-builder")({
   validateSearch: search,
 });
 
-type BotStatus = "error" | "running" | "stopped";
+type BotStatus = BotMonitorStatus;
 type DurationUnit = "m" | "s" | "t";
 type TradeTypeUi = "digits" | "higher_lower" | "multiplier" | "rise_fall" | "touch_no_touch";
 type DigitContract = "even_odd" | "matches_differs" | "over_under";
@@ -80,29 +83,9 @@ type BotSettings = {
   tradeEveryTick: boolean;
   tradeType: TradeTypeUi;
 };
-type BotStats = {
-  contractsLost: number;
-  contractsWon: number;
-  runs: number;
-  totalPayout: number;
-  totalProfitLoss: number;
-  totalStake: number;
-};
-type Transaction = {
-  contractId: string;
-  id: string;
-  payout: number;
-  profit: number;
-  stake: number;
-  status: "lost" | "open" | "won";
-  time: string;
-};
-type JournalEntry = {
-  id: string;
-  message: string;
-  time: string;
-  type: "error" | "info" | "success" | "warning";
-};
+type BotStats = BotMonitorStats;
+type Transaction = BotMonitorTransaction;
+type JournalEntry = BotMonitorJournalEntry;
 type Settlement = {
   payout: number;
   profit: number;
@@ -268,6 +251,7 @@ function BotBuilderPage() {
   const [status, setStatus] = useState<BotStatus>("stopped");
   const [activeTab, setActiveTab] = useState("summary");
   const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [monitorCollapsed, setMonitorCollapsed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [zoom, setZoom] = useState(0.9);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -694,7 +678,7 @@ function BotBuilderPage() {
   }
 
   return (
-    <TopShell showAssistantButton={false}>
+    <TopShell showAssistantButton={false} showBotMonitor={false}>
       <input
         ref={fileInputRef}
         type="file"
@@ -706,9 +690,10 @@ function BotBuilderPage() {
         <div
           className={cn(
             "grid min-w-0 grid-cols-1 gap-3 lg:h-[calc(100dvh-6.25rem)] lg:min-h-[620px] lg:gap-4 lg:overflow-hidden",
-            leftCollapsed
-              ? "lg:grid-cols-[52px_minmax(0,1fr)_354px]"
-              : "lg:grid-cols-[228px_minmax(0,1fr)_354px]",
+            leftCollapsed && monitorCollapsed && "lg:grid-cols-[52px_minmax(0,1fr)_52px]",
+            leftCollapsed && !monitorCollapsed && "lg:grid-cols-[52px_minmax(0,1fr)_354px]",
+            !leftCollapsed && monitorCollapsed && "lg:grid-cols-[228px_minmax(0,1fr)_52px]",
+            !leftCollapsed && !monitorCollapsed && "lg:grid-cols-[228px_minmax(0,1fr)_354px]",
           )}
         >
           <BlocksMenu
@@ -734,12 +719,14 @@ function BotBuilderPage() {
             updateSettings={updateSettings}
             zoom={zoom}
           />
-          <RunSummaryPanel
+          <BotRunMonitorPanel
             activeTab={activeTab}
+            collapsed={monitorCollapsed}
             currency={settings.currency}
             journal={journal}
             onReset={resetBot}
             onRun={runBot}
+            onToggleCollapse={() => setMonitorCollapsed((value) => !value)}
             setActiveTab={setActiveTab}
             stats={stats}
             status={status}
@@ -975,225 +962,6 @@ function WorkspaceToolbar({
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-
-function RunSummaryPanel({
-  activeTab,
-  currency,
-  journal,
-  onReset,
-  onRun,
-  setActiveTab,
-  stats,
-  status,
-  transactions,
-}: {
-  activeTab: string;
-  currency: string;
-  journal: JournalEntry[];
-  onReset: () => void;
-  onRun: () => void;
-  setActiveTab: (value: string) => void;
-  stats: BotStats;
-  status: BotStatus;
-  transactions: Transaction[];
-}) {
-  return (
-    <aside className="flex h-[72dvh] min-h-[420px] min-w-0 flex-col overflow-hidden bg-white lg:h-auto lg:min-h-0 dark:bg-[#151515]">
-      <div className="flex h-[49px] items-center gap-3 bg-[#f7f7f7] dark:bg-[#1c1c1c]">
-        <Button
-          className={cn(
-            "h-[40px] w-[82px] rounded-none text-base font-bold text-white",
-            status === "running"
-              ? "bg-[#ff444f] hover:bg-[#ef3f49]"
-              : "bg-[#4bb4b3] hover:bg-[#43a5a4]",
-          )}
-          onClick={onRun}
-        >
-          {status === "running" ? (
-            <Square className="mr-1 size-4 fill-white" />
-          ) : (
-            <Play className="mr-1 size-5 fill-white" />
-          )}
-          {status === "running" ? "Stop" : "Run"}
-        </Button>
-        <div className="mr-4 flex h-[38px] flex-1 flex-col items-center justify-center rounded-[2px] border border-[#cfd2d4] bg-white dark:border-[#333] dark:bg-[#101010]">
-          <div className="text-xs font-bold">
-            Bot is{" "}
-            {status === "running" ? "running" : status === "error" ? "in error" : "not running"}
-          </div>
-          <div className="mt-2 h-1 w-[92%] rounded-full bg-[#d8d8d8]">
-            <div
-              className={cn(
-                "h-1 rounded-full",
-                status === "running" && "w-3/4 bg-[#4bb4b3]",
-                status === "stopped" && "w-[4px] bg-[#111]",
-                status === "error" && "w-1/2 bg-[#ff444f]",
-              )}
-            />
-          </div>
-        </div>
-      </div>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
-        <TabsList className="grid h-10 w-full grid-cols-3 rounded-none border-b border-[#e5e5e5] bg-white p-0 dark:border-[#2b2b2b] dark:bg-[#151515]">
-          {["summary", "transactions", "journal"].map((tab) => (
-            <TabsTrigger
-              key={tab}
-              value={tab}
-              className="h-full rounded-none border-b-2 border-transparent bg-transparent text-sm font-medium capitalize text-[#444] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:shadow-none dark:text-[#e6e6e6]"
-            >
-              {tab}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
-        <TabsContent
-          value="summary"
-          className="m-0 min-h-0 flex-1 bg-white p-3 sm:p-4 dark:bg-[#151515]"
-        >
-          <div className="flex min-h-44 items-center justify-center bg-[#f1f2f3] px-4 text-center text-sm leading-5 text-[#444] sm:h-[258px] sm:px-8 dark:bg-[#202020] dark:text-[#d8d8d8]">
-            <p>
-              When you're ready to trade, hit <strong>Run.</strong>
-              <br />
-              You'll be able to track your bot's
-              <br />
-              performance here.
-            </p>
-          </div>
-
-          <div className="bg-[#f1f2f3] pb-4 dark:bg-[#202020]">
-            <div className="px-5 pt-4 text-right text-[11px] underline">What's this?</div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-5 px-3 pt-3 text-center sm:grid-cols-3 sm:px-5 sm:gap-y-6">
-              <SummaryMetric label="Total stake" value={formatMoney(stats.totalStake, currency)} />
-              <SummaryMetric
-                label="Total payout"
-                value={formatMoney(stats.totalPayout, currency)}
-              />
-              <SummaryMetric label="No. of runs" value={stats.runs} />
-              <SummaryMetric label="Contracts lost" value={stats.contractsLost} />
-              <SummaryMetric label="Contracts won" value={stats.contractsWon} />
-              <SummaryMetric
-                label="Total profit/loss"
-                value={formatMoney(stats.totalProfitLoss, currency)}
-              />
-            </div>
-          </div>
-
-          <button
-            className="mt-3 h-10 w-full rounded-[3px] border border-[#999] bg-white text-sm font-bold hover:bg-[#f7f7f7] dark:bg-[#151515] dark:hover:bg-[#202020]"
-            type="button"
-            onClick={onReset}
-          >
-            Reset
-          </button>
-        </TabsContent>
-
-        <TabsContent value="transactions" className="m-0 min-h-0 flex-1 bg-white dark:bg-[#151515]">
-          <ScrollArea className="h-full p-4">
-            {transactions.length === 0 ? (
-              <EmptyPanel title="No transactions yet" />
-            ) : (
-              <div className="space-y-2">
-                {transactions.map((transaction) => (
-                  <div
-                    key={transaction.id}
-                    className="rounded-[4px] border border-[#e5e5e5] bg-[#f8f8f8] p-3 text-xs dark:border-[#333] dark:bg-[#202020]"
-                  >
-                    <div className="flex min-w-0 items-center justify-between gap-2 font-bold">
-                      <span className="min-w-0 truncate">Contract {transaction.contractId}</span>
-                      <span
-                        className={cn(
-                          "shrink-0 capitalize",
-                          transaction.status === "won" && "text-[#078a5b]",
-                          transaction.status === "lost" && "text-[#cc2f39]",
-                        )}
-                      >
-                        {transaction.status}
-                      </span>
-                    </div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 text-center sm:grid-cols-3">
-                      <SummaryMetric
-                        label="Stake"
-                        value={formatMoney(transaction.stake, currency)}
-                      />
-                      <SummaryMetric
-                        label="Payout"
-                        value={formatMoney(transaction.payout, currency)}
-                      />
-                      <SummaryMetric
-                        label="P/L"
-                        value={formatMoney(transaction.profit, currency)}
-                        valueClassName={profitLossClassName(transaction.profit, transaction.status)}
-                      />
-                    </div>
-                    <div className="mt-2 text-[10px] text-[#777]">{transaction.time}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </TabsContent>
-        <TabsContent value="journal" className="m-0 min-h-0 flex-1 bg-white dark:bg-[#151515]">
-          <ScrollArea className="h-full p-4">
-            <div className="space-y-2">
-              {journal.map((entry) => (
-                <div
-                  key={entry.id}
-                  className={cn(
-                    "rounded-[4px] border bg-[#f8f8f8] p-3 text-xs dark:bg-[#202020]",
-                    entry.type === "error" && "border-[#ff444f] text-[#b4232d]",
-                    entry.type === "success" && "border-[#4bb4b3] text-[#087a78]",
-                    entry.type === "warning" && "border-[#f2b84b] text-[#8a5f00]",
-                    entry.type === "info" && "border-[#e5e5e5] dark:border-[#333]",
-                  )}
-                >
-                  <div className="mb-1 font-mono text-[10px] opacity-70">{entry.time}</div>
-                  {entry.message}
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </TabsContent>
-      </Tabs>
-    </aside>
-  );
-}
-
-function SummaryMetric({
-  label,
-  value,
-  valueClassName,
-}: {
-  label: number | string;
-  value: number | string;
-  valueClassName?: string;
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[11px] font-bold text-[#333] dark:text-[#eeeeee]">{label}</div>
-      <div
-        className={cn("mt-3 break-words text-xs text-[#333] dark:text-[#eeeeee]", valueClassName)}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function profitLossClassName(value: number, status?: Transaction["status"]) {
-  if (status === "open") return "text-[#555] dark:text-[#d8d8d8]";
-  return value >= 0
-    ? "font-bold text-[#078a5b] dark:text-[#42d48c]"
-    : "font-bold text-[#cc2f39] dark:text-[#ff6b73]";
-}
-
-function EmptyPanel({ title }: { title: string }) {
-  return (
-    <div className="flex h-full min-h-[260px] items-center justify-center bg-[#f1f2f3] text-sm text-[#555] dark:bg-[#202020] dark:text-[#d8d8d8]">
-      {title}
     </div>
   );
 }
@@ -2261,10 +2029,6 @@ function clampNumber(value: number, min: number, max: number) {
   const number = Number(value);
   if (!Number.isFinite(number)) return min;
   return Math.min(max, Math.max(min, number));
-}
-
-function formatMoney(value: number, currency = "USD") {
-  return `${Number(value).toFixed(2)} ${currency}`;
 }
 
 function formatTime() {

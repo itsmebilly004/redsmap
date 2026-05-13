@@ -29,7 +29,6 @@ import {
   getActiveSymbols,
   onStatus,
   subscribeTicks,
-  SYNTHETIC_MARKETS,
   type ConnectionStatus,
   type Candle,
 } from "@/lib/deriv";
@@ -46,6 +45,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Activity, ChevronDown, Crosshair, ZoomIn } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearBarrierLines, renderBarrierLines, type BarrierLineRefs } from "@/lib/chart-barriers";
+import { fallbackActiveSymbols, groupActiveSymbols } from "@/lib/market-groups";
 
 type ChartType = "area" | "candle" | "bar";
 type AnalysisTool =
@@ -85,29 +85,6 @@ type ChartPalette = {
   textColor: string;
 };
 
-// Order in which Deriv groups its market categories. Anything we don't have
-// a custom rank for sorts to the end alphabetically (preserves new Deriv
-// markets without code changes).
-const MARKET_ORDER: Record<string, number> = {
-  synthetic_index: 0,
-  forex: 1,
-  cryptocurrency: 2,
-  indices: 3,
-  stocks: 4,
-  commodities: 5,
-  basket_index: 6,
-};
-
-const MARKET_FALLBACK_LABEL: Record<string, string> = {
-  synthetic_index: "Derived",
-  forex: "Forex",
-  cryptocurrency: "Cryptocurrencies",
-  indices: "Stock indices",
-  stocks: "Stocks",
-  commodities: "Commodities",
-  basket_index: "Baskets",
-};
-
 type Props = {
   symbol: string;
   onSymbolChange?: (s: string) => void;
@@ -119,6 +96,7 @@ type Props = {
   lowBarrier?: number | null;
   barrierBreached?: boolean;
   showDigitStats?: boolean;
+  compact?: boolean;
 };
 
 const TIMEFRAMES = [
@@ -242,6 +220,7 @@ export function DerivChart({
   lowBarrier,
   barrierBreached,
   showDigitStats,
+  compact = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -673,16 +652,7 @@ export function DerivChart({
         if (list?.length) setAllSymbols(list);
       })
       .catch(() => {
-        setAllSymbols(
-          SYNTHETIC_MARKETS.map((m) => ({
-            symbol: m.symbol,
-            display_name: m.name,
-            market: "synthetic_index",
-            market_display_name: "Derived",
-            submarket: "random_index",
-            submarket_display_name: "Continuous indices",
-          })),
-        );
+        setAllSymbols(fallbackActiveSymbols());
       });
   }, []);
 
@@ -965,46 +935,19 @@ export function DerivChart({
     });
   }
 
-  const symbolGroups = useMemo(() => {
-    const source =
-      allSymbols.length > 0
-        ? allSymbols
-        : SYNTHETIC_MARKETS.map((m) => ({
-            symbol: m.symbol,
-            display_name: m.name,
-            market: "synthetic_index",
-            market_display_name: "Derived",
-            submarket: "random_index",
-            submarket_display_name: "Continuous indices",
-          }));
-    const byMarket = new Map<string, { label: string; items: typeof source }>();
-    for (const item of source) {
-      const key = item.market || "other";
-      const label = item.market_display_name || MARKET_FALLBACK_LABEL[key] || key || "Other";
-      let bucket = byMarket.get(key);
-      if (!bucket) {
-        bucket = { label, items: [] };
-        byMarket.set(key, bucket);
-      }
-      bucket.items.push(item);
-    }
-    return Array.from(byMarket.entries())
-      .map(([key, value]) => ({ key, label: value.label, items: value.items }))
-      .sort((a, b) => {
-        const ar = MARKET_ORDER[a.key] ?? 99;
-        const br = MARKET_ORDER[b.key] ?? 99;
-        if (ar !== br) return ar - br;
-        return a.label.localeCompare(b.label);
-      });
-  }, [allSymbols]);
+  const symbolGroups = useMemo(() => groupActiveSymbols(allSymbols), [allSymbols]);
 
   return (
     <div className={cn("min-w-0", className)}>
       {/* Toolbar */}
-      <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
+      <div
+        className={cn("mb-2 flex min-w-0 flex-wrap items-center gap-2", compact && "mb-1 gap-1")}
+      >
         {/* Symbol selector */}
         <Select value={symbol} onValueChange={(v) => onSymbolChange?.(v)}>
-          <SelectTrigger className="w-full min-w-0 glass-card text-xs sm:w-64">
+          <SelectTrigger
+            className={cn("w-full min-w-0 glass-card text-xs sm:w-64", compact && "h-8")}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="max-h-80">
@@ -1024,7 +967,12 @@ export function DerivChart({
         </Select>
 
         {/* Timeframe buttons */}
-        <div className="flex w-full min-w-0 shrink overflow-x-auto rounded-md border border-glass-border sm:w-auto sm:max-w-full">
+        <div
+          className={cn(
+            "flex w-full min-w-0 shrink overflow-x-auto rounded-md border border-glass-border sm:w-auto sm:max-w-full",
+            compact && "max-sm:hidden",
+          )}
+        >
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf.value}
@@ -1043,7 +991,12 @@ export function DerivChart({
         </div>
 
         {/* Chart type toggle */}
-        <div className="flex shrink-0 overflow-hidden rounded-md border border-glass-border">
+        <div
+          className={cn(
+            "flex shrink-0 overflow-hidden rounded-md border border-glass-border",
+            compact && "max-sm:hidden",
+          )}
+        >
           <button
             type="button"
             onClick={() => setChartType("area")}
@@ -1098,6 +1051,7 @@ export function DerivChart({
               type="button"
               className={cn(
                 "flex shrink-0 items-center gap-1.5 rounded-md border border-glass-border px-2 py-1.5 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
+                compact && "max-sm:hidden",
                 analysisTools.size > 0
                   ? "bg-[#ff444f] text-white"
                   : "bg-transparent text-muted-foreground hover:bg-foreground/5",
@@ -1178,7 +1132,12 @@ export function DerivChart({
         </Popover>
 
         {/* Chart tools — crosshair toggle + reset zoom. */}
-        <div className="flex shrink-0 overflow-hidden rounded-md border border-glass-border">
+        <div
+          className={cn(
+            "flex shrink-0 overflow-hidden rounded-md border border-glass-border",
+            compact && "max-sm:hidden",
+          )}
+        >
           <button
             type="button"
             onClick={() => setCrosshairOn((v) => !v)}

@@ -42,7 +42,7 @@ function Index() {
   });
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const chartHeight = isMobile ? 260 : 340;
+  const chartHeight = isMobile ? (isDigitTrade(tradeType) ? 190 : 150) : 340;
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -107,8 +107,8 @@ function Index() {
   return (
     <TopShell>
       <div className="grid min-h-0 grid-cols-1 lg:h-[calc(100dvh-12rem)] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden">
-        <section className="relative flex min-h-0 min-w-0 flex-col overflow-y-auto border-b border-[oklch(0.92_0.005_240)] bg-white p-2 sm:p-3 lg:border-b-0 lg:border-r dark:border-[#242424] dark:bg-[#151515]">
-          <div className="mb-2 flex items-center justify-between">
+        <section className="relative flex min-h-0 min-w-0 flex-col overflow-y-auto border-b border-[oklch(0.92_0.005_240)] bg-white p-1.5 sm:p-3 lg:border-b-0 lg:border-r dark:border-[#242424] dark:bg-[#151515]">
+          <div className="mb-1 flex items-center justify-between sm:mb-2">
             <div>
               <div className="text-sm font-semibold">Manual Trader</div>
               <div className="font-mono text-[11px] text-[oklch(0.55_0.02_260)] dark:text-[#999999]">
@@ -127,13 +127,14 @@ function Index() {
             lowBarrier={barriers.low}
             barrierBreached={barriers.breached}
             showDigitStats={isDigitTrade(tradeType)}
+            compact={isMobile}
           />
 
-          <p className="mt-2 text-xs text-[oklch(0.5_0.02_260)] dark:text-[#999999]">
+          <p className="mt-2 hidden text-xs text-[oklch(0.5_0.02_260)] sm:block dark:text-[#999999]">
             Live data streamed from the Deriv WebSocket API. Sign in to place real trades.
           </p>
         </section>
-        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 pb-24 sm:p-3 lg:pb-3 dark:bg-[#0e0e0e]">
+        <aside className="flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-2 pb-20 sm:p-3 lg:pb-3 dark:bg-[#0e0e0e]">
           <TradePanel
             market={symbol}
             lastPrice={price}
@@ -143,7 +144,6 @@ function Index() {
           />
         </aside>
       </div>
-
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 dark:border-[#242424] dark:bg-[#151515]">
         <span className="rounded-md bg-[oklch(0.92_0.13_95)] px-2.5 py-1 text-[11px] font-semibold text-[oklch(0.3_0.1_80)] sm:px-4 sm:py-1.5 sm:text-sm">
