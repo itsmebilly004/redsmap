@@ -41,12 +41,16 @@ function StatCard({
   accent?: string;
 }) {
   return (
-    <div className="rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-5 shadow-sm backdrop-blur-sm">
-      <div className="flex items-center justify-between">
-        <span className="text-xs uppercase tracking-wider text-[oklch(0.5_0.02_260)]">{label}</span>
+    <div className="min-w-0 rounded-xl border border-[oklch(0.92_0.005_240)] bg-white/70 p-4 shadow-sm backdrop-blur-sm sm:p-5">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-xs uppercase tracking-wider text-[oklch(0.5_0.02_260)]">
+          {label}
+        </span>
         <Icon className="size-4 text-[oklch(0.6_0.02_260)]" />
       </div>
-      <div className={`mt-3 font-mono text-2xl ${accent ?? "text-[oklch(0.2_0.02_260)]"}`}>
+      <div
+        className={`mt-3 break-words font-mono text-xl sm:text-2xl ${accent ?? "text-[oklch(0.2_0.02_260)]"}`}
+      >
         {value}
       </div>
     </div>

@@ -524,26 +524,6 @@ function BotBuilderPage() {
     }
   }
 
-  function applyQuickStrategy() {
-    updateSettings({
-      digitContract: "over_under",
-      duration: 1,
-      durationUnit: "t",
-      martingale: 1.5,
-      maxRuns: 3,
-      maxStake: 50,
-      conditionOperator: ">",
-      conditionRight: "3",
-      purchaseDirection: "over",
-      selectedDigit: 4,
-      stake: 1,
-      stopLoss: 30,
-      takeProfit: 100,
-      tradeType: "digits",
-    });
-    addJournal("Quick strategy applied.", "success");
-  }
-
   async function runBot() {
     if (status === "running") {
       runningRef.current = false;
@@ -651,6 +631,9 @@ function BotBuilderPage() {
               ? "warning"
               : "info",
         );
+        await refreshBalances("bot-builder-trade-complete", account.account_id).catch((error) => {
+          console.warn("[Bot Builder] balance refresh after settled trade failed", error);
+        });
 
         if (runningProfit >= snapshot.takeProfit || runningProfit <= -Math.abs(snapshot.stopLoss)) {
           addJournal("Profit or loss threshold reached. Bot stopped.", "warning");
@@ -663,7 +646,9 @@ function BotBuilderPage() {
         if (!snapshot.tradeEveryTick) await sleep(1000);
       }
 
-      await refreshBalances("bot-builder-run");
+      await refreshBalances("bot-builder-run-complete", account.account_id).catch((error) => {
+        console.warn("[Bot Builder] final balance refresh after run failed", error);
+      });
       setStatus("stopped");
       runningRef.current = false;
       addJournal("Bot run completed.", "success");
@@ -688,7 +673,7 @@ function BotBuilderPage() {
       <div className="min-w-0 bg-[#e9eaec] p-2 text-[#171717] dark:bg-[#0f0f0f]">
         <div
           className={cn(
-            "grid h-[calc(100dvh-6.25rem)] min-h-[620px] grid-cols-1 gap-4 overflow-hidden",
+            "grid min-w-0 grid-cols-1 gap-3 lg:h-[calc(100dvh-6.25rem)] lg:min-h-[620px] lg:gap-4 lg:overflow-hidden",
             leftCollapsed
               ? "lg:grid-cols-[52px_minmax(0,1fr)_354px]"
               : "lg:grid-cols-[228px_minmax(0,1fr)_354px]",
@@ -700,7 +685,6 @@ function BotBuilderPage() {
             filteredMenu={filteredMenu}
             onDeletePreset={deleteSavedPreset}
             onLoadPreset={loadSavedPreset}
-            onQuickStrategy={applyQuickStrategy}
             onSearch={setSearchTerm}
             onToggle={() => setLeftCollapsed((value) => !value)}
             searchTerm={searchTerm}
@@ -741,7 +725,6 @@ function BlocksMenu({
   filteredMenu,
   onDeletePreset,
   onLoadPreset,
-  onQuickStrategy,
   onSearch,
   onToggle,
   searchTerm,
@@ -752,7 +735,6 @@ function BlocksMenu({
   filteredMenu: typeof blockMenu;
   onDeletePreset: (presetId: string) => void;
   onLoadPreset: (preset: SavedBotPreset) => void;
-  onQuickStrategy: () => void;
   onSearch: (value: string) => void;
   onToggle: () => void;
   searchTerm: string;
@@ -773,19 +755,11 @@ function BlocksMenu({
   }
 
   return (
-    <aside className="flex min-h-0 flex-col overflow-hidden bg-[#f5f5f5] text-[#101213] dark:bg-[#151515] dark:text-[#eeeeee]">
-      <button
-        type="button"
-        onClick={onQuickStrategy}
-        className="mx-2 mt-2 flex h-40 min-h-10 items-start justify-center rounded-[4px] bg-[#ff444f] px-3 pt-3 text-sm font-bold text-white shadow-sm lg:h-40"
-      >
-        Quick strategy
-      </button>
-
+    <aside className="flex min-h-0 flex-col bg-[#f5f5f5] text-[#101213] lg:overflow-hidden dark:bg-[#151515] dark:text-[#eeeeee]">
       <button
         type="button"
         onClick={onToggle}
-        className="mt-2 flex h-[54px] items-center justify-between bg-[#eceeef] px-5 text-base font-bold dark:bg-[#202020]"
+        className="flex h-[54px] items-center justify-between bg-[#eceeef] px-5 text-base font-bold dark:bg-[#202020]"
       >
         <span>Blocks menu</span>
         <ChevronUp className="size-5" />
@@ -803,7 +777,7 @@ function BlocksMenu({
         </label>
       </div>
 
-      <div className="min-h-0 flex-1 bg-white dark:bg-[#151515]">
+      <div className="bg-white lg:min-h-0 lg:flex-1 dark:bg-[#151515]">
         {filteredMenu.map((item) => (
           <a
             key={item.title}
@@ -887,7 +861,7 @@ function WorkspaceCanvas({
   zoom: number;
 }) {
   return (
-    <section className="relative min-h-0 overflow-hidden bg-white dark:bg-[#101010]">
+    <section className="relative h-[72dvh] min-h-[420px] min-w-0 overflow-hidden bg-white lg:h-auto lg:min-h-0 dark:bg-[#101010]">
       <WorkspaceToolbar
         onImport={onImport}
         onRedo={onRedo}
@@ -949,8 +923,8 @@ function WorkspaceToolbar({
   ];
 
   return (
-    <div className="absolute left-0 top-0 z-30 flex h-[54px] items-center bg-white pl-4 dark:bg-[#101010]">
-      <div className="flex h-10 items-center overflow-hidden rounded-[4px] border border-[#d0d2d4] bg-white dark:border-[#333] dark:bg-[#151515]">
+    <div className="absolute left-0 right-0 top-0 z-30 flex h-[54px] items-center overflow-x-auto bg-white px-2 sm:px-4 dark:bg-[#101010]">
+      <div className="flex h-10 shrink-0 items-center overflow-hidden rounded-[4px] border border-[#d0d2d4] bg-white dark:border-[#333] dark:bg-[#151515]">
         {actions.map(({ icon: Icon, label, onClick }, index) => (
           <button
             key={label}
@@ -995,7 +969,7 @@ function RunSummaryPanel({
   transactions: Transaction[];
 }) {
   return (
-    <aside className="flex min-h-0 flex-col overflow-hidden bg-white dark:bg-[#151515]">
+    <aside className="flex h-[72dvh] min-h-[420px] min-w-0 flex-col overflow-hidden bg-white lg:h-auto lg:min-h-0 dark:bg-[#151515]">
       <div className="flex h-[49px] items-center gap-3 bg-[#f7f7f7] dark:bg-[#1c1c1c]">
         <Button
           className={cn(
@@ -1044,8 +1018,11 @@ function RunSummaryPanel({
           ))}
         </TabsList>
 
-        <TabsContent value="summary" className="m-0 min-h-0 flex-1 bg-white p-4 dark:bg-[#151515]">
-          <div className="flex h-[258px] items-center justify-center bg-[#f1f2f3] px-8 text-center text-sm leading-5 text-[#444] dark:bg-[#202020] dark:text-[#d8d8d8]">
+        <TabsContent
+          value="summary"
+          className="m-0 min-h-0 flex-1 bg-white p-3 sm:p-4 dark:bg-[#151515]"
+        >
+          <div className="flex min-h-44 items-center justify-center bg-[#f1f2f3] px-4 text-center text-sm leading-5 text-[#444] sm:h-[258px] sm:px-8 dark:bg-[#202020] dark:text-[#d8d8d8]">
             <p>
               When you're ready to trade, hit <strong>Run.</strong>
               <br />
@@ -1057,7 +1034,7 @@ function RunSummaryPanel({
 
           <div className="bg-[#f1f2f3] pb-4 dark:bg-[#202020]">
             <div className="px-5 pt-4 text-right text-[11px] underline">What's this?</div>
-            <div className="grid grid-cols-3 gap-y-6 px-5 pt-3 text-center">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-5 px-3 pt-3 text-center sm:grid-cols-3 sm:px-5 sm:gap-y-6">
               <SummaryMetric label="Total stake" value={formatMoney(stats.totalStake, currency)} />
               <SummaryMetric
                 label="Total payout"
@@ -1093,11 +1070,19 @@ function RunSummaryPanel({
                     key={transaction.id}
                     className="rounded-[4px] border border-[#e5e5e5] bg-[#f8f8f8] p-3 text-xs dark:border-[#333] dark:bg-[#202020]"
                   >
-                    <div className="flex items-center justify-between gap-2 font-bold">
-                      <span>Contract {transaction.contractId}</span>
-                      <span className="capitalize">{transaction.status}</span>
+                    <div className="flex min-w-0 items-center justify-between gap-2 font-bold">
+                      <span className="min-w-0 truncate">Contract {transaction.contractId}</span>
+                      <span
+                        className={cn(
+                          "shrink-0 capitalize",
+                          transaction.status === "won" && "text-[#078a5b]",
+                          transaction.status === "lost" && "text-[#cc2f39]",
+                        )}
+                      >
+                        {transaction.status}
+                      </span>
                     </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                    <div className="mt-2 grid grid-cols-1 gap-2 text-center sm:grid-cols-3">
                       <SummaryMetric
                         label="Stake"
                         value={formatMoney(transaction.stake, currency)}
@@ -1109,6 +1094,7 @@ function RunSummaryPanel({
                       <SummaryMetric
                         label="P/L"
                         value={formatMoney(transaction.profit, currency)}
+                        valueClassName={profitLossClassName(transaction.profit, transaction.status)}
                       />
                     </div>
                     <div className="mt-2 text-[10px] text-[#777]">{transaction.time}</div>
@@ -1144,13 +1130,32 @@ function RunSummaryPanel({
   );
 }
 
-function SummaryMetric({ label, value }: { label: number | string; value: number | string }) {
+function SummaryMetric({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: number | string;
+  value: number | string;
+  valueClassName?: string;
+}) {
   return (
-    <div>
+    <div className="min-w-0">
       <div className="text-[11px] font-bold text-[#333] dark:text-[#eeeeee]">{label}</div>
-      <div className="mt-3 text-xs text-[#333] dark:text-[#eeeeee]">{value}</div>
+      <div
+        className={cn("mt-3 break-words text-xs text-[#333] dark:text-[#eeeeee]", valueClassName)}
+      >
+        {value}
+      </div>
     </div>
   );
+}
+
+function profitLossClassName(value: number, status?: Transaction["status"]) {
+  if (status === "open") return "text-[#555] dark:text-[#d8d8d8]";
+  return value >= 0
+    ? "font-bold text-[#078a5b] dark:text-[#42d48c]"
+    : "font-bold text-[#cc2f39] dark:text-[#ff6b73]";
 }
 
 function EmptyPanel({ title }: { title: string }) {

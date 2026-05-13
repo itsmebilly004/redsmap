@@ -248,7 +248,7 @@ export function TopShell({
               </Button>
               <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-[#d6d6d6] bg-white px-2 py-1.5 transition hover:bg-[#f2f3f4] sm:gap-2 sm:px-3">
+                  <button className="flex min-w-0 max-w-[min(58vw,17rem)] items-center gap-1.5 rounded-full border border-[#d6d6d6] bg-white px-2 py-1.5 transition hover:bg-[#f2f3f4] sm:max-w-full sm:gap-2 sm:px-3">
                     <AccountIcon account={account} size="sm" />
                     <div className="flex min-w-0 items-center gap-1.5">
                       <span className="truncate text-xs font-bold tabular-nums text-[#333333] sm:text-sm">
@@ -415,15 +415,18 @@ export function TopShell({
               <Link
                 key={t.to}
                 to={t.to}
+                aria-label={t.label}
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:py-3 sm:text-sm",
+                  "flex shrink-0 items-center justify-center px-2 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:py-3 sm:text-sm",
                   active
                     ? "bg-[#4bb4b3] text-white"
                     : "text-[#333333] hover:bg-[#f2f3f4] dark:text-[#cccccc] dark:hover:bg-[#1f1f1f]",
                 )}
               >
                 <Icon className="size-4" />
-                <span className={active ? "uppercase tracking-wide" : ""}>{t.label}</span>
+                <span className={cn("hidden sm:inline", active && "uppercase tracking-wide")}>
+                  {t.label}
+                </span>
               </Link>
             );
           })}
