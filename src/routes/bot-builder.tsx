@@ -697,7 +697,7 @@ function BotBuilderPage() {
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[#e9eaec] p-2 text-[#171717] dark:bg-[#0f0f0f]">
         <div
           className={cn(
-            "grid h-full min-w-0 flex-1 grid-cols-1 gap-2 overflow-hidden lg:h-[calc(100dvh-6.25rem)] lg:min-h-[620px] lg:gap-4",
+            "flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden lg:grid lg:h-[calc(100dvh-6.25rem)] lg:min-h-[620px] lg:gap-4",
             leftCollapsed && monitorCollapsed && "lg:grid-cols-[52px_minmax(0,1fr)_52px]",
             leftCollapsed && !monitorCollapsed && "lg:grid-cols-[52px_minmax(0,1fr)_354px]",
             !leftCollapsed && monitorCollapsed && "lg:grid-cols-[228px_minmax(0,1fr)_52px]",
@@ -716,6 +716,7 @@ function BotBuilderPage() {
             savedPresets={savedPresets}
           />
           <WorkspaceCanvas
+            monitorCollapsed={monitorCollapsed}
             onImport={() => fileInputRef.current?.click()}
             onRedo={redo}
             onReset={resetBot}
@@ -865,6 +866,7 @@ function BlocksMenu({
 }
 
 function WorkspaceCanvas({
+  monitorCollapsed,
   onImport,
   onRedo,
   onReset,
@@ -876,6 +878,7 @@ function WorkspaceCanvas({
   updateSettings,
   zoom,
 }: {
+  monitorCollapsed: boolean;
   onImport: () => void;
   onRedo: () => void;
   onReset: () => void;
@@ -888,7 +891,13 @@ function WorkspaceCanvas({
   zoom: number;
 }) {
   return (
-    <section className="relative h-[46dvh] min-h-[320px] min-w-0 overflow-hidden bg-white lg:h-auto lg:min-h-0 dark:bg-[#101010]">
+    <section
+      className={cn(
+        "relative min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-[#101010]",
+        monitorCollapsed ? "pb-0" : "pb-0",
+        "lg:h-auto lg:min-h-0 lg:flex-none",
+      )}
+    >
       <WorkspaceToolbar
         onImport={onImport}
         onRedo={onRedo}

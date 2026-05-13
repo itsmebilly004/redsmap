@@ -97,6 +97,7 @@ export function BotRunMonitorPanel({
     ) : (
       <CollapsedBuilderMonitor
         currency={currency}
+        onReset={onReset}
         onRun={onRun}
         onToggleCollapse={onToggleCollapse}
         primaryAction={primaryAction}
@@ -195,6 +196,7 @@ export function BotRunMonitorPanel({
               <SummaryMetric
                 label="Total profit/loss"
                 value={formatMoney(stats.totalProfitLoss, currency)}
+                valueClassName={summaryProfitLossClassName(stats.totalProfitLoss)}
               />
             </div>
           </div>
@@ -309,6 +311,7 @@ function RunButton({ onRun, status }: { onRun?: () => void; status: BotMonitorSt
 
 function CollapsedBuilderMonitor({
   currency,
+  onReset,
   onRun,
   onToggleCollapse,
   primaryAction,
@@ -317,6 +320,7 @@ function CollapsedBuilderMonitor({
   title,
 }: {
   currency: string;
+  onReset?: () => void;
   onRun?: () => void;
   onToggleCollapse?: () => void;
   primaryAction?: ReactNode;
@@ -324,10 +328,20 @@ function CollapsedBuilderMonitor({
   status: BotMonitorStatus;
   title: string;
 }) {
+  const summaryClassName = summaryProfitLossClassName(stats.totalProfitLoss);
   return (
     <>
       <aside className="fixed inset-x-2 bottom-2 z-40 flex items-center gap-2 rounded-lg border border-[#d8d8d8] bg-white p-1.5 text-[#333333] shadow-lg lg:hidden dark:border-[#2c2c2c] dark:bg-[#151515] dark:text-[#eeeeee]">
         <div className="shrink-0">{primaryAction ?? <RunButton onRun={onRun} status={status} />}</div>
+        <button
+          aria-label="Reset bot monitor"
+          className="flex h-10 shrink-0 items-center justify-center rounded-md border border-[#d6d6d6] bg-white px-3 text-sm font-bold transition hover:bg-[#f1f2f3] disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#333] dark:bg-[#101010] dark:hover:bg-[#202020]"
+          disabled={!onReset}
+          type="button"
+          onClick={onReset}
+        >
+          Reset
+        </button>
         <button
           aria-label="Expand bot monitor"
           className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-md border border-[#d6d6d6] bg-white px-3 text-sm font-bold transition hover:bg-[#f1f2f3] dark:border-[#333] dark:bg-[#101010] dark:hover:bg-[#202020]"
@@ -354,7 +368,7 @@ function CollapsedBuilderMonitor({
             {title}
           </div>
         </div>
-        <div className="-rotate-90 whitespace-nowrap text-[11px] font-bold text-[#333333] dark:text-[#eeeeee]">
+        <div className={cn("-rotate-90 whitespace-nowrap text-[11px] font-bold", summaryClassName)}>
           {formatMoney(stats.totalProfitLoss, currency)}
         </div>
       </aside>
@@ -375,6 +389,7 @@ function CollapsedFooterMonitor({
   status: BotMonitorStatus;
   title: string;
 }) {
+  const summaryClassName = summaryProfitLossClassName(stats.totalProfitLoss);
   return (
     <button
       aria-label="Expand bot monitor"
@@ -385,7 +400,7 @@ function CollapsedFooterMonitor({
       <StatusDot status={status} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-xs font-bold uppercase tracking-wide">{title}</div>
-        <div className="truncate font-mono text-[11px] text-[#646464] dark:text-[#b7b7b7]">
+        <div className={cn("truncate font-mono text-[11px]", summaryClassName)}>
           Runs {stats.runs} / P/L {formatMoney(stats.totalProfitLoss, currency)}
         </div>
       </div>
@@ -430,6 +445,12 @@ function SummaryMetric({
 
 function profitLossClassName(value: number, status?: BotMonitorTransaction["status"]) {
   if (status === "open") return "text-[#555] dark:text-[#d8d8d8]";
+  return value >= 0
+    ? "font-bold text-[#078a5b] dark:text-[#42d48c]"
+    : "font-bold text-[#cc2f39] dark:text-[#ff6b73]";
+}
+
+function summaryProfitLossClassName(value: number) {
   return value >= 0
     ? "font-bold text-[#078a5b] dark:text-[#42d48c]"
     : "font-bold text-[#cc2f39] dark:text-[#ff6b73]";
