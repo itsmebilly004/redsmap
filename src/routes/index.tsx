@@ -230,7 +230,6 @@ function Index() {
               compact={isMobile}
             />
           </div>
-
           <p className="mt-2 hidden text-xs text-[oklch(0.5_0.02_260)] sm:block dark:text-[#999999]">
             Live data streamed from the Deriv WebSocket API. Sign in to place real trades.
           </p>
