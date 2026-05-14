@@ -1524,22 +1524,22 @@ function WorkspaceCanvas({
             <ChevronLeft className="size-4" />
             <ChevronRight className="-ml-3 size-4" />
           </div>
-
-          <div
-            ref={dustbinRef}
-            className={cn(
-              "pointer-events-auto absolute bottom-6 right-6 z-30 flex h-14 w-12 items-center justify-center rounded-md border-2 border-dashed transition-colors",
-              dustbinHover
-                ? "scale-110 border-[#c52832] bg-[#ffe5e7] text-[#c52832]"
-                : "border-[#b9bdc2] bg-white/80 text-[#6b7177] hover:border-[#9aa0a6] dark:border-[#444] dark:bg-[#151515]/80 dark:text-[#b7b7b7]",
-            )}
-            title="Drag a block here to remove it from the workspace"
-          >
-            <Trash2 className={cn("size-6", dustbinHover && "scale-110")} />
-          </div>
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
+
+      <div
+        ref={dustbinRef}
+        className={cn(
+          "pointer-events-auto absolute bottom-6 right-6 z-40 flex h-16 w-14 items-center justify-center rounded-md border-2 transition-all",
+          dustbinHover
+            ? "scale-125 border-solid border-[#c52832] bg-[#ffe5e7] text-[#c52832] shadow-lg shadow-[#c52832]/30"
+            : "border-dashed border-[#b9bdc2] bg-white/90 text-[#6b7177] shadow-md hover:border-[#9aa0a6] dark:border-[#444] dark:bg-[#151515]/90 dark:text-[#b7b7b7]",
+        )}
+        title="Drag a block here to remove it from the workspace"
+      >
+        <Trash2 className={cn("size-7 transition-transform", dustbinHover && "scale-110")} />
+      </div>
 
       {contextMenu && (
         <BlockContextMenu
