@@ -18,7 +18,8 @@
       "Bash(echo \"exit=$?\")",
       "Bash(npx vite *)",
       "Bash(Select-Object Name, Mode)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(bunx tsc *)"
     ]
   }
 }
