@@ -163,6 +163,21 @@ const BLOCK_LABELS: Record<BlockKey, string> = {
   functions: "Functions",
 };
 
+const BLOCK_DIMENSIONS: Record<BlockKey, { width: number; height: number }> = {
+  trade: { width: 780, height: 560 },
+  purchase: { width: 490, height: 240 },
+  sell: { width: 490, height: 200 },
+  restart: { width: 490, height: 90 },
+  functions: { width: 760, height: 640 },
+};
+
+const BLOCK_COLLAPSED_HEIGHT = 46;
+const WORKSPACE_PADDING_X = 64;
+const WORKSPACE_PADDING_Y = 80;
+const WORKSPACE_TOOLBAR_HEIGHT = 62;
+const WORKSPACE_MIN_WIDTH = 720;
+const WORKSPACE_MIN_HEIGHT = 380;
+
 const symbolOptions = [
   { label: "Volatility 10 Index", value: "R_10" },
   { label: "Volatility 25 Index", value: "R_25" },
@@ -1430,6 +1445,30 @@ function WorkspaceCanvas({
     };
   }
 
+  const canvasSize = useMemo(() => {
+    let maxRight = 0;
+    let maxBottom = 0;
+    let anyVisible = false;
+    for (const key of ["trade", "purchase", "sell", "restart", "functions"] as BlockKey[]) {
+      if (!visibleBlocks[key]) continue;
+      anyVisible = true;
+      const pos = blockPositions[key];
+      const dim = BLOCK_DIMENSIONS[key];
+      const height = collapsedBlocks[key] ? BLOCK_COLLAPSED_HEIGHT : dim.height;
+      maxRight = Math.max(maxRight, pos.x + dim.width);
+      maxBottom = Math.max(maxBottom, pos.y + height);
+    }
+    if (!anyVisible) {
+      return { width: WORKSPACE_MIN_WIDTH, height: WORKSPACE_MIN_HEIGHT };
+    }
+    const scaledWidth = Math.ceil((maxRight + WORKSPACE_PADDING_X) * zoom);
+    const scaledHeight = Math.ceil((maxBottom + WORKSPACE_PADDING_Y) * zoom);
+    return {
+      width: Math.max(WORKSPACE_MIN_WIDTH, scaledWidth),
+      height: Math.max(WORKSPACE_MIN_HEIGHT, scaledHeight + WORKSPACE_TOOLBAR_HEIGHT),
+    };
+  }, [blockPositions, collapsedBlocks, visibleBlocks, zoom]);
+
   return (
     <section
       className={cn(
@@ -1449,7 +1488,15 @@ function WorkspaceCanvas({
         onZoomOut={onZoomOut}
       />
       <ScrollArea className="h-full">
-        <div className="relative h-[1900px] min-w-[1500px] bg-white dark:bg-[#101010]">
+        <div
+          className="relative bg-white dark:bg-[#101010]"
+          style={{
+            width: canvasSize.width,
+            minWidth: "100%",
+            height: canvasSize.height,
+            minHeight: "100%",
+          }}
+        >
           <div
             className="absolute left-0 top-[62px] origin-top-left"
             style={{ transform: `scale(${zoom})` }}
@@ -1531,14 +1578,14 @@ function WorkspaceCanvas({
       <div
         ref={dustbinRef}
         className={cn(
-          "pointer-events-auto absolute bottom-6 right-6 z-40 flex h-16 w-14 items-center justify-center rounded-md border-2 transition-all",
+          "group pointer-events-auto absolute bottom-4 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full border-2 transition-all duration-200",
           dustbinHover
-            ? "scale-125 border-solid border-[#c52832] bg-[#ffe5e7] text-[#c52832] shadow-lg shadow-[#c52832]/30"
-            : "border-dashed border-[#b9bdc2] bg-white/90 text-[#6b7177] shadow-md hover:border-[#9aa0a6] dark:border-[#444] dark:bg-[#151515]/90 dark:text-[#b7b7b7]",
+            ? "scale-125 border-solid border-[#c52832] bg-[#ffe5e7] text-[#c52832] opacity-100 shadow-lg shadow-[#c52832]/40"
+            : "border-dashed border-[#b9bdc2] bg-white/70 text-[#6b7177]/80 opacity-60 shadow-sm backdrop-blur-sm hover:scale-110 hover:opacity-100 hover:shadow-md dark:border-[#444] dark:bg-[#151515]/70 dark:text-[#b7b7b7]/80",
         )}
         title="Drag a block here to remove it from the workspace"
       >
-        <Trash2 className={cn("size-7 transition-transform", dustbinHover && "scale-110")} />
+        <Trash2 className={cn("size-5 transition-transform", dustbinHover && "scale-125")} />
       </div>
 
       {contextMenu && (
