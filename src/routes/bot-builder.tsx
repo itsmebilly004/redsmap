@@ -1,27 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  Copy,
-  DollarSign,
-  Download,
-  Flag,
   FolderOpen,
-  GripVertical,
   LayoutList,
   LineChart,
-  MessageSquare,
-  Minus,
-  Plus,
   Redo2,
   RefreshCw,
   Save,
   Search,
-  ShoppingCart,
   Trash2,
   Undo2,
   ZoomIn,
@@ -74,12 +65,6 @@ type BotStatus = BotMonitorStatus;
 type DurationUnit = "m" | "s" | "t";
 type TradeTypeUi = "digits" | "higher_lower" | "multiplier" | "rise_fall" | "touch_no_touch";
 type DigitContract = "even_odd" | "matches_differs" | "over_under";
-type SellConditionType = "sell_available" | "take_profit" | "stop_loss" | "contract_expired";
-type SellCondition = { id: string; type: SellConditionType };
-type RestartConditionType = "trade_again" | "on_win" | "on_loss" | "never";
-type BlockKey = "trade" | "purchase" | "sell" | "restart" | "functions";
-type BlockPosition = { x: number; y: number };
-
 type BotSettings = {
   assetCategory: string;
   candleInterval: string;
@@ -97,11 +82,9 @@ type BotSettings = {
   maxStake: number;
   purchaseDirection: string;
   restartBuySellOnError: boolean;
-  restartCondition: RestartConditionType;
   restartLastTradeOnError: boolean;
   runOnceAtStart: boolean;
   selectedDigit: number;
-  sellConditions: SellCondition[];
   stake: number;
   stopLoss: number;
   symbol: string;
@@ -109,7 +92,6 @@ type BotSettings = {
   tradeEveryTick: boolean;
   tradeType: TradeTypeUi;
 };
-
 type BotStats = BotMonitorStats;
 type Transaction = BotMonitorTransaction;
 type JournalEntry = BotMonitorJournalEntry;
@@ -134,49 +116,6 @@ type ImportedBotSettings = {
 
 const CURRENT_SETTINGS_STORAGE_VERSION = 1;
 const SAVED_PRESETS_STORAGE_VERSION = 1;
-const BLOCK_POSITIONS_KEY = "arktrader:bot-builder:block-positions";
-const BLOCK_VISIBILITY_KEY = "arktrader:bot-builder:block-visibility";
-const BLOCK_COLLAPSED_KEY = "arktrader:bot-builder:block-collapsed";
-const BLOCK_COMMENTS_KEY = "arktrader:bot-builder:block-comments";
-
-const INITIAL_BLOCK_POSITIONS: Record<BlockKey, BlockPosition> = {
-  trade: { x: 24, y: 0 },
-  purchase: { x: 24, y: 600 },
-  sell: { x: 820, y: 0 },
-  restart: { x: 820, y: 240 },
-  functions: { x: 24, y: 820 },
-};
-
-const DEFAULT_VISIBLE_BLOCKS: Record<BlockKey, boolean> = {
-  trade: true,
-  purchase: true,
-  sell: true,
-  restart: true,
-  functions: false,
-};
-
-const BLOCK_LABELS: Record<BlockKey, string> = {
-  trade: "Trade parameters",
-  purchase: "Purchase conditions",
-  sell: "Sell conditions",
-  restart: "Restart trading conditions",
-  functions: "Functions",
-};
-
-const BLOCK_DIMENSIONS: Record<BlockKey, { width: number; height: number }> = {
-  trade: { width: 780, height: 560 },
-  purchase: { width: 490, height: 240 },
-  sell: { width: 490, height: 200 },
-  restart: { width: 490, height: 90 },
-  functions: { width: 760, height: 640 },
-};
-
-const BLOCK_COLLAPSED_HEIGHT = 46;
-const WORKSPACE_PADDING_X = 64;
-const WORKSPACE_PADDING_Y = 80;
-const WORKSPACE_TOOLBAR_HEIGHT = 62;
-const WORKSPACE_MIN_WIDTH = 720;
-const WORKSPACE_MIN_HEIGHT = 380;
 
 const symbolOptions = [
   { label: "Volatility 10 Index", value: "R_10" },
@@ -190,20 +129,6 @@ const symbolOptions = [
   { label: "Volatility 75 (1s) Index", value: "1HZ75V" },
   { label: "Volatility 100 (1s) Index", value: "1HZ100V" },
 ];
-
-const sellConditionLabels: Record<SellConditionType, string> = {
-  contract_expired: "Contract expired",
-  sell_available: "Sell is available",
-  stop_loss: "Stop loss reached",
-  take_profit: "Take profit reached",
-};
-
-const restartConditionLabels: Record<RestartConditionType, string> = {
-  never: "Never trade again",
-  on_loss: "Trade again on loss",
-  on_win: "Trade again on win",
-  trade_again: "Trade again",
-};
 
 const initialSettings: BotSettings = {
   assetCategory: "Continuous Indices",
@@ -222,11 +147,9 @@ const initialSettings: BotSettings = {
   maxStake: 500,
   purchaseDirection: "over",
   restartBuySellOnError: true,
-  restartCondition: "trade_again",
   restartLastTradeOnError: true,
   runOnceAtStart: true,
   selectedDigit: 4,
-  sellConditions: [{ id: "sc-default", type: "sell_available" }],
   stake: 1,
   stopLoss: 30,
   symbol: "R_10",
@@ -247,8 +170,6 @@ const blockMenu = [
 const BOT_TRADE_MAX_ATTEMPTS = 2;
 const DERIV_TEMPORARY_PROCESSING_MESSAGE =
   "Sorry, an error occurred while processing your request.";
-
-// ─── Storage helpers ──────────────────────────────────────────────────────────
 
 function currentSettingsStorageKey(userId?: string | null) {
   return `arktrader:bot-builder:${userId ?? "guest"}:current-settings`;
@@ -284,7 +205,7 @@ function writeCurrentBotSettings(userId: string | null | undefined, settings: Bo
       }),
     );
   } catch {
-    /* best effort */
+    /* Local persistence is best effort. */
   }
 }
 
@@ -316,134 +237,8 @@ function writeSavedBotPresets(userId: string | null | undefined, presets: SavedB
       }),
     );
   } catch {
-    /* best effort */
+    /* Local persistence is best effort. */
   }
-}
-
-function readBlockPositions(): Record<BlockKey, BlockPosition> {
-  if (typeof window === "undefined") return { ...INITIAL_BLOCK_POSITIONS };
-  try {
-    const raw = window.localStorage.getItem(BLOCK_POSITIONS_KEY);
-    if (!raw) return { ...INITIAL_BLOCK_POSITIONS };
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed)) return { ...INITIAL_BLOCK_POSITIONS };
-    return {
-      functions: positionFrom(parsed.functions) ?? INITIAL_BLOCK_POSITIONS.functions,
-      purchase: positionFrom(parsed.purchase) ?? INITIAL_BLOCK_POSITIONS.purchase,
-      restart: positionFrom(parsed.restart) ?? INITIAL_BLOCK_POSITIONS.restart,
-      sell: positionFrom(parsed.sell) ?? INITIAL_BLOCK_POSITIONS.sell,
-      trade: positionFrom(parsed.trade) ?? INITIAL_BLOCK_POSITIONS.trade,
-    };
-  } catch {
-    return { ...INITIAL_BLOCK_POSITIONS };
-  }
-}
-
-function writeBlockPositions(positions: Record<BlockKey, BlockPosition>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(BLOCK_POSITIONS_KEY, JSON.stringify(positions));
-  } catch {
-    /* best effort */
-  }
-}
-
-function readBlockVisibility(): Record<BlockKey, boolean> {
-  if (typeof window === "undefined") return { ...DEFAULT_VISIBLE_BLOCKS };
-  try {
-    const raw = window.localStorage.getItem(BLOCK_VISIBILITY_KEY);
-    if (!raw) return { ...DEFAULT_VISIBLE_BLOCKS };
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed)) return { ...DEFAULT_VISIBLE_BLOCKS };
-    return {
-      trade: parsed.trade !== false,
-      purchase: parsed.purchase !== false,
-      sell: parsed.sell !== false,
-      restart: parsed.restart !== false,
-      functions: parsed.functions === true,
-    };
-  } catch {
-    return { ...DEFAULT_VISIBLE_BLOCKS };
-  }
-}
-
-function writeBlockVisibility(visibility: Record<BlockKey, boolean>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(BLOCK_VISIBILITY_KEY, JSON.stringify(visibility));
-  } catch {
-    /* best effort */
-  }
-}
-
-function readCollapsedBlocks(): Record<BlockKey, boolean> {
-  const empty: Record<BlockKey, boolean> = {
-    trade: false,
-    purchase: false,
-    sell: false,
-    restart: false,
-    functions: false,
-  };
-  if (typeof window === "undefined") return empty;
-  try {
-    const raw = window.localStorage.getItem(BLOCK_COLLAPSED_KEY);
-    if (!raw) return empty;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed)) return empty;
-    return {
-      trade: parsed.trade === true,
-      purchase: parsed.purchase === true,
-      sell: parsed.sell === true,
-      restart: parsed.restart === true,
-      functions: parsed.functions === true,
-    };
-  } catch {
-    return empty;
-  }
-}
-
-function writeCollapsedBlocks(state: Record<BlockKey, boolean>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(BLOCK_COLLAPSED_KEY, JSON.stringify(state));
-  } catch {
-    /* best effort */
-  }
-}
-
-function readBlockComments(): Partial<Record<BlockKey, string>> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(BLOCK_COMMENTS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed)) return {};
-    const out: Partial<Record<BlockKey, string>> = {};
-    for (const key of ["trade", "purchase", "sell", "restart", "functions"] as BlockKey[]) {
-      const value = parsed[key];
-      if (typeof value === "string" && value.trim()) out[key] = value;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function writeBlockComments(comments: Partial<Record<BlockKey, string>>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(BLOCK_COMMENTS_KEY, JSON.stringify(comments));
-  } catch {
-    /* best effort */
-  }
-}
-
-function positionFrom(value: unknown): BlockPosition | null {
-  if (!isRecord(value)) return null;
-  const x = Number(value.x);
-  const y = Number(value.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-  return { x, y };
 }
 
 function savedPresetFromRecord(value: unknown) {
@@ -458,8 +253,6 @@ function savedPresetFromRecord(value: unknown) {
       source === "deployed" || source === "imported" || source === "manual" ? source : "manual",
   } satisfies SavedBotPreset;
 }
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 function BotBuilderPage() {
   const { user, loading: authLoading } = useAuth();
@@ -497,18 +290,6 @@ function BotBuilderPage() {
   const [activePresetName, setActivePresetName] = useState("Unsaved bot");
   const [hydratedStorageUser, setHydratedStorageUser] = useState<string | null>(null);
   const [storageReady, setStorageReady] = useState(false);
-  const [blockPositions, setBlockPositions] = useState<Record<BlockKey, BlockPosition>>(
-    () => readBlockPositions(),
-  );
-  const [visibleBlocks, setVisibleBlocks] = useState<Record<BlockKey, boolean>>(
-    () => readBlockVisibility(),
-  );
-  const [collapsedBlocks, setCollapsedBlocks] = useState<Record<BlockKey, boolean>>(
-    () => readCollapsedBlocks(),
-  );
-  const [blockComments, setBlockComments] = useState<Partial<Record<BlockKey, string>>>(
-    () => readBlockComments(),
-  );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const hydratedUserRef = useRef<string | null>(null);
   const loadedRoutePresetRef = useRef<string | null>(null);
@@ -670,12 +451,6 @@ function BotBuilderPage() {
     addJournal("Bot statistics reset.", "info");
   }
 
-  function resetLayout() {
-    setBlockPositions({ ...INITIAL_BLOCK_POSITIONS });
-    writeBlockPositions(INITIAL_BLOCK_POSITIONS);
-    toast.success("Block layout reset.");
-  }
-
   function saveSettings() {
     const suggestedName =
       activePresetName === "Unsaved bot" || activePresetName === "Restored bot"
@@ -773,94 +548,6 @@ function BotBuilderPage() {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
-
-  const handleBlockMove = useCallback((blockId: BlockKey, x: number, y: number) => {
-    setBlockPositions((prev) => {
-      const next = { ...prev, [blockId]: { x, y } };
-      writeBlockPositions(next);
-      return next;
-    });
-  }, []);
-
-  const hideBlock = useCallback(
-    (blockId: BlockKey) => {
-      setVisibleBlocks((prev) => {
-        const next = { ...prev, [blockId]: false };
-        writeBlockVisibility(next);
-        return next;
-      });
-      addJournal(`Removed ${BLOCK_LABELS[blockId]} from the workspace.`, "info");
-    },
-    [],
-  );
-
-  const showBlock = useCallback((blockId: BlockKey) => {
-    setVisibleBlocks((prev) => {
-      if (prev[blockId]) return prev;
-      const next = { ...prev, [blockId]: true };
-      writeBlockVisibility(next);
-      return next;
-    });
-  }, []);
-
-  const toggleBlockCollapse = useCallback((blockId: BlockKey) => {
-    setCollapsedBlocks((prev) => {
-      const next = { ...prev, [blockId]: !prev[blockId] };
-      writeCollapsedBlocks(next);
-      return next;
-    });
-  }, []);
-
-  const setBlockComment = useCallback((blockId: BlockKey, comment: string) => {
-    setBlockComments((prev) => {
-      const next = { ...prev };
-      if (comment.trim()) next[blockId] = comment.trim();
-      else delete next[blockId];
-      writeBlockComments(next);
-      return next;
-    });
-  }, []);
-
-  const deleteAllBlocks = useCallback(() => {
-    const allHidden: Record<BlockKey, boolean> = {
-      trade: false,
-      purchase: false,
-      sell: false,
-      restart: false,
-      functions: false,
-    };
-    setVisibleBlocks(allHidden);
-    writeBlockVisibility(allHidden);
-    addJournal("Cleared all blocks from the workspace.", "warning");
-  }, []);
-
-  const downloadBlock = useCallback(
-    (blockId: BlockKey) => {
-      const payload = {
-        block: blockId,
-        label: BLOCK_LABELS[blockId],
-        savedAt: new Date().toISOString(),
-        settings: settingsRef.current,
-      };
-      try {
-        const blob = new Blob([JSON.stringify(payload, null, 2)], {
-          type: "application/json",
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `${blockId}-block.json`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        addJournal(`Downloaded ${BLOCK_LABELS[blockId]} block.`, "success");
-      } catch {
-        toast.error("Block download failed.");
-      }
-    },
-    [],
-  );
 
   async function runBot() {
     if (status === "running") {
@@ -1033,11 +720,6 @@ function BotBuilderPage() {
           addJournal("Profit or loss threshold reached. Bot stopped.", "warning");
           break;
         }
-
-        if (snapshot.restartCondition === "never") break;
-        if (snapshot.restartCondition === "on_win" && settlement.status !== "won") break;
-        if (snapshot.restartCondition === "on_loss" && settlement.status !== "lost") break;
-
         currentStake =
           settlement.status === "lost"
             ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
@@ -1083,37 +765,24 @@ function BotBuilderPage() {
             activeSavedPresetId={activeSavedPresetId}
             collapsed={leftCollapsed}
             filteredMenu={filteredMenu}
-            onAddBlock={showBlock}
             onDeletePreset={deleteSavedPreset}
             onLoadPreset={loadSavedPreset}
             onSearch={setSearchTerm}
             onToggle={() => setLeftCollapsed((value) => !value)}
             searchTerm={searchTerm}
             savedPresets={savedPresets}
-            visibleBlocks={visibleBlocks}
           />
           <WorkspaceCanvas
-            blockComments={blockComments}
-            blockPositions={blockPositions}
-            collapsedBlocks={collapsedBlocks}
             monitorCollapsed={monitorCollapsed}
-            onBlockMove={handleBlockMove}
-            onDeleteAllBlocks={deleteAllBlocks}
-            onDownloadBlock={downloadBlock}
-            onHideBlock={hideBlock}
             onImport={() => fileInputRef.current?.click()}
             onRedo={redo}
             onReset={resetBot}
-            onResetLayout={resetLayout}
             onSave={saveSettings}
-            onSetBlockComment={setBlockComment}
-            onToggleCollapse={toggleBlockCollapse}
             onUndo={undo}
             onZoomIn={() => setZoom((value) => Math.min(1.2, Number((value + 0.05).toFixed(2))))}
             onZoomOut={() => setZoom((value) => Math.max(0.7, Number((value - 0.05).toFixed(2))))}
             settings={settings}
             updateSettings={updateSettings}
-            visibleBlocks={visibleBlocks}
             zoom={zoom}
           />
           <BotRunMonitorPanel
@@ -1135,46 +804,27 @@ function BotBuilderPage() {
   );
 }
 
-// ─── Blocks menu ──────────────────────────────────────────────────────────────
-
 function BlocksMenu({
   activeSavedPresetId,
   collapsed,
   filteredMenu,
-  onAddBlock,
   onDeletePreset,
   onLoadPreset,
   onSearch,
   onToggle,
   searchTerm,
   savedPresets,
-  visibleBlocks,
 }: {
   activeSavedPresetId: string | null;
   collapsed: boolean;
   filteredMenu: typeof blockMenu;
-  onAddBlock: (blockId: BlockKey) => void;
   onDeletePreset: (presetId: string) => void;
   onLoadPreset: (preset: SavedBotPreset) => void;
   onSearch: (value: string) => void;
   onToggle: () => void;
   searchTerm: string;
   savedPresets: SavedBotPreset[];
-  visibleBlocks: Record<BlockKey, boolean>;
 }) {
-  function handleMenuClick(section: string) {
-    const map: Record<string, BlockKey> = {
-      trade: "trade",
-      purchase: "purchase",
-      sell: "sell",
-      restart: "restart",
-    };
-    const blockId = map[section];
-    if (!blockId) return;
-    if (!visibleBlocks[blockId]) {
-      onAddBlock(blockId);
-    }
-  }
   if (collapsed) {
     return (
       <aside className="flex min-h-0 flex-col items-center bg-[#f5f5f5] py-2 dark:bg-[#151515]">
@@ -1213,37 +863,16 @@ function BlocksMenu({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-white dark:bg-[#151515]">
-        {filteredMenu.map((item) => {
-          const blockKey =
-            item.section === "trade" || item.section === "purchase" || item.section === "sell" || item.section === "restart"
-              ? (item.section as BlockKey)
-              : null;
-          const isHidden = blockKey ? !visibleBlocks[blockKey] : false;
-          return (
-            <a
-              key={item.title}
-              href={`#${item.section}`}
-              onClick={(event) => {
-                if (blockKey && isHidden) {
-                  event.preventDefault();
-                  handleMenuClick(item.section);
-                }
-              }}
-              className="flex h-[41px] w-full items-center justify-between border-b border-[#eeeeee] px-5 text-left text-sm font-bold hover:bg-[#f7f7f7] dark:border-[#2b2b2b] dark:hover:bg-[#202020]"
-              title={isHidden ? "Click to add this block to the workspace" : undefined}
-            >
-              <span className="flex items-center gap-2">
-                {item.title}
-                {isHidden && (
-                  <span className="rounded-full bg-[#075773]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#075773] dark:bg-[#0a8ca8]/20 dark:text-[#76d9eb]">
-                    + Add
-                  </span>
-                )}
-              </span>
-              {item.collapsible && <ChevronDown className="size-5" />}
-            </a>
-          );
-        })}
+        {filteredMenu.map((item) => (
+          <a
+            key={item.title}
+            href={`#${item.section}`}
+            className="flex h-[41px] w-full items-center justify-between border-b border-[#eeeeee] px-5 text-left text-sm font-bold hover:bg-[#f7f7f7] dark:border-[#2b2b2b] dark:hover:bg-[#202020]"
+          >
+            <span>{item.title}</span>
+            {item.collapsible && <ChevronDown className="size-5" />}
+          </a>
+        ))}
       </div>
 
       <div className="border-t border-[#e1e1e1] bg-white px-3 py-3 dark:border-[#2b2b2b] dark:bg-[#151515]">
@@ -1293,182 +922,31 @@ function BlocksMenu({
   );
 }
 
-// ─── Workspace canvas ─────────────────────────────────────────────────────────
-
 function WorkspaceCanvas({
-  blockComments,
-  blockPositions,
-  collapsedBlocks,
   monitorCollapsed,
-  onBlockMove,
-  onDeleteAllBlocks,
-  onDownloadBlock,
-  onHideBlock,
   onImport,
   onRedo,
   onReset,
-  onResetLayout,
   onSave,
-  onSetBlockComment,
-  onToggleCollapse,
   onUndo,
   onZoomIn,
   onZoomOut,
   settings,
   updateSettings,
-  visibleBlocks,
   zoom,
 }: {
-  blockComments: Partial<Record<BlockKey, string>>;
-  blockPositions: Record<BlockKey, BlockPosition>;
-  collapsedBlocks: Record<BlockKey, boolean>;
   monitorCollapsed: boolean;
-  onBlockMove: (blockId: BlockKey, x: number, y: number) => void;
-  onDeleteAllBlocks: () => void;
-  onDownloadBlock: (blockId: BlockKey) => void;
-  onHideBlock: (blockId: BlockKey) => void;
   onImport: () => void;
   onRedo: () => void;
   onReset: () => void;
-  onResetLayout: () => void;
   onSave: () => void;
-  onSetBlockComment: (blockId: BlockKey, comment: string) => void;
-  onToggleCollapse: (blockId: BlockKey) => void;
   onUndo: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   settings: BotSettings;
   updateSettings: (patch: Partial<BotSettings>) => void;
-  visibleBlocks: Record<BlockKey, boolean>;
   zoom: number;
 }) {
-  const dragRef = useRef<{
-    blockId: BlockKey;
-    startMouseX: number;
-    startMouseY: number;
-    startBlockX: number;
-    startBlockY: number;
-  } | null>(null);
-  const dustbinRef = useRef<HTMLDivElement | null>(null);
-  const onBlockMoveRef = useRef(onBlockMove);
-  onBlockMoveRef.current = onBlockMove;
-  const onHideBlockRef = useRef(onHideBlock);
-  onHideBlockRef.current = onHideBlock;
-  const [dustbinHover, setDustbinHover] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{
-    blockId: BlockKey;
-    x: number;
-    y: number;
-  } | null>(null);
-
-  function isOverDustbin(clientX: number, clientY: number) {
-    const rect = dustbinRef.current?.getBoundingClientRect();
-    if (!rect) return false;
-    return (
-      clientX >= rect.left &&
-      clientX <= rect.right &&
-      clientY >= rect.top &&
-      clientY <= rect.bottom
-    );
-  }
-
-  useEffect(() => {
-    function handleMouseMove(e: MouseEvent) {
-      if (!dragRef.current) return;
-      const { blockId, startMouseX, startMouseY, startBlockX, startBlockY } = dragRef.current;
-      const dx = (e.clientX - startMouseX) / zoom;
-      const dy = (e.clientY - startMouseY) / zoom;
-      onBlockMoveRef.current(
-        blockId,
-        Math.max(0, startBlockX + dx),
-        Math.max(0, startBlockY + dy),
-      );
-      setDustbinHover(isOverDustbin(e.clientX, e.clientY));
-    }
-    function handleMouseUp(e: MouseEvent) {
-      if (dragRef.current && isOverDustbin(e.clientX, e.clientY)) {
-        onHideBlockRef.current(dragRef.current.blockId);
-      }
-      dragRef.current = null;
-      setDustbinHover(false);
-    }
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [zoom]);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    function handleClickAway() {
-      setContextMenu(null);
-    }
-    window.addEventListener("click", handleClickAway);
-    window.addEventListener("scroll", handleClickAway, true);
-    return () => {
-      window.removeEventListener("click", handleClickAway);
-      window.removeEventListener("scroll", handleClickAway, true);
-    };
-  }, [contextMenu]);
-
-  function startDrag(blockId: BlockKey, pos: BlockPosition, event: React.MouseEvent) {
-    event.preventDefault();
-    dragRef.current = {
-      blockId,
-      startBlockX: pos.x,
-      startBlockY: pos.y,
-      startMouseX: event.clientX,
-      startMouseY: event.clientY,
-    };
-  }
-
-  function openContextMenu(blockId: BlockKey, event: React.MouseEvent) {
-    event.preventDefault();
-    setContextMenu({ blockId, x: event.clientX, y: event.clientY });
-  }
-
-  function handleAddComment(blockId: BlockKey) {
-    const existing = blockComments[blockId] ?? "";
-    const result = window.prompt(`Comment for ${BLOCK_LABELS[blockId]}`, existing);
-    if (result === null) return;
-    onSetBlockComment(blockId, result);
-  }
-
-  function blockProps(blockId: BlockKey) {
-    return {
-      collapsed: collapsedBlocks[blockId] ?? false,
-      comment: blockComments[blockId],
-      onContextMenu: (event: React.MouseEvent) => openContextMenu(blockId, event),
-      onDragStart: (event: React.MouseEvent) => startDrag(blockId, blockPositions[blockId], event),
-    };
-  }
-
-  const canvasSize = useMemo(() => {
-    let maxRight = 0;
-    let maxBottom = 0;
-    let anyVisible = false;
-    for (const key of ["trade", "purchase", "sell", "restart", "functions"] as BlockKey[]) {
-      if (!visibleBlocks[key]) continue;
-      anyVisible = true;
-      const pos = blockPositions[key];
-      const dim = BLOCK_DIMENSIONS[key];
-      const height = collapsedBlocks[key] ? BLOCK_COLLAPSED_HEIGHT : dim.height;
-      maxRight = Math.max(maxRight, pos.x + dim.width);
-      maxBottom = Math.max(maxBottom, pos.y + height);
-    }
-    if (!anyVisible) {
-      return { width: WORKSPACE_MIN_WIDTH, height: WORKSPACE_MIN_HEIGHT };
-    }
-    const scaledWidth = Math.ceil((maxRight + WORKSPACE_PADDING_X) * zoom);
-    const scaledHeight = Math.ceil((maxBottom + WORKSPACE_PADDING_Y) * zoom);
-    return {
-      width: Math.max(WORKSPACE_MIN_WIDTH, scaledWidth),
-      height: Math.max(WORKSPACE_MIN_HEIGHT, scaledHeight + WORKSPACE_TOOLBAR_HEIGHT),
-    };
-  }, [blockPositions, collapsedBlocks, visibleBlocks, zoom]);
-
   return (
     <section
       className={cn(
@@ -1481,92 +959,21 @@ function WorkspaceCanvas({
         onImport={onImport}
         onRedo={onRedo}
         onReset={onReset}
-        onResetLayout={onResetLayout}
         onSave={onSave}
         onUndo={onUndo}
         onZoomIn={onZoomIn}
         onZoomOut={onZoomOut}
       />
       <ScrollArea className="h-full">
-        <div
-          className="relative bg-white dark:bg-[#101010]"
-          style={{
-            width: canvasSize.width,
-            minWidth: "100%",
-            height: canvasSize.height,
-            minHeight: "100%",
-          }}
-        >
+        <div className="relative h-[1420px] min-w-[1320px] bg-white dark:bg-[#101010]">
           <div
-            className="absolute left-0 top-[62px] origin-top-left"
+            className="absolute left-6 top-[62px] origin-top-left"
             style={{ transform: `scale(${zoom})` }}
           >
-            {visibleBlocks.trade && (
-              <div
-                className="absolute"
-                style={{ left: blockPositions.trade.x, top: blockPositions.trade.y }}
-              >
-                <TradeParametersBlock
-                  settings={settings}
-                  updateSettings={updateSettings}
-                  {...blockProps("trade")}
-                />
-              </div>
-            )}
-
-            {visibleBlocks.purchase && (
-              <div
-                className="absolute"
-                style={{ left: blockPositions.purchase.x, top: blockPositions.purchase.y }}
-              >
-                <PurchaseConditionsBlock
-                  settings={settings}
-                  updateSettings={updateSettings}
-                  {...blockProps("purchase")}
-                />
-              </div>
-            )}
-
-            {visibleBlocks.sell && (
-              <div
-                className="absolute"
-                style={{ left: blockPositions.sell.x, top: blockPositions.sell.y }}
-              >
-                <SellConditionsBlock
-                  settings={settings}
-                  updateSettings={updateSettings}
-                  {...blockProps("sell")}
-                />
-              </div>
-            )}
-
-            {visibleBlocks.restart && (
-              <div
-                className="absolute"
-                style={{ left: blockPositions.restart.x, top: blockPositions.restart.y }}
-              >
-                <RestartTradingConditionsBlock
-                  settings={settings}
-                  updateSettings={updateSettings}
-                  {...blockProps("restart")}
-                />
-              </div>
-            )}
-
-            {visibleBlocks.functions && (
-              <div
-                className="absolute"
-                style={{ left: blockPositions.functions.x, top: blockPositions.functions.y }}
-              >
-                <FunctionStack
-                  settings={settings}
-                  updateSettings={updateSettings}
-                  {...blockProps("functions")}
-                />
-              </div>
-            )}
+            <TradeParametersBlock settings={settings} updateSettings={updateSettings} />
+            <PurchaseConditionsBlock settings={settings} updateSettings={updateSettings} />
+            <FunctionStack settings={settings} updateSettings={updateSettings} />
           </div>
-
           <div className="absolute right-[-9px] top-1/2 z-20 flex h-12 w-5 -translate-y-1/2 items-center justify-center border border-[#d2d2d2] bg-white text-[#5d5d5d] dark:border-[#333] dark:bg-[#151515]">
             <ChevronLeft className="size-4" />
             <ChevronRight className="-ml-3 size-4" />
@@ -1574,150 +981,14 @@ function WorkspaceCanvas({
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
-
-      <div
-        ref={dustbinRef}
-        className={cn(
-          "group pointer-events-auto absolute bottom-4 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full border-2 transition-all duration-200",
-          dustbinHover
-            ? "scale-125 border-solid border-[#c52832] bg-[#ffe5e7] text-[#c52832] opacity-100 shadow-lg shadow-[#c52832]/40"
-            : "border-dashed border-[#b9bdc2] bg-white/70 text-[#6b7177]/80 opacity-60 shadow-sm backdrop-blur-sm hover:scale-110 hover:opacity-100 hover:shadow-md dark:border-[#444] dark:bg-[#151515]/70 dark:text-[#b7b7b7]/80",
-        )}
-        title="Drag a block here to remove it from the workspace"
-      >
-        <Trash2 className={cn("size-5 transition-transform", dustbinHover && "scale-125")} />
-      </div>
-
-      {contextMenu && (
-        <BlockContextMenu
-          blockId={contextMenu.blockId}
-          collapsed={collapsedBlocks[contextMenu.blockId] ?? false}
-          onAddComment={() => {
-            handleAddComment(contextMenu.blockId);
-            setContextMenu(null);
-          }}
-          onClose={() => setContextMenu(null)}
-          onDeleteAll={() => {
-            const confirmed = window.confirm("Delete all blocks from the workspace?");
-            if (confirmed) onDeleteAllBlocks();
-            setContextMenu(null);
-          }}
-          onDelete={() => {
-            onHideBlock(contextMenu.blockId);
-            setContextMenu(null);
-          }}
-          onDownload={() => {
-            onDownloadBlock(contextMenu.blockId);
-            setContextMenu(null);
-          }}
-          onToggleCollapse={() => {
-            onToggleCollapse(contextMenu.blockId);
-            setContextMenu(null);
-          }}
-          x={contextMenu.x}
-          y={contextMenu.y}
-        />
-      )}
     </section>
   );
 }
-
-function BlockContextMenu({
-  blockId,
-  collapsed,
-  onAddComment,
-  onClose,
-  onDelete,
-  onDeleteAll,
-  onDownload,
-  onToggleCollapse,
-  x,
-  y,
-}: {
-  blockId: BlockKey;
-  collapsed: boolean;
-  onAddComment: () => void;
-  onClose: () => void;
-  onDelete: () => void;
-  onDeleteAll: () => void;
-  onDownload: () => void;
-  onToggleCollapse: () => void;
-  x: number;
-  y: number;
-}) {
-  const items: Array<{
-    disabled?: boolean;
-    hint?: string;
-    icon: React.ComponentType<{ className?: string }>;
-    label: string;
-    onClick: () => void;
-  }> = [
-    {
-      disabled: true,
-      hint: "Each block is unique in this workspace",
-      icon: Copy,
-      label: "Duplicate",
-      onClick: () => {},
-    },
-    { icon: MessageSquare, label: "Add Comment", onClick: onAddComment },
-    {
-      icon: collapsed ? ChevronDown : ChevronUp,
-      label: collapsed ? "Expand Block" : "Collapse Block",
-      onClick: onToggleCollapse,
-    },
-    { icon: Trash2, label: "Remove Block", onClick: onDelete },
-    { icon: Trash2, label: "Delete All Blocks", onClick: onDeleteAll },
-    { icon: Download, label: "Download Block", onClick: onDownload },
-  ];
-
-  return (
-    <div
-      role="menu"
-      aria-label={`Options for ${BLOCK_LABELS[blockId]}`}
-      onClick={(event) => event.stopPropagation()}
-      onContextMenu={(event) => event.preventDefault()}
-      className="fixed z-50 w-56 rounded-md border border-[#d8d9dc] bg-white py-1 text-sm shadow-lg dark:border-[#2f2f2f] dark:bg-[#151515]"
-      style={{ left: x, top: y }}
-    >
-      {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          disabled={item.disabled}
-          title={item.hint}
-          onClick={() => {
-            if (item.disabled) return;
-            item.onClick();
-          }}
-          className={cn(
-            "flex w-full items-center gap-2 px-3 py-2 text-left text-[13px]",
-            item.disabled
-              ? "cursor-not-allowed text-[#a8acb1]"
-              : "text-[#1f1f1f] hover:bg-[#f3f4f6] dark:text-[#e6e6e6] dark:hover:bg-[#202020]",
-          )}
-        >
-          <item.icon className="size-4" />
-          <span>{item.label}</span>
-        </button>
-      ))}
-      <button
-        type="button"
-        onClick={onClose}
-        className="mt-1 w-full border-t border-[#eee] px-3 py-1.5 text-left text-[11px] text-[#777] hover:bg-[#f3f4f6] dark:border-[#2b2b2b] dark:text-[#a0a0a0] dark:hover:bg-[#202020]"
-      >
-        Close
-      </button>
-    </div>
-  );
-}
-
-// ─── Workspace toolbar ────────────────────────────────────────────────────────
 
 function WorkspaceToolbar({
   onImport,
   onRedo,
   onReset,
-  onResetLayout,
   onSave,
   onUndo,
   onZoomIn,
@@ -1726,17 +997,16 @@ function WorkspaceToolbar({
   onImport: () => void;
   onRedo: () => void;
   onReset: () => void;
-  onResetLayout: () => void;
   onSave: () => void;
   onUndo: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
 }) {
   const actions = [
-    { icon: RefreshCw, label: "Reset stats", onClick: onReset },
+    { icon: RefreshCw, label: "Reset", onClick: onReset },
     { icon: FolderOpen, label: "Import bot", onClick: onImport },
     { icon: Save, label: "Save preset", onClick: onSave },
-    { icon: LayoutList, label: "Reset layout", onClick: onResetLayout },
+    { icon: LayoutList, label: "Workspace layout", onClick: onReset },
     { icon: LineChart, label: "Analysis view", onClick: onZoomOut },
     { icon: BarChart2, label: "Chart view", onClick: onZoomIn },
     { icon: Undo2, label: "Undo", onClick: onUndo },
@@ -1770,186 +1040,18 @@ function WorkspaceToolbar({
   );
 }
 
-// ─── Block visual primitives ──────────────────────────────────────────────────
-
-/**
- * Full-width drag-handle header for each main block.
- * The user grabs this to move the block around the canvas.
- * Right-click opens the block context menu.
- */
-function BlockHeader({
-  collapsed,
-  icon: Icon,
-  onContextMenu,
-  onMouseDown,
-  onToggleCollapse,
-  title,
-}: {
-  collapsed?: boolean;
-  icon?: React.ComponentType<{ className?: string }>;
-  onContextMenu?: (e: React.MouseEvent) => void;
-  onMouseDown?: (e: React.MouseEvent) => void;
-  onToggleCollapse?: () => void;
-  title: string;
-}) {
-  return (
-    <div
-      onMouseDown={onMouseDown}
-      onContextMenu={onContextMenu}
-      className="flex h-[38px] w-full cursor-grab select-none items-center gap-2 rounded-t-[4px] bg-[#075773] px-3 text-sm font-bold text-white active:cursor-grabbing dark:bg-[#053a4e]"
-    >
-      {Icon && <Icon className="size-[15px] shrink-0 opacity-75" />}
-      <span className="flex-1">{title}</span>
-      {onToggleCollapse && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleCollapse();
-          }}
-          onMouseDown={(event) => event.stopPropagation()}
-          className="flex size-5 items-center justify-center rounded text-white/80 hover:bg-white/10 hover:text-white"
-          title={collapsed ? "Expand block" : "Collapse block"}
-        >
-          {collapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
-        </button>
-      )}
-      <GripVertical className="size-4 shrink-0 opacity-30" />
-    </div>
-  );
-}
-
-/** Yellow sticky-note style comment shown above a block when set. */
-function BlockComment({ text }: { text: string }) {
-  return (
-    <div className="mb-1 inline-flex max-w-full items-start gap-1 rounded-t-[4px] rounded-br-[4px] border-l-[3px] border-[#f1b945] bg-[#fff4d4] px-2 py-1 text-[10px] italic text-[#5a4500] shadow-sm dark:bg-[#3a2f12] dark:text-[#fde3a7]">
-      <MessageSquare className="mt-[1px] size-3 shrink-0 opacity-70" />
-      <span className="whitespace-pre-wrap break-words">{text}</span>
-    </div>
-  );
-}
-
-/** Smaller inner header used for sub-sections within a block. */
-function SectionHeader({
-  className,
-  title,
-  width,
-}: {
-  className?: string;
-  title: string;
-  width?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex h-[26px] items-center rounded-t-[3px] bg-[#075773] px-3 text-[10px] font-bold text-white dark:bg-[#053a4e]",
-        width ?? "w-full",
-        className,
-      )}
-    >
-      {title}
-    </div>
-  );
-}
-
-/** Dark teal body wrapper for a block. */
-function BlockBody({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div
-      className={cn(
-        "rounded-b-[4px] bg-[#075773] pb-2.5 pr-2 pt-1.5 dark:bg-[#053a4e]",
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
-/**
- * The connector-shaped content tab from the Deriv block builder images.
- * Renders a gray rounded pill with a small left-side connector protrusion.
- */
-function TabBlock({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn("my-1.5 flex items-stretch", className)}>
-      {/* Left connector notch */}
-      <div className="h-auto min-h-[28px] w-[6px] shrink-0 self-center rounded-l-[2px] bg-[#e9e9e9] dark:bg-[#2d2d2d]" />
-      {/* Main content */}
-      <div className="flex min-h-[28px] flex-1 flex-wrap items-center gap-1.5 rounded-r-[3px] bg-[#e9e9e9] px-2 py-1 text-[11px] text-[#242424] shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)] dark:bg-[#2d2d2d] dark:text-[#e9e9e9]">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/** Empty slot tab — shows as a blank connector area for optional conditions. */
-function EmptyTabSlot({ className }: { className?: string }) {
-  return (
-    <div className={cn("my-1.5 flex items-stretch opacity-60", className)}>
-      <div className="h-auto min-h-[26px] w-[6px] shrink-0 self-center rounded-l-[2px] bg-[#e0e0e0] dark:bg-[#2a2a2a]" />
-      <div className="flex min-h-[26px] flex-1 items-center rounded-r-[3px] border border-dashed border-[#c8c8c8] bg-[#f0f0f0] px-2 text-[10px] italic text-[#aaa] dark:border-[#3a3a3a] dark:bg-[#252525]">
-        drop block here
-      </div>
-    </div>
-  );
-}
-
-function BlockLine({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div
-      className={cn(
-        "inline-flex min-h-[26px] items-center gap-1 rounded-[3px] bg-[#eeeeee] px-2 shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)] dark:bg-[#2d2d2d] dark:text-[#e9e9e9]",
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SetLine({ label, plus, value }: { label: string; plus?: boolean; value?: React.ReactNode }) {
-  return (
-    <BlockLine className="w-fit">
-      set <Pill>{label}</Pill>
-      {value && <>to {value}</>}
-      {plus && <RoundPlus />}
-    </BlockLine>
-  );
-}
-
-// ─── Block components ─────────────────────────────────────────────────────────
-
 function TradeParametersBlock({
-  collapsed,
-  comment,
-  onContextMenu,
-  onDragStart,
-  onToggleCollapse,
   settings,
   updateSettings,
 }: {
-  collapsed?: boolean;
-  comment?: string;
-  onContextMenu?: (e: React.MouseEvent) => void;
-  onDragStart: (e: React.MouseEvent) => void;
-  onToggleCollapse?: () => void;
   settings: BotSettings;
   updateSettings: (patch: Partial<BotSettings>) => void;
 }) {
   return (
-    <div id="trade" className="w-[780px]">
-      {comment && <BlockComment text={comment} />}
-      <BlockHeader
-        title="1. Trade parameters"
-        onMouseDown={onDragStart}
-        onContextMenu={onContextMenu}
-        onToggleCollapse={onToggleCollapse}
-        collapsed={collapsed}
-      />
-      {!collapsed && (
-      <BlockBody className="space-y-0 pl-0">
-        <div className="space-y-2 px-2 pb-2 pt-2">
+    <div id="trade" className="w-[760px]">
+      <GreenHeader title="1. Trade parameters" width="w-[210px]" />
+      <div className="rounded-b-[3px] bg-[#075773] pb-2 pl-2 pr-3 pt-2 text-[10px] text-[#242424] shadow-sm">
+        <div className="space-y-2">
           <BlockLine>
             Market:{" "}
             <SelectPill
@@ -1957,20 +1059,19 @@ function TradeParametersBlock({
               value={settings.market}
               onChange={(market) => updateSettings({ market })}
             />{" "}
-            <span className="text-white/70">&gt;</span>{" "}
+            <span>&gt;</span>{" "}
             <SelectPill
               options={["Continuous Indices"]}
               value={settings.assetCategory}
               onChange={(assetCategory) => updateSettings({ assetCategory })}
             />{" "}
-            <span className="text-white/70">&gt;</span>{" "}
+            <span>&gt;</span>{" "}
             <SelectPill
               options={symbolOptions}
               value={settings.symbol}
               onChange={(symbol) => updateSettings({ symbol })}
             />
           </BlockLine>
-
           <BlockLine>
             Trade Type:{" "}
             <SelectPill
@@ -1984,14 +1085,13 @@ function TradeParametersBlock({
               value={settings.tradeType}
               onChange={(tradeType) => updateSettings({ tradeType: tradeType as TradeTypeUi })}
             />{" "}
-            <span className="text-white/70">&gt;</span>{" "}
+            <span>&gt;</span>{" "}
             <SelectPill
               options={contractFamilyOptions(settings.tradeType)}
               value={contractFamilyValue(settings)}
               onChange={(value) => updateSettings(contractFamilyPatch(settings.tradeType, value))}
             />
           </BlockLine>
-
           <BlockLine>
             Contract Type:{" "}
             <SelectPill
@@ -2000,7 +1100,6 @@ function TradeParametersBlock({
               onChange={(purchaseDirection) => updateSettings({ purchaseDirection })}
             />
           </BlockLine>
-
           <BlockLine>
             Default Candle Interval:{" "}
             <SelectPill
@@ -2009,38 +1108,33 @@ function TradeParametersBlock({
               onChange={(candleInterval) => updateSettings({ candleInterval })}
             />
           </BlockLine>
-
-          <BlockLine className="w-[420px]">
-            <span>Restart buy/sell on error (disable for better performance):</span>{" "}
-            <TinyCheckbox
+          <BlockLine className="w-[265px]">
+            Restart buy/sell on error (disable for better performance):{" "}
+            <TinySquare
               checked={settings.restartBuySellOnError}
               onChange={(restartBuySellOnError) => updateSettings({ restartBuySellOnError })}
             />
           </BlockLine>
-
-          <BlockLine className="w-[440px]">
-            <span>Restart last trade on error (bot ignores the unsuccessful trade):</span>{" "}
-            <TinyCheckbox
+          <BlockLine className="w-[276px]">
+            Restart last trade on error (bot ignores the unsuccessful trade):{" "}
+            <TinySquare
               checked={settings.restartLastTradeOnError}
               onChange={(restartLastTradeOnError) => updateSettings({ restartLastTradeOnError })}
             />
           </BlockLine>
-
-          <BlockLine className="w-[220px]">
+          <BlockLine className="w-[162px]">
             Trade every tick:{" "}
-            <TinyCheckbox
+            <TinySquare
               checked={settings.tradeEveryTick}
               onChange={(tradeEveryTick) => updateSettings({ tradeEveryTick })}
             />
           </BlockLine>
         </div>
-
-        {/* Run once at start sub-section */}
-        <SectionHeader title="Run once at start:" width="w-[220px]" className="ml-2" />
-        <div className="mx-2 mb-2 space-y-1 rounded-b-[3px] bg-[#e8e8e8] p-2 dark:bg-[#222]">
-          <BlockLine className="w-fit">
+        <GreenHeader title="Run once at start:" width="w-[210px]" className="mt-2" />
+        <div className="space-y-1 rounded-b-[3px] bg-[#eeeeee] p-1">
+          <BlockLine className="w-[140px]">
             Run at start{" "}
-            <TinyCheckbox
+            <TinySquare
               checked={settings.runOnceAtStart}
               onChange={(runOnceAtStart) => updateSettings({ runOnceAtStart })}
             />
@@ -2112,408 +1206,275 @@ function TradeParametersBlock({
             }
           />
         </div>
-
-        {/* Trade options sub-section */}
-        <SectionHeader title="Trade options:" width="w-[160px]" className="ml-2" />
-        <div className="mx-2 rounded-b-[3px] bg-[#e8e8e8] p-2 dark:bg-[#222]">
-          <BlockLine className="flex-wrap">
-            Duration:{" "}
-            <SelectPill
-              options={[
-                { label: "Ticks", value: "t" },
-                { label: "Seconds", value: "s" },
-                { label: "Minutes", value: "m" },
-              ]}
-              value={settings.durationUnit}
-              onChange={(durationUnit) =>
-                updateSettings({ durationUnit: durationUnit as DurationUnit })
-              }
-            />{" "}
-            <NumberPill
-              min={1}
-              step={1}
-              value={settings.duration}
-              onChange={(duration) => updateSettings({ duration })}
-            />{" "}
-            Stake: {settings.currency}{" "}
-            <NumberPill
-              min={0.35}
-              step={0.01}
-              value={settings.stake}
-              onChange={(stake) => updateSettings({ stake })}
-            />{" "}
-            <span className="text-[10px] text-[#666] dark:text-[#999]">(min: 0.35 · max: 50000)</span>{" "}
-            prediction:{" "}
-            <NumberPill
-              min={0}
-              step={1}
-              value={settings.selectedDigit}
-              onChange={(selectedDigit) => updateSettings({ selectedDigit })}
-            />
-          </BlockLine>
-        </div>
-      </BlockBody>
-      )}
+        <GreenHeader title="Trade options:" width="w-[210px]" className="mt-2" />
+        <BlockLine className="w-[940px]">
+          Duration:{" "}
+          <SelectPill
+            options={[
+              { label: "Ticks", value: "t" },
+              { label: "Seconds", value: "s" },
+              { label: "Minutes", value: "m" },
+            ]}
+            value={settings.durationUnit}
+            onChange={(durationUnit) =>
+              updateSettings({ durationUnit: durationUnit as DurationUnit })
+            }
+          />{" "}
+          <NumberPill
+            min={1}
+            step={1}
+            value={settings.duration}
+            onChange={(duration) => updateSettings({ duration })}
+          />{" "}
+          Stake:{" "}
+          <SelectPill
+            options={["USD", "EUR", "GBP", "USDT"]}
+            value={settings.currency}
+            onChange={(currency) => updateSettings({ currency })}
+          />{" "}
+          <NumberPill
+            min={0.35}
+            step={0.01}
+            value={settings.stake}
+            onChange={(stake) => updateSettings({ stake })}
+          />{" "}
+          (min: 0.35 - max: 50000) prediction:{" "}
+          <NumberPill
+            min={0}
+            step={1}
+            value={settings.selectedDigit}
+            onChange={(selectedDigit) => updateSettings({ selectedDigit })}
+          />
+        </BlockLine>
+      </div>
     </div>
   );
 }
 
 function PurchaseConditionsBlock({
-  collapsed,
-  comment,
-  onContextMenu,
-  onDragStart,
-  onToggleCollapse,
   settings,
   updateSettings,
 }: {
-  collapsed?: boolean;
-  comment?: string;
-  onContextMenu?: (e: React.MouseEvent) => void;
-  onDragStart: (e: React.MouseEvent) => void;
-  onToggleCollapse?: () => void;
   settings: BotSettings;
   updateSettings: (patch: Partial<BotSettings>) => void;
 }) {
   return (
-    <div id="purchase" className="w-[490px]">
-      {comment && <BlockComment text={comment} />}
-      <BlockHeader
-        icon={ShoppingCart}
-        title="2. Purchase conditions"
-        onMouseDown={onDragStart}
-        onContextMenu={onContextMenu}
-        onToggleCollapse={onToggleCollapse}
-        collapsed={collapsed}
-      />
-      {!collapsed && (
-      <BlockBody>
-        {/* Main purchase direction — matches reference image */}
-        <TabBlock>
-          <span className="font-medium">Purchase</span>
+    <div id="purchase" className="mt-6 w-[460px]">
+      <GreenHeader title="2. Purchase conditions" width="w-[210px]" />
+      <div className="rounded-b-[3px] bg-[#075773] p-2 text-[10px] text-[#242424]">
+        <BlockLine className="w-[420px]">
+          Purchase{" "}
           <SelectPill
             options={purchaseDirectionOptions(settings)}
             value={settings.purchaseDirection}
             onChange={(purchaseDirection) => updateSettings({ purchaseDirection })}
-          />
-        </TabBlock>
-
-        {/* Condition join logic */}
-        <TabBlock>
-          <span>if</span>
+          />{" "}
+          if{" "}
           <SelectPill
             options={["All", "Any"]}
             value={settings.conditionJoin}
             onChange={(conditionJoin) =>
               updateSettings({ conditionJoin: conditionJoin as "All" | "Any" })
             }
-          />
-          <span>condition is true</span>
-        </TabBlock>
-
-        {/* Condition expression */}
-        <TabBlock>
+          />{" "}
+          condition is true
+        </BlockLine>
+        <BlockLine className="mt-1 w-[430px]">
           <SelectPill
             options={["Last Digit", "Total Profit", "Stake", "Run Count"]}
             value={settings.conditionLeft}
             onChange={(conditionLeft) => updateSettings({ conditionLeft })}
-          />
+          />{" "}
           <SelectPill
             options={[">", "<", "=", "contains"]}
             value={settings.conditionOperator}
             onChange={(conditionOperator) => updateSettings({ conditionOperator })}
-          />
+          />{" "}
           <TextPill
             value={settings.conditionRight}
             onChange={(conditionRight) => updateSettings({ conditionRight })}
           />
-        </TabBlock>
-
-        {/* Quick digit range hints */}
-        <TabBlock className="opacity-80">
-          <span className="text-[10px] text-[#666] dark:text-[#999]">
-            digit range: 0 – 9 · use &quot;contains&quot; for comma-separated values
-          </span>
-        </TabBlock>
-      </BlockBody>
-      )}
-    </div>
-  );
-}
-
-function SellConditionsBlock({
-  collapsed,
-  comment,
-  onContextMenu,
-  onDragStart,
-  onToggleCollapse,
-  settings,
-  updateSettings,
-}: {
-  collapsed?: boolean;
-  comment?: string;
-  onContextMenu?: (e: React.MouseEvent) => void;
-  onDragStart: (e: React.MouseEvent) => void;
-  onToggleCollapse?: () => void;
-  settings: BotSettings;
-  updateSettings: (patch: Partial<BotSettings>) => void;
-}) {
-  function addCondition() {
-    const newCondition: SellCondition = { id: crypto.randomUUID(), type: "sell_available" };
-    updateSettings({ sellConditions: [...settings.sellConditions, newCondition] });
-  }
-
-  function removeCondition(id: string) {
-    if (settings.sellConditions.length <= 1) return;
-    updateSettings({ sellConditions: settings.sellConditions.filter((c) => c.id !== id) });
-  }
-
-  function updateConditionType(id: string, type: SellConditionType) {
-    updateSettings({
-      sellConditions: settings.sellConditions.map((c) => (c.id === id ? { ...c, type } : c)),
-    });
-  }
-
-  return (
-    <div id="sell" className="w-[490px]">
-      {comment && <BlockComment text={comment} />}
-      <BlockHeader
-        icon={DollarSign}
-        title="3. Sell conditions"
-        onMouseDown={onDragStart}
-        onContextMenu={onContextMenu}
-        onToggleCollapse={onToggleCollapse}
-        collapsed={collapsed}
-      />
-      {!collapsed && (
-      <BlockBody>
-        {settings.sellConditions.map((condition, index) => (
-          <div key={condition.id}>
-            <TabBlock>
-              <span>if</span>
-              <span className="inline-flex items-center rounded-full border border-[#c8c8c8] bg-white px-2 py-0.5 shadow-sm dark:border-[#444] dark:bg-[#1a1a1a]">
-                <select
-                  value={condition.type}
-                  onChange={(e) => updateConditionType(condition.id, e.target.value as SellConditionType)}
-                  className="bg-transparent text-[10px] font-medium text-[#333] outline-none dark:text-[#e9e9e9]"
-                >
-                  {Object.entries(sellConditionLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </span>
-              <span>then</span>
-              {settings.sellConditions.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeCondition(condition.id)}
-                  className="ml-auto flex size-5 items-center justify-center rounded-full bg-[#cc3333] text-white hover:bg-[#aa2222]"
-                  title="Remove this condition"
-                >
-                  <Minus className="size-3" />
-                </button>
-              )}
-            </TabBlock>
-            {/* Action slot — placeholder for the sell action */}
-            {index === 0 && <EmptyTabSlot />}
-          </div>
-        ))}
-
-        {/* Add condition button */}
-        <div className="ml-[6px] mt-2">
-          <button
-            type="button"
-            onClick={addCondition}
-            className="flex size-7 items-center justify-center rounded-full bg-[#333] text-white hover:bg-[#444] dark:bg-[#555] dark:hover:bg-[#666]"
-            title="Add sell condition"
-          >
-            <Plus className="size-4" />
-          </button>
-        </div>
-      </BlockBody>
-      )}
-    </div>
-  );
-}
-
-function RestartTradingConditionsBlock({
-  collapsed,
-  comment,
-  onContextMenu,
-  onDragStart,
-  onToggleCollapse,
-  settings,
-  updateSettings,
-}: {
-  collapsed?: boolean;
-  comment?: string;
-  onContextMenu?: (e: React.MouseEvent) => void;
-  onDragStart: (e: React.MouseEvent) => void;
-  onToggleCollapse?: () => void;
-  settings: BotSettings;
-  updateSettings: (patch: Partial<BotSettings>) => void;
-}) {
-  return (
-    <div id="restart" className="w-[490px]">
-      {comment && <BlockComment text={comment} />}
-      <BlockHeader
-        icon={Flag}
-        title="4. Restart trading conditions"
-        onMouseDown={onDragStart}
-        onContextMenu={onContextMenu}
-        onToggleCollapse={onToggleCollapse}
-        collapsed={collapsed}
-      />
-      {!collapsed && (
-      <BlockBody>
-        <TabBlock>
-          <select
-            value={settings.restartCondition}
-            onChange={(e) =>
-              updateSettings({ restartCondition: e.target.value as RestartConditionType })
-            }
-            className="bg-transparent text-[11px] font-medium text-[#242424] outline-none dark:text-[#e9e9e9]"
-          >
-            {Object.entries(restartConditionLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </TabBlock>
-      </BlockBody>
-      )}
+        </BlockLine>
+        <NestedMini label="Last Digit >" settings={settings} updateSettings={updateSettings} />
+        <NestedMini label="Last Digit <" settings={settings} updateSettings={updateSettings} />
+      </div>
     </div>
   );
 }
 
 function FunctionStack({
-  collapsed,
-  comment,
-  onContextMenu,
-  onDragStart,
-  onToggleCollapse,
   settings,
   updateSettings,
 }: {
-  collapsed?: boolean;
-  comment?: string;
-  onContextMenu?: (e: React.MouseEvent) => void;
-  onDragStart: (e: React.MouseEvent) => void;
-  onToggleCollapse?: () => void;
   settings: BotSettings;
   updateSettings: (patch: Partial<BotSettings>) => void;
 }) {
   return (
-    <div className="w-[760px]">
-      {comment && <BlockComment text={comment} />}
-      <BlockHeader
-        title="Functions"
-        onMouseDown={onDragStart}
-        onContextMenu={onContextMenu}
-        onToggleCollapse={onToggleCollapse}
-        collapsed={collapsed}
-      />
-      {!collapsed && (
-      <BlockBody className="pt-2">
-        <div className="space-y-2 px-2 text-[10px] text-[#242424] dark:text-[#e9e9e9]">
-          <BlockLine className="w-[430px]">
-            function <strong>Martingale Core Functionality</strong> with:
-          </BlockLine>
-          <BlockLine className="w-[380px]">
-            function <strong>Martingale Trade Amount ()</strong> multiplier{" "}
-            <NumberPill
-              min={1}
-              step={0.1}
-              value={settings.martingale}
-              onChange={(martingale) => updateSettings({ martingale })}
-            />
-          </BlockLine>
-          <BlockLine className="w-[340px]">
-            function <strong>marketwizard v1.5 ()</strong> max runs{" "}
-            <NumberPill
-              min={1}
-              step={1}
-              value={settings.maxRuns}
-              onChange={(maxRuns) => updateSettings({ maxRuns })}
-            />
-          </BlockLine>
-        </div>
-
-        <div className="mx-2 mt-3 space-y-2 rounded-[3px] bg-[#e8e8e8] p-3 text-[10px] dark:bg-[#1e1e1e]">
-          <BlockLine className="w-[650px]">
-            function <strong>Martingale Trade Again After Purchase</strong> with: martingale:profit,
-            martingale:resultIsWin <RoundPlus />
-          </BlockLine>
-          <BlockLine className="ml-6 w-[420px]">
-            change <Pill>martingale:totalProfit</Pill> by <Pill>martingale:profit</Pill>
-          </BlockLine>
-          <BlockLine className="ml-6 w-[580px]">
-            set <Pill>martingale:totalProfit</Pill> to <Pill>round</Pill>{" "}
-            <Pill>martingale:totalProfit</Pill> * 100 / 100
-          </BlockLine>
-          <BlockLine className="ml-6 w-[570px]">
-            Martingale Core Functionality with: martingale:resultIsWin{" "}
-            <Pill>martingale:resultIsWin</Pill>
-          </BlockLine>
-          <BlockLine className="ml-6 w-[390px]">
-            set <Pill>Notification:totalProfit</Pill> to create text with <RoundPlus />
-          </BlockLine>
-          <BlockLine className="ml-12 w-[220px]">
-            Total Profit: <RoundMinus />
-          </BlockLine>
-          <BlockLine className="ml-12 w-[245px]">
-            <Pill>martingale:totalProfit</Pill> <RoundMinus />
-          </BlockLine>
-          <BlockLine className="ml-6 w-[520px]">
-            Notify <Pill>blue</Pill> with sound: <Pill>Silent</Pill>{" "}
-            <Pill>Notification:totalProfit</Pill>
-          </BlockLine>
-          <BlockLine className="ml-6 w-[340px]">
-            set <Pill>martingale:tradeAgain</Pill> to{" "}
-            <SelectPill
-              options={[
-                { label: "false", value: "false" },
-                { label: "true", value: "true" },
-              ]}
-              value={settings.restartLastTradeOnError ? "true" : "false"}
-              onChange={(value) => updateSettings({ restartLastTradeOnError: value === "true" })}
-            />
-          </BlockLine>
-          <BlockLine className="ml-6 w-[620px]">
-            if <Pill>martingale:totalProfit</Pill> &lt;{" "}
-            <NumberPill
-              min={0}
-              step={1}
-              value={settings.takeProfit}
-              onChange={(takeProfit) => updateSettings({ takeProfit })}
-            />{" "}
-            then stop
-          </BlockLine>
-          <BlockLine className="ml-12 w-[650px]">
-            if <Pill>martingale:totalProfit</Pill> &gt;{" "}
-            <NumberPill
-              min={0}
-              step={1}
-              value={settings.stopLoss}
-              onChange={(stopLoss) => updateSettings({ stopLoss })}
-            />{" "}
-            then stop
-          </BlockLine>
-        </div>
-      </BlockBody>
-      )}
+    <div className="mt-8 w-[740px] space-y-10 text-[10px] text-[#242424]">
+      <BlockLine className="w-[430px]">
+        function <strong>Martingale Core Functionality</strong> with:
+      </BlockLine>
+      <BlockLine className="ml-0 w-[360px]">
+        function <strong>Martingale Trade Amount ()</strong> multiplier{" "}
+        <NumberPill
+          min={1}
+          step={0.1}
+          value={settings.martingale}
+          onChange={(martingale) => updateSettings({ martingale })}
+        />
+      </BlockLine>
+      <BlockLine className="ml-0 w-[330px]">
+        function <strong>marketwizard v1.5 ()</strong> max runs{" "}
+        <NumberPill
+          min={1}
+          step={1}
+          value={settings.maxRuns}
+          onChange={(maxRuns) => updateSettings({ maxRuns })}
+        />
+      </BlockLine>
+      <div id="restart" className="space-y-2 rounded-[3px] bg-[#ededed] p-3">
+        <BlockLine className="w-[650px]">
+          function <strong>Martingale Trade Again After Purchase</strong> with: martingale:profit,
+          martingale:resultIsWin <RoundPlus />
+        </BlockLine>
+        <BlockLine className="ml-6 w-[410px]">
+          change <Pill>martingale:totalProfit</Pill> by <Pill>martingale:profit</Pill>
+        </BlockLine>
+        <BlockLine className="ml-6 w-[580px]">
+          set <Pill>martingale:totalProfit</Pill> to <Pill>round</Pill>{" "}
+          <Pill>martingale:totalProfit</Pill> * 100 / 100
+        </BlockLine>
+        <BlockLine className="ml-6 w-[570px]">
+          Martingale Core Functionality with: martingale:resultIsWin{" "}
+          <Pill>martingale:resultIsWin</Pill>
+        </BlockLine>
+        <BlockLine className="ml-6 w-[390px]">
+          set <Pill>Notification:totalProfit</Pill> to create text with <RoundPlus />
+        </BlockLine>
+        <BlockLine className="ml-12 w-[220px]">
+          Total Profit: <RoundMinus />
+        </BlockLine>
+        <BlockLine className="ml-12 w-[245px]">
+          <Pill>martingale:totalProfit</Pill> <RoundMinus />
+        </BlockLine>
+        <BlockLine className="ml-6 w-[520px]">
+          Notify <Pill>blue</Pill> with sound: <Pill>Silent</Pill>{" "}
+          <Pill>Notification:totalProfit</Pill>
+        </BlockLine>
+        <BlockLine className="ml-6 w-[330px]">
+          set <Pill>martingale:tradeAgain</Pill> to{" "}
+          <SelectPill
+            options={[
+              { label: "false", value: "false" },
+              { label: "true", value: "true" },
+            ]}
+            value={settings.restartLastTradeOnError ? "true" : "false"}
+            onChange={(value) => updateSettings({ restartLastTradeOnError: value === "true" })}
+          />
+        </BlockLine>
+        <BlockLine className="ml-6 w-[620px]">
+          if <Pill>martingale:totalProfit</Pill> &lt;{" "}
+          <NumberPill
+            min={0}
+            step={1}
+            value={settings.takeProfit}
+            onChange={(takeProfit) => updateSettings({ takeProfit })}
+          />{" "}
+          then stop
+        </BlockLine>
+        <BlockLine className="ml-12 w-[650px]">
+          if <Pill>martingale:totalProfit</Pill> &gt;{" "}
+          <NumberPill
+            min={0}
+            step={1}
+            value={settings.stopLoss}
+            onChange={(stopLoss) => updateSettings({ stopLoss })}
+          />{" "}
+          then stop
+        </BlockLine>
+      </div>
     </div>
   );
 }
 
-// ─── UI primitives ────────────────────────────────────────────────────────────
+function GreenHeader({
+  className,
+  title,
+  width,
+}: {
+  className?: string;
+  title: string;
+  width: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex h-[28px] items-center rounded-t-[3px] bg-[#075773] px-3 text-xs font-bold text-white",
+        width,
+        className,
+      )}
+    >
+      {title}
+    </div>
+  );
+}
+
+function BlockLine({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn(
+        "inline-flex min-h-[26px] items-center gap-1 rounded-[3px] bg-[#eeeeee] px-2 shadow-[inset_0_-1px_0_rgba(0,0,0,0.08)]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SetLine({
+  label,
+  plus,
+  value,
+}: {
+  label: string;
+  plus?: boolean;
+  value?: React.ReactNode;
+}) {
+  return (
+    <BlockLine className="w-fit">
+      set <Pill>{label}</Pill>
+      {value && <>to {value}</>}
+      {plus && <RoundPlus />}
+    </BlockLine>
+  );
+}
+
+function NestedMini({
+  label,
+  settings,
+  updateSettings,
+}: {
+  label: string;
+  settings: BotSettings;
+  updateSettings: (patch: Partial<BotSettings>) => void;
+}) {
+  return (
+    <div className="ml-8 mt-1 flex w-[220px] items-center justify-between rounded-[3px] bg-[#eeeeee] px-2 py-1">
+      <span>{label}</span>
+      <NumberPill
+        min={0}
+        step={1}
+        value={settings.selectedDigit}
+        onChange={(selectedDigit) => updateSettings({ selectedDigit })}
+      />
+    </div>
+  );
+}
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex h-[22px] items-center rounded-full border border-[#d8d8d8] bg-white px-2 text-[10px] shadow-sm dark:border-[#444] dark:bg-[#1a1a1a] dark:text-[#e9e9e9]">
+    <span className="inline-flex h-[22px] items-center rounded-full border border-[#d8d8d8] bg-white px-2 text-[10px] shadow-sm">
       {children}
       <ChevronDown className="ml-1 size-3" />
     </span>
@@ -2530,11 +1491,11 @@ function SelectPill({
   value: string;
 }) {
   return (
-    <span className="inline-flex h-[22px] items-center rounded-full border border-[#d8d8d8] bg-white px-1 text-[10px] shadow-sm dark:border-[#444] dark:bg-[#1a1a1a]">
+    <span className="inline-flex h-[22px] items-center rounded-full border border-[#d8d8d8] bg-white px-1 text-[10px] shadow-sm">
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="max-w-[180px] bg-transparent px-1 text-[10px] font-medium text-[#333] outline-none dark:text-[#e9e9e9]"
+        className="max-w-[160px] bg-transparent px-1 text-[10px] font-medium outline-none"
       >
         {options.map((option) => {
           const item = typeof option === "string" ? { label: option, value: option } : option;
@@ -2567,7 +1528,7 @@ function NumberPill({
       step={step}
       value={value}
       onChange={(event) => onChange(Number(event.target.value))}
-      className="h-[22px] w-[62px] rounded-full border border-[#d8d8d8] bg-white px-2 text-right text-[10px] font-medium shadow-sm outline-none dark:border-[#444] dark:bg-[#1a1a1a] dark:text-[#e9e9e9]"
+      className="h-[22px] w-[58px] rounded-full border border-[#d8d8d8] bg-white px-2 text-right text-[10px] font-medium shadow-sm outline-none"
     />
   );
 }
@@ -2577,12 +1538,12 @@ function TextPill({ onChange, value }: { onChange: (value: string) => void; valu
     <input
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="h-[22px] w-[80px] rounded-full border border-[#d8d8d8] bg-white px-2 text-[10px] font-medium shadow-sm outline-none dark:border-[#444] dark:bg-[#1a1a1a] dark:text-[#e9e9e9]"
+      className="h-[22px] w-[70px] rounded-full border border-[#d8d8d8] bg-white px-2 text-[10px] font-medium shadow-sm outline-none"
     />
   );
 }
 
-function TinyCheckbox({
+function TinySquare({
   checked,
   onChange,
 }: {
@@ -2593,21 +1554,16 @@ function TinyCheckbox({
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className={cn(
-        "inline-flex size-4 items-center justify-center rounded-[2px] border text-[10px]",
-        checked
-          ? "border-[#075773] bg-[#075773] text-white dark:border-[#0a8ca8] dark:bg-[#0a8ca8]"
-          : "border-[#bbb] bg-white dark:border-[#555] dark:bg-[#1a1a1a]",
-      )}
+      className="inline-flex size-4 items-center justify-center rounded-[2px] bg-white text-[10px]"
     >
-      {checked ? "✓" : ""}
+      {checked ? "x" : ""}
     </button>
   );
 }
 
 function RoundPlus() {
   return (
-    <span className="inline-flex size-4 items-center justify-center rounded-full bg-[#333] text-[11px] font-bold text-white dark:bg-[#555]">
+    <span className="inline-flex size-4 items-center justify-center rounded-full bg-[#333] text-[11px] font-bold text-white">
       +
     </span>
   );
@@ -2615,13 +1571,11 @@ function RoundPlus() {
 
 function RoundMinus() {
   return (
-    <span className="inline-flex size-4 items-center justify-center rounded-full bg-[#333] text-[11px] font-bold text-white dark:bg-[#555]">
+    <span className="inline-flex size-4 items-center justify-center rounded-full bg-[#333] text-[11px] font-bold text-white">
       -
     </span>
   );
 }
-
-// ─── Settings helpers ─────────────────────────────────────────────────────────
 
 function settingsFromBotPreset(preset: BotPresetConfig): BotSettings {
   const stake = Number(preset.stake) || initialSettings.stake;
@@ -2885,10 +1839,6 @@ function settingsFromRecord(record: Record<string, unknown>): BotSettings {
       "restartBuySellOnError",
       initialSettings.restartBuySellOnError,
     ),
-    restartCondition: restartConditionValue(
-      record.restartCondition,
-      initialSettings.restartCondition,
-    ),
     restartLastTradeOnError: readBoolean(
       record,
       "restartLastTradeOnError",
@@ -2896,7 +1846,6 @@ function settingsFromRecord(record: Record<string, unknown>): BotSettings {
     ),
     runOnceAtStart: readBoolean(record, "runOnceAtStart", initialSettings.runOnceAtStart),
     selectedDigit: readNumber(record, "selectedDigit", initialSettings.selectedDigit),
-    sellConditions: sellConditionsFromRecord(record),
     stake: readNumber(record, "stake", initialSettings.stake),
     stopLoss: readNumber(record, "stopLoss", initialSettings.stopLoss),
     symbol: readString(record, "symbol", initialSettings.symbol),
@@ -2923,12 +1872,6 @@ function normalizeSettings(settings: BotSettings): BotSettings {
     if (purchaseDirection === "over") selectedDigit = Math.min(8, selectedDigit);
     if (purchaseDirection === "under") selectedDigit = Math.max(1, selectedDigit);
   }
-
-  const sellConditions =
-    Array.isArray(settings.sellConditions) && settings.sellConditions.length > 0
-      ? settings.sellConditions
-      : initialSettings.sellConditions;
-
   return {
     ...settings,
     ...patch,
@@ -2937,14 +1880,11 @@ function normalizeSettings(settings: BotSettings): BotSettings {
     maxRuns: Math.max(1, Math.round(Number(settings.maxRuns) || 1)),
     maxStake: clampNumber(settings.maxStake, 0.35, 50000),
     selectedDigit,
-    sellConditions,
     stake: clampNumber(settings.stake, 0.35, 50000),
     stopLoss: Math.max(0, Number(settings.stopLoss) || 0),
     takeProfit: Math.max(0, Number(settings.takeProfit) || 0),
   };
 }
-
-// ─── Contract/trade option helpers ───────────────────────────────────────────
 
 function contractFamilyOptions(tradeType: TradeTypeUi) {
   if (tradeType === "digits") {
@@ -3091,8 +2031,6 @@ function conditionAllowsTrade(
   return leftValue === rightValue;
 }
 
-// ─── Trade execution helpers ──────────────────────────────────────────────────
-
 async function waitForSettlement(contractId: string): Promise<Settlement> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -3201,8 +2139,6 @@ function stripFileExtension(fileName: string) {
   return fileName.replace(/\.[^.]+$/, "") || "Imported bot";
 }
 
-// ─── Type coercions ───────────────────────────────────────────────────────────
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -3260,42 +2196,6 @@ function tradeTypeValue(value: unknown, fallback: TradeTypeUi): TradeTypeUi {
 
 function conditionJoinValue(value: unknown, fallback: "All" | "Any") {
   return value === "All" || value === "Any" ? value : fallback;
-}
-
-function restartConditionValue(value: unknown, fallback: RestartConditionType): RestartConditionType {
-  if (
-    value === "trade_again" ||
-    value === "on_win" ||
-    value === "on_loss" ||
-    value === "never"
-  ) {
-    return value;
-  }
-  return fallback;
-}
-
-function sellConditionsFromRecord(record: Record<string, unknown>): SellCondition[] {
-  const raw = record.sellConditions;
-  if (!Array.isArray(raw) || raw.length === 0) return initialSettings.sellConditions;
-  const parsed = raw
-    .filter(isRecord)
-    .map((item) => ({
-      id: readString(item, "id", crypto.randomUUID()),
-      type: sellConditionTypeValue(item.type),
-    }));
-  return parsed.length > 0 ? parsed : initialSettings.sellConditions;
-}
-
-function sellConditionTypeValue(value: unknown): SellConditionType {
-  if (
-    value === "sell_available" ||
-    value === "take_profit" ||
-    value === "stop_loss" ||
-    value === "contract_expired"
-  ) {
-    return value;
-  }
-  return "sell_available";
 }
 
 function firstFiniteNumber(values: Array<number | string | null | undefined>) {

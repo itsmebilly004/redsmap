@@ -484,7 +484,12 @@ export async function getActiveDerivTradingSession(
   }
 
   const savedSelection = readSavedSelectedAccount(userId);
-  const selectedAccountId = textFrom(savedSelection.accountId, requestedAccountId);
+  // Prefer the account explicitly supplied by the caller (the React-state
+  // account the user sees in the UI). Only fall back to the persisted
+  // selection when the caller did not pass one. This prevents a stale
+  // localStorage entry from silently flipping a demo trade onto a real
+  // account during bot loading or page transitions.
+  const selectedAccountId = textFrom(requestedAccountId, savedSelection.accountId);
   if (!selectedAccountId) {
     console.warn("[Deriv Trading] no selected Deriv account", {
       context: options.context ?? "trade",
@@ -500,12 +505,17 @@ export async function getActiveDerivTradingSession(
     );
   }
 
-  if (requestedAccountId && !sameDerivId(requestedAccountId, selectedAccountId)) {
+  if (
+    requestedAccountId &&
+    savedSelection.accountId &&
+    !sameDerivId(requestedAccountId, savedSelection.accountId)
+  ) {
     console.warn("[Deriv Trading] page account differed from persisted Dashboard selection", {
       context: options.context ?? "trade",
       requestedAccountId,
-      persistedSelectedAccountId: selectedAccountId,
-      reason: "Trading will resolve the persisted selected account to prevent account mismatch.",
+      persistedSelectedAccountId: savedSelection.accountId,
+      reason:
+        "Trading will honor the page account to avoid running a trade on a different account than the one shown to the user.",
     });
   }
 

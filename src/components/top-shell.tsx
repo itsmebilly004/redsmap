@@ -348,14 +348,43 @@ export function TopShell({
       return;
     }
 
+    // Safety guard: confirm before placing real-money trades from the footer.
+    const accountIsReal = account.normalizedType === "real" || account.is_demo === false;
+    if (accountIsReal) {
+      const accountLabel = account.loginid || account.account_id;
+      const confirmed = window.confirm(
+        `You are about to run a bot on a REAL Deriv account (${accountLabel}). This will use real funds. Continue?`,
+      );
+      if (!confirmed) {
+        addFooterBotJournal("Run cancelled — confirmation declined on real account.", "warning");
+        toast.info("Bot run cancelled.");
+        return;
+      }
+    }
+
     footerBotRunningRef.current = true;
     setBotMonitorStatus("running");
     setBotMonitorTab("summary");
     setBotMonitorCollapsed(false);
-    addFooterBotJournal("Bot run started.", "success");
+    addFooterBotJournal(
+      `Bot run started on ${account.normalizedType === "demo" ? "DEMO" : "REAL"} account (${account.loginid || account.account_id}).`,
+      "success",
+    );
 
     try {
       const session = await ensureDerivTradingConnection(account, { context: "footer-bot-run" });
+      const sessionAccountUpper = String(session.account_id ?? "").trim().toUpperCase();
+      const selectedAccountUpper = String(account.account_id ?? "").trim().toUpperCase();
+      if (!sessionAccountUpper || sessionAccountUpper !== selectedAccountUpper) {
+        footerBotRunningRef.current = false;
+        setBotMonitorStatus("stopped");
+        const message = `Run aborted: trading session resolved to ${session.account_id} but the selected account is ${account.account_id}. Switch accounts deliberately from the header and try again.`;
+        addFooterBotJournal(message, "error");
+        toast.error(
+          "Bot run aborted because the trading account did not match the selected account.",
+        );
+        return;
+      }
       const runCurrency = currency || account.currency || settings.currency;
       const context = {
         adapter: session.adapter,

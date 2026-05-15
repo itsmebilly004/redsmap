@@ -259,6 +259,7 @@ function Index() {
             lastPrice={price}
             onAccumulatorBarriers={handleAccumulatorBarriers}
             onMarketChange={handleMarketChange}
+
             onTradeTypeChange={setTradeType}
             showMarketSelector={false}
           />
