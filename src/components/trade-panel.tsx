@@ -608,6 +608,19 @@ export function TradePanel({
       }
       return;
     }
+    // Safety guard: confirm before placing a real-money trade so a user who
+    // wanted demo but the dashboard is on real doesn't fire by accident.
+    const accountIsReal = Boolean(account) && !isDemoAccount(account!);
+    if (accountIsReal) {
+      const accountLabel = account?.loginid || account?.account_id || "real";
+      const confirmed = window.confirm(
+        `You are about to place a REAL-money trade on ${accountLabel}. Continue?`,
+      );
+      if (!confirmed) {
+        toast.info("Trade cancelled.");
+        return;
+      }
+    }
     buyInFlightRef.current = true;
     setBusy(true);
     setErrorMessage(null);

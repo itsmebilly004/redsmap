@@ -448,6 +448,7 @@ export function TopShell({
               contractType: String(payload.contract_type ?? context.contractType),
             });
             const contractId = String(buy.buy?.contract_id ?? "");
+            const contractType = String(payload.contract_type ?? context.contractType);
             contractWasBought = true;
             const record: BotMonitorTransaction = {
               contractId,
@@ -463,7 +464,7 @@ export function TopShell({
             setBotMonitorTransactions((items) => [record, ...items]);
             upsertTrackedTrade(user?.id, {
               contractId,
-              contractType: String(payload.contract_type ?? context.contractType),
+              contractType,
               currency: snapshot.currency,
               id: record.id,
               market: snapshot.symbol,
@@ -474,6 +475,36 @@ export function TopShell({
               stake,
               status: "open",
             });
+            // Mirror the trade to Supabase so it shows up on the dashboard +
+            // analytics pages alongside manual trades. We use `upsert` keyed
+            // on (user_id, deriv_contract_id) so a re-run with the same
+            // contract id won't duplicate rows, and we keep a handle on the
+            // returned row id so the settlement update below targets it.
+            let dbTradeId: string | null = null;
+            if (user?.id) {
+              try {
+                const { data: insertedTrade, error: insertError } = await supabase
+                  .from("trades")
+                  .insert({
+                    user_id: user.id,
+                    deriv_contract_id: contractId,
+                    symbol: snapshot.symbol,
+                    trade_type: contractType,
+                    stake,
+                    payout: Number(buy.buy?.payout ?? 0),
+                    status: "open",
+                  })
+                  .select()
+                  .single();
+                if (insertError) {
+                  console.warn("[Bot Footer] Could not insert trade row", insertError);
+                } else {
+                  dbTradeId = insertedTrade?.id ?? null;
+                }
+              } catch (err) {
+                console.warn("[Bot Footer] insert trade row threw", err);
+              }
+            }
             addFooterBotJournal(`Bought contract ${contractId}. Waiting for settlement.`, "success");
             settlement = await waitForSettlement(contractId);
 
@@ -502,6 +533,33 @@ export function TopShell({
                     ? "lost"
                     : "open",
             });
+            // Close out the Supabase row with the settled result so dashboard
+            // / analytics show the right P/L and won/lost status in realtime.
+            if (user?.id && dbTradeId) {
+              const settledProfit = Number(settlement?.profit ?? 0);
+              const settledStatus =
+                settlement?.status === "won"
+                  ? "won"
+                  : settlement?.status === "lost"
+                    ? "lost"
+                    : "open";
+              try {
+                const { error: updateError } = await supabase
+                  .from("trades")
+                  .update({
+                    profit_loss: settledProfit,
+                    payout: Number(settlement?.payout ?? 0),
+                    status: settledStatus,
+                    closed_at: new Date().toISOString(),
+                  })
+                  .eq("id", dbTradeId);
+                if (updateError) {
+                  console.warn("[Bot Footer] Could not update settled trade", updateError);
+                }
+              } catch (err) {
+                console.warn("[Bot Footer] update settled trade threw", err);
+              }
+            }
             tradeError = null;
             break;
           } catch (error) {

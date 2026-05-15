@@ -740,25 +740,36 @@ export function useDerivBalance(): LiveBalance {
             account.account_id === savedSelection.accountId &&
             (!savedSelection.accountType || account.normalizedType === savedSelection.accountType),
         );
-        const savedAccountExpired = savedAccount ? accountSessionExpired(savedAccount) : false;
+        // CRITICAL: honor the user's saved selection if the account is still in
+        // the linked list, EVEN IF its OAuth token expiry has lapsed. The
+        // trade-execution path runs a fresh authorization check before each
+        // trade; silently switching the dashboard from real → demo on every
+        // page refresh is the worst possible default (users would place trades
+        // on demo while believing they're live, or vice versa).
+        //
+        // Only fall back to a different account when the saved one is genuinely
+        // gone from the list. In that case prefer the saved TYPE so a saved
+        // real falls back to another real, never directly to demo.
         const savedTypeFallback =
           savedSelection.accountType === "demo"
-            ? demoAccounts.find((account) => !accountSessionExpired(account))
+            ? demoAccounts[0] ?? null
             : savedSelection.accountType === "real"
-              ? realAccounts.find((account) => !accountSessionExpired(account))
+              ? realAccounts[0] ?? null
               : null;
         const selected =
-          savedAccount && !savedAccountExpired
-            ? savedAccount
-            : (savedTypeFallback ??
-              realAccounts.find((account) => !accountSessionExpired(account)) ??
-              demoAccounts.find((account) => !accountSessionExpired(account)) ??
-              list[0]);
-        if (savedAccount && !savedAccountExpired) {
+          savedAccount ??
+          savedTypeFallback ??
+          // Last resort when there's no saved selection at all: prefer real
+          // over demo so a first-time user lands on their live account.
+          realAccounts[0] ??
+          demoAccounts[0] ??
+          list[0];
+        if (savedAccount) {
           console.info("[Deriv Balance] restored selected account", {
             userId: user.id,
             savedSelectedAccountId: savedSelection.accountId,
             savedSelectedAccountType: savedSelection.accountType,
+            tokenExpired: accountSessionExpired(savedAccount),
             restoredAccount: accountSummary(savedAccount),
           });
         } else {
@@ -768,18 +779,19 @@ export function useDerivBalance(): LiveBalance {
             savedSelectedAccountType: savedSelection.accountType,
             fallbackReason: !savedSelection.accountId
               ? "no-saved-account"
-              : !savedAccount
-                ? "saved-account-not-found-or-type-mismatch"
-                : savedAccountExpired
-                  ? "saved-account-expired"
-                  : "unknown",
+              : "saved-account-not-in-list",
             fallbackAccount: accountSummary(selected),
           });
         }
         setActiveId(selected.account_id);
         setBalance(selected.balance != null ? Number(selected.balance) : null);
         setCurrency(selected.currency ?? "");
-        persistSelectedAccount(user.id, selected);
+        // Only overwrite the saved selection if we had to fall back to a
+        // different account. If we restored the saved one, leave the saved
+        // pointer alone so a downstream race can't clobber it.
+        if (!savedAccount) {
+          persistSelectedAccount(user.id, selected);
+        }
       } else {
         const previousAccounts = accountsRef.current;
         const reason = sessionRefreshReasonRef.current;
