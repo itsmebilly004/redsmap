@@ -13,7 +13,7 @@ export type BotPresetConfig = {
   sl: number;
   stake: number;
   tp: number;
-  tradeType: "even_odd" | "matches_differs" | "over_under";
+  tradeType: "even_odd" | "matches_differs" | "over_under" | "rise_fall";
 };
 
 export const BOT_PRESET_CONFIGS: BotPresetConfig[] = [
@@ -55,10 +55,10 @@ export const BOT_PRESET_CONFIGS: BotPresetConfig[] = [
     id: "phantom-hit-run",
     name: "ArkTraders Phantom HitRun",
     iconKey: "flame",
-    desc: "High-velocity Digit Odd sniper built for short, decisive Volatility 100 bursts.",
+    desc: "High-velocity Rise/Fall sniper built for short, decisive Volatility 100 bursts.",
     market: "R_100",
-    tradeType: "even_odd",
-    contractType: "odd",
+    tradeType: "rise_fall",
+    contractType: "fall",
     stake: 1.0,
     tp: 10.0,
     sl: 5.0,

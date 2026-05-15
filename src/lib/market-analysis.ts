@@ -31,7 +31,7 @@ export type BotOpportunity = {
   marketLabel: string;
   name: string;
   presetId: string;
-  tradeType: string;
+  tradeType: BotPresetConfig["tradeType"];
 };
 
 export async function analyzeDigitsForSymbol(symbol: string) {
@@ -123,6 +123,7 @@ function bestOverUnderRecommendation(counts: number[], total: number): OverUnder
 
 function presetProbability(preset: BotPresetConfig, counts: number[], total: number) {
   const safeTotal = Math.max(total, 1);
+  if (preset.tradeType === "rise_fall") return 50;
   if (preset.tradeType === "even_odd") {
     const odd = counts[1] + counts[3] + counts[5] + counts[7] + counts[9];
     const even = counts[0] + counts[2] + counts[4] + counts[6] + counts[8];
@@ -146,6 +147,7 @@ function presetProbability(preset: BotPresetConfig, counts: number[], total: num
 }
 
 function expectedPresetProbability(preset: BotPresetConfig) {
+  if (preset.tradeType === "rise_fall") return 50;
   if (preset.tradeType === "even_odd") return 50;
   if (preset.tradeType === "matches_differs") {
     return preset.contractType === "matches" ? 10 : 90;

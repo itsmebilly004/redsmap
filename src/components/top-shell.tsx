@@ -32,7 +32,11 @@ import {
   redirectToDerivOAuth,
   sanitizeDerivOAuthUrl,
 } from "@/lib/deriv";
-import { resolveRunnableBotSettings, type BotBuilderSettings } from "@/lib/bot-builder-state";
+import {
+  readCurrentBotPresetId,
+  resolveRunnableBotSettings,
+  type BotBuilderSettings,
+} from "@/lib/bot-builder-state";
 import { buyProposal, requestProposal, subscribeOpenContract } from "@/lib/deriv-trading-service";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import { supabase } from "@/integrations/supabase/client";
@@ -334,6 +338,18 @@ export function TopShell({
         "warning",
       );
       return;
+    }
+
+    const workspace = (window as any).Blockly?.derivWorkspace;
+    if (workspace?.getAllBlocks?.()?.length) {
+      const activePresetId =
+        readCurrentBotPresetId(user?.id) ?? (user?.id ? readCurrentBotPresetId(null) : null);
+      const { persistWorkspaceSnapshot } = await import(
+        "@/external/bot-builder/workspace-persistence"
+      );
+      persistWorkspaceSnapshot(user?.id, workspace, {
+        presetId: activePresetId,
+      });
     }
 
     const settings = resolveRunnableBotSettings(user?.id);

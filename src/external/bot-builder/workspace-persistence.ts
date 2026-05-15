@@ -4,6 +4,7 @@ import {
   persistCurrentBotSettings,
   persistPresetWorkspaceXml,
   readCurrentBotSettings,
+  readPresetBotSettings,
   type BotBuilderDurationUnit,
   type BotBuilderSettings,
   type BotBuilderTradeType,
@@ -284,7 +285,13 @@ export function persistWorkspaceSnapshot(
     // recently saved so run-loop knobs survive workspace edits. Without this,
     // every Blockly change event reset maxRuns / takeProfit / stopLoss back to
     // the initial defaults, capping the bot at one trade.
-    const existing = readCurrentBotSettings(userId) ?? undefined;
+    const existing =
+      (options?.presetId
+        ? readPresetBotSettings(userId, options.presetId) ??
+          readPresetBotSettings(null, options.presetId)
+        : null) ??
+      readCurrentBotSettings(userId) ??
+      undefined;
     const settings = extractSettingsFromWorkspace(workspace, existing);
     // CRITICAL: don't overwrite the current-settings with the
     // initialBotBuilderSettings defaults. For complex bots where AMOUNT/
@@ -292,7 +299,9 @@ export function persistWorkspaceSnapshot(
     // returns the base defaults. If we wrote those, the footer Run button
     // would use $1 instead of the deployed preset's actual stake.
     if (hasMeaningfulBotBuilderState(settings)) {
-      persistCurrentBotSettings(userId, settings);
+      persistCurrentBotSettings(userId, settings, {
+        presetId: options?.presetId ?? null,
+      });
     }
   } catch (err) {
     // eslint-disable-next-line no-console

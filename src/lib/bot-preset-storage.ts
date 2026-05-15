@@ -20,7 +20,8 @@ export function readDeployedBotPresetIds(userId?: string | null) {
 export function markDeployedBotPresetId(userId: string | null | undefined, presetId: string) {
   if (typeof window === "undefined") return [];
   const ids = readDeployedBotPresetIds(userId);
-  const nextIds = ids.includes(presetId) ? ids : [...ids, presetId];
+  // Move redeployed presets to the end so `.at(-1)` always means "latest".
+  const nextIds = [...ids.filter((id) => id !== presetId), presetId];
   try {
     window.localStorage.setItem(
       deployedPresetStorageKey(userId),

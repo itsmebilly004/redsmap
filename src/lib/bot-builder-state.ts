@@ -91,8 +91,16 @@ function currentSettingsStorageKey(userId?: string | null) {
   return `arktrader:bot-builder:${userId ?? "guest"}:current-settings`;
 }
 
+function currentPresetStorageKey(userId?: string | null) {
+  return `arktrader:bot-builder:${userId ?? "guest"}:current-preset`;
+}
+
 function savedPresetsStorageKey(userId?: string | null) {
   return `arktrader:bot-builder:${userId ?? "guest"}:saved-presets`;
+}
+
+function presetSettingsStorageKey(userId?: string | null) {
+  return `arktrader:bot-builder:${userId ?? "guest"}:preset-settings`;
 }
 
 function presetWorkspacesStorageKey(userId?: string | null) {
@@ -100,13 +108,57 @@ function presetWorkspacesStorageKey(userId?: string | null) {
 }
 
 const PRESET_WORKSPACES_STORAGE_VERSION = 1;
+const PRESET_SETTINGS_STORAGE_VERSION = 1;
+
+type PresetSettingsEntry = {
+  savedAt: string;
+  settings: BotBuilderSettings;
+};
 
 type PresetWorkspaceEntry = {
   savedAt: string;
   xml: string;
 };
 
+type PresetSettingsStore = Record<string, PresetSettingsEntry>;
 type PresetWorkspacesStore = Record<string, PresetWorkspaceEntry>;
+
+function readPresetSettingsStore(userId?: string | null): PresetSettingsStore {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(presetSettingsStorageKey(userId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || parsed.version !== PRESET_SETTINGS_STORAGE_VERSION) return {};
+    if (!isRecord(parsed.entries)) return {};
+    const out: PresetSettingsStore = {};
+    for (const [id, value] of Object.entries(parsed.entries)) {
+      if (!isRecord(value) || !isRecord(value.settings)) continue;
+      out[id] = {
+        settings: settingsFromRecord(value.settings),
+        savedAt: typeof value.savedAt === "string" ? value.savedAt : new Date().toISOString(),
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writePresetSettingsStore(
+  userId: string | null | undefined,
+  entries: PresetSettingsStore,
+) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      presetSettingsStorageKey(userId),
+      JSON.stringify({ version: PRESET_SETTINGS_STORAGE_VERSION, entries }),
+    );
+  } catch {
+    // ignore quota errors
+  }
+}
 
 function readPresetWorkspacesStore(userId?: string | null): PresetWorkspacesStore {
   if (typeof window === "undefined") return {};
@@ -183,16 +235,82 @@ export function clearPresetWorkspaceXml(
   writePresetWorkspacesStore(userId, store);
 }
 
+export function persistCurrentBotPresetId(
+  userId: string | null | undefined,
+  presetId: string,
+) {
+  if (typeof window === "undefined" || !presetId) return;
+  try {
+    window.localStorage.setItem(
+      currentPresetStorageKey(userId),
+      JSON.stringify({ presetId, savedAt: new Date().toISOString(), version: 1 }),
+    );
+  } catch {
+    // ignore quota / privacy-mode errors
+  }
+}
+
+export function readCurrentBotPresetId(userId?: string | null): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(currentPresetStorageKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || parsed.version !== 1) return null;
+    return typeof parsed.presetId === "string" && parsed.presetId ? parsed.presetId : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearCurrentBotPresetId(userId: string | null | undefined) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(currentPresetStorageKey(userId));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function persistPresetBotSettings(
+  userId: string | null | undefined,
+  presetId: string,
+  settings: BotBuilderSettings,
+) {
+  if (!presetId) return;
+  const store = readPresetSettingsStore(userId);
+  store[presetId] = {
+    settings: normalizeBotBuilderSettings(settings),
+    savedAt: new Date().toISOString(),
+  };
+  writePresetSettingsStore(userId, store);
+}
+
+export function readPresetBotSettings(
+  userId: string | null | undefined,
+  presetId: string,
+): BotBuilderSettings | null {
+  if (!presetId) return null;
+  const store = readPresetSettingsStore(userId);
+  return store[presetId]?.settings ?? null;
+}
+
 export function persistCurrentBotSettings(
   userId: string | null | undefined,
   settings: BotBuilderSettings,
+  options?: { presetId?: string | null },
 ) {
   if (typeof window === "undefined") return;
   try {
+    const normalized = normalizeBotBuilderSettings(settings);
     window.localStorage.setItem(
       currentSettingsStorageKey(userId),
-      JSON.stringify({ version: CURRENT_SETTINGS_STORAGE_VERSION, settings }),
+      JSON.stringify({ version: CURRENT_SETTINGS_STORAGE_VERSION, settings: normalized }),
     );
+    if (options?.presetId) {
+      persistCurrentBotPresetId(userId, options.presetId);
+      persistPresetBotSettings(userId, options.presetId, normalized);
+    }
   } catch {
     // ignore quota / privacy-mode errors
   }
@@ -268,14 +386,28 @@ export function settingsFromBotPreset(preset: BotPresetConfig): BotBuilderSettin
   const stake = Number(preset.stake) || initialBotBuilderSettings.stake;
   const martingale = Number(preset.martingale) || initialBotBuilderSettings.martingale;
   const direction = preset.contractType.toLowerCase();
+  const isRiseFall = preset.tradeType === "rise_fall";
+  const purchaseDirection = isRiseFall
+    ? direction === "fall" || direction === "put" || direction === "down"
+      ? "down"
+      : "up"
+    : direction;
   const condition =
-    preset.tradeType === "even_odd"
+    isRiseFall
       ? {
+          conditionLeft: "Run Count",
+          conditionOperator: ">",
+          conditionRight: "0",
+        }
+      : preset.tradeType === "even_odd"
+      ? {
+          conditionLeft: "Last Digit",
           conditionOperator: "contains",
           conditionRight: direction === "odd" ? "1,3,5,7,9" : "0,2,4,6,8",
         }
       : preset.tradeType === "matches_differs"
         ? {
+            conditionLeft: "Last Digit",
             conditionOperator: direction === "matches" ? "=" : ">",
             conditionRight:
               direction === "matches"
@@ -283,6 +415,7 @@ export function settingsFromBotPreset(preset: BotPresetConfig): BotBuilderSettin
                 : String(Math.max(0, preset.predictionDigit - 1)),
           }
         : {
+            conditionLeft: "Last Digit",
             conditionOperator: direction === "under" ? "<" : ">",
             conditionRight: String(
               direction === "under"
@@ -290,29 +423,48 @@ export function settingsFromBotPreset(preset: BotPresetConfig): BotBuilderSettin
                 : Math.max(0, preset.predictionDigit - 1),
             ),
           };
+  const digitContract: BotBuilderDigitContract = isRiseFall
+    ? initialBotBuilderSettings.digitContract
+    : (preset.tradeType as BotBuilderDigitContract);
 
   return normalizeBotBuilderSettings({
     ...initialBotBuilderSettings,
-    conditionLeft: "Last Digit",
+    conditionLeft: condition.conditionLeft as BotBuilderSettings["conditionLeft"],
     conditionOperator: condition.conditionOperator,
     conditionRight: condition.conditionRight,
-    digitContract: preset.tradeType,
+    digitContract,
     duration: preset.duration,
     durationUnit: preset.durationUnit,
     martingale,
     maxRuns: preset.maxRuns,
     maxStake: Math.max(stake, stake * Math.max(1, martingale) * 8),
-    purchaseDirection: direction,
+    purchaseDirection,
     selectedDigit: preset.predictionDigit,
     stake,
     stopLoss: preset.sl,
     symbol: preset.market,
     takeProfit: preset.tp,
-    tradeType: "digits",
+    tradeType: isRiseFall ? "rise_fall" : "digits",
   });
 }
 
 export function resolveRunnableBotSettings(userId?: string | null) {
+  const activePresetId =
+    readCurrentBotPresetId(userId) ??
+    (userId ? readCurrentBotPresetId(null) : null) ??
+    readDeployedBotPresetIds(userId).at(-1);
+  if (activePresetId) {
+    const presetSettings =
+      readPresetBotSettings(userId, activePresetId) ??
+      (userId ? readPresetBotSettings(null, activePresetId) : null);
+    if (presetSettings && hasMeaningfulBotBuilderState(presetSettings)) {
+      return presetSettings;
+    }
+
+    const activePreset = BOT_PRESET_CONFIGS.find((preset) => preset.id === activePresetId);
+    if (activePreset) return settingsFromBotPreset(activePreset);
+  }
+
   // Priority order matters: the bot-builder auto-saves currentSettings on every
   // workspace edit, so it always reflects whatever the user is looking at right
   // now (a freshly loaded bot, a deployed preset, or hand-edited blocks). Run
@@ -408,25 +560,45 @@ function settingsFromRecord(record: Record<string, unknown>): BotBuilderSettings
   if (isPresetLike) {
     const stake = readNumber(record, "stake", initialBotBuilderSettings.stake);
     const martingale = readNumber(record, "martingale", initialBotBuilderSettings.martingale);
-    const digitContract = digitContractValue(record.tradeType, initialBotBuilderSettings.digitContract);
+    const rawTradeType = readString(record, "tradeType", "");
+    const isRiseFallPreset =
+      rawTradeType === "rise_fall" || rawTradeType === "callput" || rawTradeType === "risefall";
+    const digitContract = isRiseFallPreset
+      ? initialBotBuilderSettings.digitContract
+      : digitContractValue(record.tradeType, initialBotBuilderSettings.digitContract);
     const selectedDigit = readNumber(
       record,
       "predictionDigit",
       initialBotBuilderSettings.selectedDigit,
     );
-    const purchaseDirection = readString(
+    const rawPurchaseDirection = readString(
       record,
       "contractType",
       initialBotBuilderSettings.purchaseDirection,
     );
+    const purchaseDirection = isRiseFallPreset
+      ? rawPurchaseDirection === "fall" ||
+        rawPurchaseDirection === "put" ||
+        rawPurchaseDirection === "down"
+        ? "down"
+        : "up"
+      : rawPurchaseDirection;
     const condition =
-      digitContract === "even_odd"
+      isRiseFallPreset
         ? {
+            conditionLeft: "Run Count",
+            conditionOperator: ">",
+            conditionRight: "0",
+          }
+        : digitContract === "even_odd"
+        ? {
+            conditionLeft: "Last Digit",
             conditionOperator: "contains",
             conditionRight: purchaseDirection === "odd" ? "1,3,5,7,9" : "0,2,4,6,8",
           }
         : digitContract === "matches_differs"
           ? {
+              conditionLeft: "Last Digit",
               conditionOperator: purchaseDirection === "matches" ? "=" : ">",
               conditionRight:
                 purchaseDirection === "matches"
@@ -434,6 +606,7 @@ function settingsFromRecord(record: Record<string, unknown>): BotBuilderSettings
                   : String(Math.max(0, selectedDigit - 1)),
             }
           : {
+              conditionLeft: "Last Digit",
               conditionOperator: purchaseDirection === "under" ? "<" : ">",
               conditionRight: String(
                 purchaseDirection === "under"
@@ -443,6 +616,7 @@ function settingsFromRecord(record: Record<string, unknown>): BotBuilderSettings
             };
     return normalizeBotBuilderSettings({
       ...initialBotBuilderSettings,
+      conditionLeft: condition.conditionLeft as BotBuilderSettings["conditionLeft"],
       conditionOperator: condition.conditionOperator,
       conditionRight: condition.conditionRight,
       digitContract,
@@ -457,7 +631,7 @@ function settingsFromRecord(record: Record<string, unknown>): BotBuilderSettings
       stopLoss: readNumber(record, "sl", initialBotBuilderSettings.stopLoss),
       symbol: readString(record, "market", initialBotBuilderSettings.symbol),
       takeProfit: readNumber(record, "tp", initialBotBuilderSettings.takeProfit),
-      tradeType: "digits",
+      tradeType: isRiseFallPreset ? "rise_fall" : "digits",
     });
   }
 

@@ -39,11 +39,13 @@ import { StoreProvider, useStore } from "@/external/stores/useStore";
 import dbot from "@/external/bot-skeleton/scratch/dbot";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  clearCurrentBotPresetId,
   deleteSavedBotPreset,
   initialBotBuilderSettings,
   persistCurrentBotSettings,
   persistPresetWorkspaceXml,
   persistSavedBotPreset,
+  readPresetBotSettings,
   readPresetWorkspaceXml,
   readSavedBotPresets,
   settingsFromBotPreset,
@@ -235,6 +237,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
               );
             }
           } else {
+            clearCurrentBotPresetId(currentUser);
             const saved_xml =
               readSavedWorkspaceXml(currentUser) ?? readSavedWorkspaceXml(null);
             if (saved_xml) {
@@ -375,8 +378,13 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       const preset_config = BOT_PRESET_CONFIGS.find((p) => p.id === presetId);
       if (preset_config) {
         try {
-          const preset_settings = settingsFromBotPreset(preset_config);
-          persistCurrentBotSettings(userIdRef.current, preset_settings);
+          const preset_settings =
+            readPresetBotSettings(userIdRef.current, presetId) ??
+            readPresetBotSettings(null, presetId) ??
+            settingsFromBotPreset(preset_config);
+          persistCurrentBotSettings(userIdRef.current, preset_settings, {
+            presetId,
+          });
           markDeployedBotPresetId(userIdRef.current, presetId);
         } catch (err) {
           // eslint-disable-next-line no-console
@@ -415,6 +423,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           persistCurrentBotSettings(
             userIdRef.current,
             settingsFromBotPreset(preset_config),
+            { presetId },
           );
         }
       }
@@ -437,6 +446,8 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       return;
     }
     closeBlocklyFlyout();
+    clearCurrentBotPresetId(userId);
+    presetIdRef.current = null;
     const result = await loadWorkspaceFromFile(file, workspace, userId);
     if (result.ok) {
       toast.success(`Loaded ${file.name} — ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}.`);
@@ -454,6 +465,8 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       return;
     }
     closeBlocklyFlyout();
+    clearCurrentBotPresetId(userId);
+    presetIdRef.current = null;
     if (preset.xml) {
       const ok = loadWorkspaceXmlIntoBlockly(workspace, preset.xml);
       if (ok) {
@@ -506,6 +519,9 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       if (presetIdRef.current) {
         persistPresetWorkspaceXml(userId, presetIdRef.current, xml_text);
       }
+      persistCurrentBotSettings(userId, settings, {
+        presetId: presetIdRef.current,
+      });
       refreshSavedPresets();
       toolbar.setFileName(trimmed_name);
       toast.success(`Saved "${trimmed_name}" to your library.`);
@@ -518,6 +534,8 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
   const handleResetConfirm = () => {
     const workspace = (window as any).Blockly?.derivWorkspace;
     if (!workspace) return;
+    clearCurrentBotPresetId(userId);
+    presetIdRef.current = null;
     if (resetWorkspaceToDefault(workspace, userId)) {
       toolbar.setResetButtonState(true);
       toast.success("Workspace reset to the default strategy.");

@@ -1,4 +1,4 @@
-<xml xmlns="http://www.w3.org/1999/xhtml" collection="false">
+<xml xmlns="http://www.w3.org/1999/xhtml" is_dbot="true" collection="false">
   <variables>
     <variable type="" id="W4$:ZQCmEz#8+=4ysv5Y">stop loss</variable>
     <variable type="" id="j}8O`Vs+RJljIwPu-_:_">initial amount</variable>
@@ -6,16 +6,40 @@
     <variable type="" id="%L?;380E6Lr^3b.%}t5Q">win amount</variable>
     <variable type="" id="r;j5hdLRm`b6LFCDue7-">martingale</variable>
   </variables>
-  <block type="trade" id="trade" x="-4" y="-45">
-    <field name="MARKET_LIST">synthetic_index</field>
-    <field name="SUBMARKET_LIST">random_index</field>
-    <field name="SYMBOL_LIST">R_100</field>
-    <field name="TRADETYPECAT_LIST">digits</field>
-    <field name="TRADETYPE_LIST">matchesdiffers</field>
-    <field name="TYPE_LIST">DIGITDIFF</field>
-    <field name="CANDLEINTERVAL_LIST">60</field>
-    <field name="TIME_MACHINE_ENABLED">FALSE</field>
-    <field name="RESTARTONERROR">TRUE</field>
+  <block type="trade_definition" id="trade" deletable="false" x="-4" y="-45">
+    <statement name="TRADE_OPTIONS">
+      <block type="trade_definition_market" id="candle-market" deletable="false" movable="false">
+        <field name="MARKET_LIST">synthetic_index</field>
+        <field name="SUBMARKET_LIST">random_index</field>
+        <field name="SYMBOL_LIST">R_100</field>
+        <next>
+          <block type="trade_definition_tradetype" id="candle-tradetype" deletable="false" movable="false">
+            <field name="TRADETYPECAT_LIST">digits</field>
+            <field name="TRADETYPE_LIST">matchesdiffers</field>
+            <next>
+              <block type="trade_definition_contracttype" id="candle-contracttype" deletable="false" movable="false">
+                <field name="TYPE_LIST">DIGITDIFF</field>
+                <next>
+                  <block type="trade_definition_candleinterval" id="candle-interval" deletable="false" movable="false">
+                    <field name="CANDLEINTERVAL_LIST">60</field>
+                    <next>
+                      <block type="trade_definition_restartbuysell" id="candle-restart-buy-sell" deletable="false" movable="false">
+                        <field name="TIME_MACHINE_ENABLED">FALSE</field>
+                        <next>
+                          <block type="trade_definition_restartonerror" id="candle-restart-error" deletable="false" movable="false">
+                            <field name="RESTARTONERROR">TRUE</field>
+                          </block>
+                        </next>
+                      </block>
+                    </next>
+                  </block>
+                </next>
+              </block>
+            </next>
+          </block>
+        </next>
+      </block>
+    </statement>
     <statement name="INITIALIZATION">
       <block type="text_print" id="EDivDExvOQkw/~i;V+j8">
         <value name="TEXT">
@@ -76,11 +100,10 @@
       </block>
     </statement>
     <statement name="SUBMARKET">
-      <block type="tradeOptions" id="e9H9Aque*t_l]hki@?v1">
+      <block type="trade_definition_tradeoptions" id="e9H9Aque*t_l]hki@?v1">
+        <mutation has_first_barrier="false" has_second_barrier="false" has_prediction="true"></mutation>
         <field name="DURATIONTYPE_LIST">t</field>
         <field name="CURRENCY_LIST">USD</field>
-        <field name="BARRIEROFFSETTYPE_LIST">+</field>
-        <field name="SECONDBARRIEROFFSETTYPE_LIST">-</field>
         <value name="DURATION">
           <block type="math_number" id="~G^:]=.b`!T9.Il_vkLS">
             <field name="NUM">1</field>
