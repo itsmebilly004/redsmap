@@ -144,9 +144,15 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     refreshSavedPresets();
   }, [refreshSavedPresets, loadOpen]);
 
+  // Two-effect split: a *mount* effect does the heavy Blockly init once per
+  // component instance, then a *load* effect re-runs whenever presetId changes
+  // and only swaps the XML in the existing workspace. This avoids
+  // re-injecting Blockly into the same DOM node (which silently fails) when
+  // the user navigates between presets without leaving the route.
+  const initialisedRef = React.useRef(false);
+
   React.useEffect(() => {
     let cancelled = false;
-    let initialised = false;
     let resize_observer: ResizeObserver | null = null;
     let persist_timer: number | null = null;
     let persist_listener: ((event: unknown) => void) | null = null;
@@ -193,14 +199,17 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         };
         await dbot.initWorkspace("/", dbot_store, {}, false, dbot_store.is_dark_mode_on);
         if (cancelled) return;
-        initialised = true;
+        initialisedRef.current = true;
 
         const workspace: any = (window as any).Blockly?.derivWorkspace;
         if (workspace) {
+          // First-mount choice: a deploy preset wins; otherwise restore the
+          // user's last saved workspace XML.
           if (presetId && hasPresetXml(presetId)) {
             const preset_xml = await loadPresetXml(presetId);
             if (preset_xml && !cancelled) {
               loadWorkspaceXmlIntoBlockly(workspace, preset_xml);
+              persistWorkspaceSnapshot(userId, workspace);
             }
           } else {
             const saved_xml = readSavedWorkspaceXml(userId);
@@ -277,17 +286,50 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           /* noop */
         }
       }
-      if (initialised) {
+      if (initialisedRef.current) {
         blockly_store.onUnmount();
         try {
           dbot.terminateBot?.();
         } catch {
           /* noop */
         }
+        initialisedRef.current = false;
       }
     };
+    // Only re-run for a different user. presetId changes are handled by the
+    // dedicated effect below so we don't tear down + re-inject Blockly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, presetId]);
+  }, [userId]);
+
+  // Hot-swap preset XML in the existing workspace whenever the URL preset
+  // changes (e.g. /trading-bots → Deploy → /bot-builder?preset=mega-mind).
+  React.useEffect(() => {
+    if (!presetId) return;
+    let cancelled = false;
+    (async () => {
+      // Wait until the first-mount init has actually produced a workspace.
+      // The mount effect above sets initialisedRef.current after Blockly
+      // injects; until then we just bail and let the mount effect do the
+      // initial preset load.
+      for (let i = 0; i < 50 && !initialisedRef.current && !cancelled; i += 1) {
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      if (cancelled) return;
+      if (!hasPresetXml(presetId)) return;
+      const workspace = (window as any).Blockly?.derivWorkspace;
+      if (!workspace) return;
+      const preset_xml = await loadPresetXml(presetId);
+      if (!preset_xml || cancelled) return;
+      closeBlocklyFlyout();
+      const ok = loadWorkspaceXmlIntoBlockly(workspace, preset_xml);
+      if (ok) {
+        persistWorkspaceSnapshot(userId, workspace);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [presetId, userId]);
 
   const handleLoadClick = () => setLoadOpen(true);
   const handleFilePickerOpen = () => fileInputRef.current?.click();

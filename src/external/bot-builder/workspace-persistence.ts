@@ -182,66 +182,79 @@ export function loadWorkspaceXmlIntoBlockly(
     const dom = B.utils.xml.textToDom(xml_text);
 
     // Group teardown + rebuild as one transaction. We intentionally do NOT
-    // call Events.disable() — disabling events suppresses BLOCK_CREATE and
-    // therefore prevents Blockly's renderer from drawing the new blocks
-    // until something else (page resize / refresh) triggers a redraw.
+    // disable events (that suppresses BLOCK_CREATE and stops Blockly's
+    // renderer from drawing new blocks until the next page refresh).
     B.Events?.setGroup?.(`bot-load-${Date.now()}`);
 
-    // Dispose every top block (including deletable=false root blocks) before
-    // clear() to be defensive about older saved workspaces.
-    const top_blocks = workspace.getTopBlocks?.(false) ?? [];
-    for (const block of top_blocks) {
+    // 1) Force every top block deletable so clearWorkspaceAndLoadFromXml can
+    //    actually dispose them. Older saves stored deletable=false on the
+    //    root block which would otherwise leave the previous strategy stuck.
+    const top_blocks_before = workspace.getTopBlocks?.(false) ?? [];
+    for (const block of top_blocks_before) {
       try {
         if (block && "deletable_" in block) block.deletable_ = true;
         block.setDeletable?.(true);
-        block.dispose?.(false, false);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("[bot-builder] dispose failed for", block?.type, err);
+      } catch {
+        /* noop */
       }
     }
-    workspace.clear?.();
 
-    B.Xml.domToWorkspace(dom, workspace);
+    // 2) Use Blockly's canonical "wipe + load" helper. This is one atomic
+    //    operation that clears variables + top blocks AND renders the new
+    //    DOM into the same workspace — no race, no leftover blocks.
+    if (typeof B.Xml.clearWorkspaceAndLoadFromXml === "function") {
+      B.Xml.clearWorkspaceAndLoadFromXml(dom, workspace);
+    } else {
+      // Fallback for older Blockly builds.
+      workspace.clear?.();
+      B.Xml.domToWorkspace(dom, workspace);
+    }
 
-    // Reset undo so the load itself isn't undoable (otherwise Ctrl+Z brings
-    // the previous bot back over the new one).
     workspace.clearUndo?.();
-
     B.Events?.setGroup?.(previous_group ?? false);
 
-    // Force each top-level block to render now that Blockly's batch is
-    // complete. cleanUp() lays the stacks out cleanly, svgResize recomputes
-    // metrics for the SVG host, scrollCenter brings the user back to (0,0).
     const new_top = workspace.getTopBlocks?.(false) ?? [];
+
+    // 3) Explicitly render every top block. clearWorkspaceAndLoadFromXml
+    //    creates the SVG nodes but the v10 Zelos renderer sometimes needs a
+    //    second pass after the workspace's metrics settle.
     for (const block of new_top) {
       try {
+        block.initSvg?.();
         block.render?.(false);
       } catch {
         /* noop */
       }
     }
-    try {
-      workspace.cleanUp?.(0, 60);
-    } catch {
-      /* swallow — cleanUp can throw on stubbed dropdowns */
-    }
-    try {
-      B.svgResize?.(workspace);
-    } catch {
-      /* noop */
-    }
-    try {
-      workspace.scrollCenter?.();
-    } catch {
-      /* noop */
-    }
-    // Final nudge so any change-listeners (and React effects watching for
-    // resize) pick up the new content immediately.
-    try {
-      window.dispatchEvent(new Event("resize"));
-    } catch {
-      /* noop */
+
+    // 4) Recompute Blockly's metrics, scroll to home, kick a resize so the
+    //    surrounding React layout updates too. rAF defers the render-batch
+    //    pass until after the DOM commit so the user sees blocks immediately.
+    const flush = () => {
+      try {
+        B.svgResize?.(workspace);
+      } catch {
+        /* noop */
+      }
+      try {
+        workspace.render?.();
+      } catch {
+        /* noop */
+      }
+      try {
+        workspace.scrollCenter?.();
+      } catch {
+        /* noop */
+      }
+      try {
+        window.dispatchEvent(new Event("resize"));
+      } catch {
+        /* noop */
+      }
+    };
+    flush();
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(flush);
     }
 
     const block_count = workspace.getAllBlocks?.(false)?.length ?? 0;
