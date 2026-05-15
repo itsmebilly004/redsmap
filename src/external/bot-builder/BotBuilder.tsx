@@ -42,7 +42,9 @@ import {
   deleteSavedBotPreset,
   initialBotBuilderSettings,
   persistCurrentBotSettings,
+  persistPresetWorkspaceXml,
   persistSavedBotPreset,
+  readPresetWorkspaceXml,
   readSavedBotPresets,
   settingsFromBotPreset,
   type SavedBotPreset,
@@ -219,7 +221,13 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           const currentUser = userIdRef.current;
           let restoredXmlSuccessfully = false;
           if (currentPreset && hasPresetXml(currentPreset)) {
-            const preset_xml = await loadPresetXml(currentPreset);
+            // Prefer the user's previously-customised version of this preset
+            // (if any) over the stock xml — otherwise re-Deploying the preset
+            // wipes their saved edits on every visit.
+            const user_xml =
+              readPresetWorkspaceXml(currentUser, currentPreset) ??
+              readPresetWorkspaceXml(null, currentPreset);
+            const preset_xml = user_xml ?? (await loadPresetXml(currentPreset));
             if (preset_xml && !cancelled) {
               restoredXmlSuccessfully = loadWorkspaceXmlIntoBlockly(
                 workspace,
@@ -241,7 +249,9 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
             if (persist_timer !== null) window.clearTimeout(persist_timer);
             persist_timer = window.setTimeout(() => {
               persist_timer = null;
-              persistWorkspaceSnapshot(userIdRef.current, workspace);
+              persistWorkspaceSnapshot(userIdRef.current, workspace, {
+                presetId: presetIdRef.current,
+              });
             }, PERSIST_DEBOUNCE_MS);
           };
           persist_listener = (event: any) => {
@@ -258,7 +268,9 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           // in place, losing their bot permanently. Skipping the persist here
           // leaves the on-disk XML intact so the next refresh can retry it.
           if (restoredXmlSuccessfully) {
-            persistWorkspaceSnapshot(userIdRef.current, workspace);
+            persistWorkspaceSnapshot(userIdRef.current, workspace, {
+              presetId: presetIdRef.current,
+            });
           }
         }
 
@@ -309,7 +321,9 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           /* noop */
         }
         try {
-          persistWorkspaceSnapshot(userIdRef.current, ws);
+          persistWorkspaceSnapshot(userIdRef.current, ws, {
+            presetId: presetIdRef.current,
+          });
         } catch {
           /* noop */
         }
@@ -340,7 +354,11 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     const user_xml = readSavedWorkspaceXml(userId);
     if (guest_xml && !user_xml) {
       const ws = (window as any).Blockly?.derivWorkspace;
-      if (ws) persistWorkspaceSnapshot(userId, ws);
+      if (ws) {
+        persistWorkspaceSnapshot(userId, ws, {
+          presetId: presetIdRef.current,
+        });
+      }
     }
   }, [userId]);
 
@@ -373,16 +391,27 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       if (!hasPresetXml(presetId)) return;
       const workspace = (window as any).Blockly?.derivWorkspace;
       if (!workspace) return;
-      const preset_xml = await loadPresetXml(presetId);
+      // Prefer the user's saved edits for this preset over the stock xml so
+      // re-clicking Deploy (or refreshing the bot-builder URL) does NOT wipe
+      // their customisations. Only fall back to stock when there's nothing
+      // saved for this preset yet.
+      const user_xml =
+        readPresetWorkspaceXml(userIdRef.current, presetId) ??
+        readPresetWorkspaceXml(null, presetId);
+      const preset_xml = user_xml ?? (await loadPresetXml(presetId));
       if (!preset_xml || cancelled) return;
       closeBlocklyFlyout();
       const ok = loadWorkspaceXmlIntoBlockly(workspace, preset_xml);
       if (ok) {
-        persistWorkspaceSnapshot(userIdRef.current, workspace);
+        persistWorkspaceSnapshot(userIdRef.current, workspace, {
+          presetId,
+        });
         // Re-pin: persistWorkspaceSnapshot might have written extracted settings
         // (if meaningful), but for presets the stake/tp/sl from BOT_PRESET_CONFIGS
-        // are authoritative until the user actually edits the workspace.
-        if (preset_config) {
+        // are authoritative until the user actually edits the workspace. Only
+        // re-pin when we loaded the STOCK xml; if we restored a user-customised
+        // version, their workspace-extracted settings should take precedence.
+        if (preset_config && !user_xml) {
           persistCurrentBotSettings(
             userIdRef.current,
             settingsFromBotPreset(preset_config),
@@ -471,6 +500,12 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         xml: xml_text,
       };
       persistSavedBotPreset(userId, preset);
+      // If this workspace was deployed from a preset, also stamp the per-preset
+      // slot so the next time the user clicks Deploy on that same preset their
+      // saved version loads instead of the stock xml.
+      if (presetIdRef.current) {
+        persistPresetWorkspaceXml(userId, presetIdRef.current, xml_text);
+      }
       refreshSavedPresets();
       toolbar.setFileName(trimmed_name);
       toast.success(`Saved "${trimmed_name}" to your library.`);

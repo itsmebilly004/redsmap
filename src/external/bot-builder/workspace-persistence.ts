@@ -2,6 +2,7 @@ import {
   hasMeaningfulBotBuilderState,
   initialBotBuilderSettings,
   persistCurrentBotSettings,
+  persistPresetWorkspaceXml,
   readCurrentBotSettings,
   type BotBuilderDurationUnit,
   type BotBuilderSettings,
@@ -251,7 +252,7 @@ export function extractSettingsFromWorkspace(
 export function persistWorkspaceSnapshot(
   userId: string | null | undefined,
   workspace: any,
-  options?: { name?: string },
+  options?: { name?: string; presetId?: string | null },
 ) {
   if (!workspace) return;
   try {
@@ -265,6 +266,14 @@ export function persistWorkspaceSnapshot(
       // refresh / re-open of /bot-builder picks up the user's last bot
       // automatically without any post-init React work.
       scheduleRecentWorkspaceWrite(workspace, options?.name ?? "My bot strategy");
+      // If this workspace is currently associated with a deployed preset,
+      // ALSO write to the per-preset slot so re-clicking Deploy on the same
+      // preset restores the user's edits instead of overwriting them with the
+      // stock preset xml. Without this, every Deploy click was wiping the
+      // user's customisations.
+      if (options?.presetId) {
+        persistPresetWorkspaceXml(userId, options.presetId, xml_text);
+      }
     }
   } catch (err) {
     // eslint-disable-next-line no-console

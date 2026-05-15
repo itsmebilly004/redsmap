@@ -95,6 +95,94 @@ function savedPresetsStorageKey(userId?: string | null) {
   return `arktrader:bot-builder:${userId ?? "guest"}:saved-presets`;
 }
 
+function presetWorkspacesStorageKey(userId?: string | null) {
+  return `arktrader:bot-builder:${userId ?? "guest"}:preset-workspaces`;
+}
+
+const PRESET_WORKSPACES_STORAGE_VERSION = 1;
+
+type PresetWorkspaceEntry = {
+  savedAt: string;
+  xml: string;
+};
+
+type PresetWorkspacesStore = Record<string, PresetWorkspaceEntry>;
+
+function readPresetWorkspacesStore(userId?: string | null): PresetWorkspacesStore {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(presetWorkspacesStorageKey(userId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || parsed.version !== PRESET_WORKSPACES_STORAGE_VERSION) return {};
+    if (!isRecord(parsed.entries)) return {};
+    const out: PresetWorkspacesStore = {};
+    for (const [id, value] of Object.entries(parsed.entries)) {
+      if (!isRecord(value)) continue;
+      const xml = typeof value.xml === "string" ? value.xml : null;
+      if (!xml) continue;
+      out[id] = {
+        xml,
+        savedAt: typeof value.savedAt === "string" ? value.savedAt : new Date().toISOString(),
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writePresetWorkspacesStore(
+  userId: string | null | undefined,
+  entries: PresetWorkspacesStore,
+) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      presetWorkspacesStorageKey(userId),
+      JSON.stringify({ version: PRESET_WORKSPACES_STORAGE_VERSION, entries }),
+    );
+  } catch {
+    // ignore quota errors
+  }
+}
+
+/**
+ * Persist the latest workspace XML keyed by the preset the user deployed from.
+ * When the user clicks Deploy on the same preset again, we restore THIS xml
+ * rather than overwriting their edits with the stock preset xml.
+ */
+export function persistPresetWorkspaceXml(
+  userId: string | null | undefined,
+  presetId: string,
+  xml: string,
+) {
+  if (!presetId || !xml) return;
+  const store = readPresetWorkspacesStore(userId);
+  store[presetId] = { xml, savedAt: new Date().toISOString() };
+  writePresetWorkspacesStore(userId, store);
+}
+
+export function readPresetWorkspaceXml(
+  userId: string | null | undefined,
+  presetId: string,
+): string | null {
+  if (!presetId) return null;
+  const store = readPresetWorkspacesStore(userId);
+  return store[presetId]?.xml ?? null;
+}
+
+export function clearPresetWorkspaceXml(
+  userId: string | null | undefined,
+  presetId: string,
+) {
+  if (!presetId) return;
+  const store = readPresetWorkspacesStore(userId);
+  if (!(presetId in store)) return;
+  delete store[presetId];
+  writePresetWorkspacesStore(userId, store);
+}
+
 export function persistCurrentBotSettings(
   userId: string | null | undefined,
   settings: BotBuilderSettings,
