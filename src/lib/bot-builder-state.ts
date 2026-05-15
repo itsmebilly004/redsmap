@@ -85,6 +85,21 @@ function savedPresetsStorageKey(userId?: string | null) {
   return `arktrader:bot-builder:${userId ?? "guest"}:saved-presets`;
 }
 
+export function persistCurrentBotSettings(
+  userId: string | null | undefined,
+  settings: BotBuilderSettings,
+) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      currentSettingsStorageKey(userId),
+      JSON.stringify({ version: CURRENT_SETTINGS_STORAGE_VERSION, settings }),
+    );
+  } catch {
+    // ignore quota / privacy-mode errors
+  }
+}
+
 export function readCurrentBotSettings(userId?: string | null) {
   if (typeof window === "undefined") return null;
   try {
