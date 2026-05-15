@@ -37,6 +37,15 @@ const BotBuilderInner = observer(() => {
       if (!containerRef.current) return;
       try {
         blockly_store.setLoading(true);
+        let toolbox_xml: string;
+        try {
+          toolbox_xml = ToolboxItems();
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("Failed to build toolbox XML", err);
+          toolbox_xml =
+            '<xml id="toolbox"><category name="Logic" id="logic"><block type="controls_if"/><block type="logic_compare"/><block type="logic_operation"/></category><category name="Math" id="math"><block type="math_number"/><block type="math_arithmetic"/></category></xml>';
+        }
         const dbot_store = {
           is_mobile: false,
           is_dark_mode_on: document.documentElement.classList.contains("dark"),
@@ -47,6 +56,7 @@ const BotBuilderInner = observer(() => {
           save_modal,
           load_modal,
           toolbox: null,
+          toolbox_xml,
           setLoading: blockly_store.setLoading,
           handleFileChange: () => {},
           toggleStrategyModal: () => {},
@@ -54,17 +64,6 @@ const BotBuilderInner = observer(() => {
         await dbot.initWorkspace("/", dbot_store, {}, false, dbot_store.is_dark_mode_on);
         if (cancelled) return;
         initialised = true;
-
-        const workspace: any = (window as any).Blockly?.derivWorkspace;
-        if (workspace) {
-          try {
-            const toolbox_xml = ToolboxItems();
-            workspace.updateToolbox?.(toolbox_xml);
-          } catch (err) {
-            // eslint-disable-next-line no-console
-            console.warn("Failed to update toolbox", err);
-          }
-        }
         blockly_store.setLoading(false);
         blockly_store.onMount();
       } catch (err) {

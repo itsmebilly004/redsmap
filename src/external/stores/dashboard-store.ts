@@ -20,13 +20,21 @@ export default class DashboardStore {
       is_chart_modal_visible: observable,
       is_trading_view_modal_visible: observable,
       strategy_save_type: observable,
+      bot_builder_symbol: observable,
       setActiveTab: action.bound,
       setActiveTour: action.bound,
       setPreviewOnPopup: action.bound,
       onCloseDialog: action.bound,
       setStrategySaveType: action.bound,
+      setBotBuilderSymbol: action.bound,
     });
     this.root_store = root_store;
+  }
+
+  bot_builder_symbol: string | null = null;
+
+  setBotBuilderSymbol(symbol: string | null): void {
+    this.bot_builder_symbol = symbol;
   }
 
   setActiveTab(active_tab: number): void {

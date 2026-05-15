@@ -108,6 +108,7 @@ class DBot {
           return;
         }
 
+        const toolbox_xml = DBotStore.instance?.toolbox_xml ?? null;
         this.workspace = window.Blockly.inject(el_scratch_div, {
           media: "/blockly-media/",
           renderer: "zelos",
@@ -115,6 +116,7 @@ class DBot {
           zoom: { wheel: true, startScale: workspaceScale },
           scrollbars: true,
           theme: window.Blockly.Themes?.zelos_renderer,
+          ...(toolbox_xml ? { toolbox: toolbox_xml } : {}),
         });
 
         this.workspace.RTL = isDbotRTL();

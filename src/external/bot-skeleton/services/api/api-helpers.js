@@ -1,33 +1,45 @@
-// Stub ApiHelpers. The reference module wires four full services
-// (TradingTimes, ContractsFor, ActiveSymbols, AccountLimits) on top of
-// a Deriv websocket connection (api-base). For the visual-only port we
-// expose the same SHAPE the block definitions read via optional chaining
-// (`ApiHelpers?.instance?.contracts_for`), but back the methods with empty
-// defaults. Symbol/contract dropdowns will be empty until a future task
-// bridges these to arktrader's deriv-trading-service.
+// Stub ApiHelpers. The reference wires four real services (TradingTimes,
+// ContractsFor, ActiveSymbols, AccountLimits) on top of a live Deriv
+// websocket. For the visual-only port we expose the same SHAPE — block
+// definitions use both optional chaining (`ApiHelpers?.instance?.contracts_for`)
+// AND direct method calls (`active_symbols.getMarketDropdownOptions()`) — but
+// every method here returns a safe empty default. Symbol/contract dropdowns
+// will be empty until a future task bridges these to arktrader's
+// deriv-trading-service. Blockly dropdowns require a non-empty list shaped
+// as [[displayText, value], ...].
 
-const EMPTY_RESULT = { list: [], categories: {}, getContractType: () => null };
+const EMPTY_DROPDOWN = [["", ""]];
 
 class ContractsForStub {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getDurations(_symbol, _contract_type) {
+  getDurations() {
     return Promise.resolve([]);
   }
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getAllowedCategories(_symbol) {
-    return Promise.resolve(EMPTY_RESULT);
+  getAllowedCategories() {
+    return Promise.resolve({ list: [], categories: {}, getContractType: () => null });
   }
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getBarriers(_symbol, _trade_type) {
+  getBarriers() {
     return Promise.resolve({ values: [] });
   }
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getPredictionRange(_symbol, _trade_type) {
+  getPredictionRange() {
     return Promise.resolve([]);
   }
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getMultiplierRange(_symbol) {
+  getMultiplierRange() {
     return Promise.resolve([]);
+  }
+  getTradeTypeCategories() {
+    return Promise.resolve(EMPTY_DROPDOWN);
+  }
+  getTradeTypes() {
+    return Promise.resolve(EMPTY_DROPDOWN);
+  }
+  getContractTypes() {
+    return Promise.resolve(EMPTY_DROPDOWN);
+  }
+  getCandleIntervals() {
+    return Promise.resolve(EMPTY_DROPDOWN);
+  }
+  hasGetDurations() {
+    return false;
   }
   unregisterContractsForConditions() {}
   disposeCache() {}
@@ -38,6 +50,16 @@ class ActiveSymbolsStub {
   retrieveActiveSymbols() {
     return Promise.resolve([]);
   }
+  // Blockly dropdown contract: [[displayText, value], ...] with >=1 entry.
+  getMarketDropdownOptions() {
+    return EMPTY_DROPDOWN;
+  }
+  getSubmarketDropdownOptions() {
+    return EMPTY_DROPDOWN;
+  }
+  getSymbolDropdownOptions() {
+    return EMPTY_DROPDOWN;
+  }
   getSymbolsForMarket() {
     return [];
   }
@@ -46,6 +68,9 @@ class ActiveSymbolsStub {
   }
   isSymbolOpen() {
     return true;
+  }
+  isSymbolAvailable() {
+    return false;
   }
   disposeCache() {}
 }
@@ -62,8 +87,7 @@ class TradingTimesStub {
 
 class AccountLimitsStub {
   account_limits = {};
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getStakePayoutLimits(_currency, _landing_company, _market, _contract_category) {
+  getStakePayoutLimits() {
     return Promise.resolve({ min_stake: 0.35, max_payout: 50000 });
   }
   disposeCache() {}
