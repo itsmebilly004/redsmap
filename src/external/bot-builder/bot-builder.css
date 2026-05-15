@@ -1,14 +1,18 @@
+/* The bot-builder shell sits inside TopShell's <main>, which is itself a
+   flex column inside .min-h-dvh viewport box. We need the shell to fill the
+   remaining vertical space so Blockly has a fixed pixel height to render into. */
 .bot-builder-shell {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  /* Account for: top header (~56px), tabs nav (~44px), footer bot monitor
+     collapsed bar (~56px). Use dvh so mobile address-bar shifts don't clip. */
+  height: calc(100dvh - 9.5rem);
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   overflow: hidden;
-  z-index: 0;
 }
 
 .bot-builder-toolbar {
@@ -38,6 +42,10 @@
   background: #f5f5f5;
 }
 
+.dark .bot-builder-workspace-wrapper {
+  background: #1a1a1a;
+}
+
 #scratch_div {
   position: absolute;
   inset: 0;
@@ -47,6 +55,10 @@
 
 #scratch_div .blocklySvg {
   background: #f5f5f5;
+}
+
+.dark #scratch_div .blocklySvg {
+  background: #1a1a1a;
 }
 
 .bot-builder-overlay {
@@ -75,7 +87,6 @@
   z-index: 3;
 }
 
-/* Blockly's flyout/toolbox need a stacking context above the workspace bg */
 #scratch_div .blocklyToolboxDiv {
   z-index: 1;
 }

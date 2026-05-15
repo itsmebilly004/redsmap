@@ -13,13 +13,23 @@ import {
 import { Button } from "@/components/ui/button";
 import { StoreProvider, useStore } from "@/external/stores/useStore";
 import dbot from "@/external/bot-skeleton/scratch/dbot";
+import { useAuth } from "@/hooks/use-auth";
 import { ToolboxItems } from "./toolbox-items";
+import {
+  loadWorkspaceXmlIntoBlockly,
+  persistWorkspaceSnapshot,
+  readSavedWorkspaceXml,
+} from "./workspace-persistence";
 import "./bot-builder.css";
+
+const PERSIST_DEBOUNCE_MS = 500;
 
 const BotBuilderInner = observer(() => {
   const store = useStore();
   const { app, dashboard, toolbar, flyout, blockly_store, save_modal, load_modal } = store;
   const { is_loading } = blockly_store;
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -33,15 +43,15 @@ const BotBuilderInner = observer(() => {
     let cancelled = false;
     let initialised = false;
     let resize_observer: ResizeObserver | null = null;
+    let persist_timer: number | null = null;
+    let persist_listener: ((event: unknown) => void) | null = null;
 
     const init = async () => {
-      // Wait for the wrapper to have measurable dimensions before injecting.
       const wrapper = wrapperRef.current;
       const container = containerRef.current;
       if (!wrapper || !container) return;
 
-      // Give the browser one paint so the flex layout settles and the wrapper
-      // actually has a non-zero height.
+      // Wait one paint so the flex layout settles and the wrapper has measurable height.
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
       if (cancelled) return;
 
@@ -80,6 +90,36 @@ const BotBuilderInner = observer(() => {
         await dbot.initWorkspace("/", dbot_store, {}, false, dbot_store.is_dark_mode_on);
         if (cancelled) return;
         initialised = true;
+
+        const workspace: any = (window as any).Blockly?.derivWorkspace;
+
+        // Restore a previously-saved workspace XML (auto-save round-trip).
+        if (workspace) {
+          const saved_xml = readSavedWorkspaceXml(userId);
+          if (saved_xml) {
+            loadWorkspaceXmlIntoBlockly(workspace, saved_xml);
+          }
+
+          // Debounced auto-save on every meaningful change.
+          const schedulePersist = () => {
+            if (persist_timer !== null) window.clearTimeout(persist_timer);
+            persist_timer = window.setTimeout(() => {
+              persist_timer = null;
+              persistWorkspaceSnapshot(userId, workspace);
+            }, PERSIST_DEBOUNCE_MS);
+          };
+          persist_listener = (event: any) => {
+            // Ignore UI-only events (selection, click).
+            if (!event || event.type === "selected" || event.type === "ui") return;
+            if (event.isUiEvent) return;
+            schedulePersist();
+          };
+          workspace.addChangeListener?.(persist_listener);
+          // Persist the initial state too so the footer Run button has something
+          // to read on the user's very first visit.
+          persistWorkspaceSnapshot(userId, workspace);
+        }
+
         blockly_store.setLoading(false);
         blockly_store.onMount();
 
@@ -97,7 +137,6 @@ const BotBuilderInner = observer(() => {
           }
         };
         fireResize();
-        // Keep Blockly's SVG in sync with any future resize of the wrapper.
         resize_observer = new ResizeObserver(fireResize);
         resize_observer.observe(wrapper);
       } catch (err) {
@@ -121,6 +160,21 @@ const BotBuilderInner = observer(() => {
     return () => {
       cancelled = true;
       resize_observer?.disconnect();
+      if (persist_timer !== null) window.clearTimeout(persist_timer);
+      const ws: any = (window as any).Blockly?.derivWorkspace;
+      if (persist_listener && ws?.removeChangeListener) {
+        try {
+          ws.removeChangeListener(persist_listener);
+        } catch {
+          /* noop */
+        }
+        // Final flush so the latest edits aren't lost on unmount.
+        try {
+          persistWorkspaceSnapshot(userId, ws);
+        } catch {
+          /* noop */
+        }
+      }
       if (initialised) {
         blockly_store.onUnmount();
         try {
@@ -131,7 +185,7 @@ const BotBuilderInner = observer(() => {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userId]);
 
   return (
     <div className="bot-builder-shell">
