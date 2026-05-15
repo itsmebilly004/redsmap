@@ -402,17 +402,28 @@ export function TopShell({
       };
       let currentStake = settings.stake;
       let runningProfit = 0; // this-run-only tally; matches the reset stats above
+      const tpThreshold = Math.abs(Number(settings.takeProfit) || 0);
+      const slThreshold = Math.abs(Number(settings.stopLoss) || 0);
+      const runCap = Math.max(1, Math.round(Number(settings.maxRuns) || 10000));
 
-      for (let index = 0; footerBotRunningRef.current && index < settings.maxRuns; index += 1) {
+      // Run loop is primarily bounded by take-profit / stop-loss thresholds —
+      // maxRuns is a safety cap so a misconfigured bot can't trade forever.
+      // Each contract that actually settles increments completedRuns; trades
+      // that error out or were skipped by the purchase condition don't count.
+      let completedRuns = 0;
+      while (footerBotRunningRef.current && completedRuns < runCap) {
         const snapshot = { ...settings, currency: runCurrency };
         const stake = clampNumber(currentStake, 0.35, snapshot.maxStake);
-        if (!conditionAllowsTrade(snapshot, stake, index + 1, runningProfit)) {
+        if (!conditionAllowsTrade(snapshot, stake, completedRuns + 1, runningProfit)) {
           addFooterBotJournal(
             "Purchase condition is false. Waiting for the next run cycle.",
             "warning",
           );
-          if (!snapshot.tradeEveryTick) break;
-          await sleep(700);
+          // Don't break — keep waiting for the condition to become true so a
+          // multi-run bot that gates on a digit / profit threshold can resume
+          // once the market satisfies the rule. Pace the polls so we don't
+          // hammer the WebSocket.
+          await sleep(snapshot.tradeEveryTick ? 700 : 1500);
           continue;
         }
 
@@ -525,6 +536,7 @@ export function TopShell({
         }
 
         runningProfit += settlement.profit;
+        completedRuns += 1;
         setBotMonitorStats((current) => ({
           contractsLost: current.contractsLost + (settlement.status === "lost" ? 1 : 0),
           contractsWon: current.contractsWon + (settlement.status === "won" ? 1 : 0),
@@ -534,7 +546,7 @@ export function TopShell({
           totalStake: current.totalStake + stake,
         }));
         addFooterBotJournal(
-          `Contract settled ${settlement.status}. P/L ${settlement.profit.toFixed(2)} ${snapshot.currency}.`,
+          `Contract settled ${settlement.status}. Run ${completedRuns}/${runCap}. P/L ${runningProfit.toFixed(2)} ${snapshot.currency}.`,
           settlement.status === "won"
             ? "success"
             : settlement.status === "lost"
@@ -545,8 +557,18 @@ export function TopShell({
           console.warn("[Top Shell] balance refresh after settled trade failed", error);
         });
 
-        if (runningProfit >= snapshot.takeProfit || runningProfit <= -Math.abs(snapshot.stopLoss)) {
-          addFooterBotJournal("Profit or loss threshold reached. Bot stopped.", "warning");
+        if (tpThreshold > 0 && runningProfit >= tpThreshold) {
+          addFooterBotJournal(
+            `Take-profit reached (+${runningProfit.toFixed(2)} ${snapshot.currency} ≥ ${tpThreshold.toFixed(2)}). Bot stopped.`,
+            "success",
+          );
+          break;
+        }
+        if (slThreshold > 0 && runningProfit <= -slThreshold) {
+          addFooterBotJournal(
+            `Stop-loss reached (${runningProfit.toFixed(2)} ${snapshot.currency} ≤ -${slThreshold.toFixed(2)}). Bot stopped.`,
+            "warning",
+          );
           break;
         }
         currentStake =
@@ -554,6 +576,13 @@ export function TopShell({
             ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
             : snapshot.stake;
         if (!snapshot.tradeEveryTick) await sleep(1000);
+      }
+
+      if (footerBotRunningRef.current && completedRuns >= runCap) {
+        addFooterBotJournal(
+          `Reached the maximum number of runs (${runCap}) before take-profit or stop-loss was hit.`,
+          "info",
+        );
       }
 
       await refreshBalances("footer-bot-run-complete", account.account_id).catch((error) => {

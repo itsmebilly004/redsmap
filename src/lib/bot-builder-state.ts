@@ -69,7 +69,10 @@ export const initialBotBuilderSettings: BotBuilderSettings = {
   durationUnit: "t",
   market: "Derived",
   martingale: 1.5,
-  maxRuns: 1,
+  // High cap so the run loop is bounded by take-profit / stop-loss in practice.
+  // DDBOt-style bots are expected to keep trading until a P/L threshold trips;
+  // a small default here was the cause of the "only one trade then stops" bug.
+  maxRuns: 10000,
   maxStake: 500,
   purchaseDirection: "over",
   restartBuySellOnError: true,
@@ -266,7 +269,7 @@ export function normalizeBotBuilderSettings(settings: BotBuilderSettings): BotBu
     ...patch,
     duration: Math.max(1, Math.round(Number(settings.duration) || 1)),
     martingale: clampNumber(settings.martingale, 1, 100),
-    maxRuns: Math.max(1, Math.round(Number(settings.maxRuns) || 1)),
+    maxRuns: Math.max(1, Math.round(Number(settings.maxRuns) || 10000)),
     maxStake: clampNumber(settings.maxStake, 0.35, 50000),
     selectedDigit,
     stake: clampNumber(settings.stake, 0.35, 50000),

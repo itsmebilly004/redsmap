@@ -2,6 +2,7 @@ import {
   hasMeaningfulBotBuilderState,
   initialBotBuilderSettings,
   persistCurrentBotSettings,
+  readCurrentBotSettings,
   type BotBuilderDurationUnit,
   type BotBuilderSettings,
   type BotBuilderTradeType,
@@ -194,8 +195,16 @@ function readNumberInput(block: any, inputName: string, workspace: any): number 
   return evaluateMathBlock(target, workspace, new Set());
 }
 
-export function extractSettingsFromWorkspace(workspace: any): BotBuilderSettings {
-  const base = { ...initialBotBuilderSettings };
+export function extractSettingsFromWorkspace(
+  workspace: any,
+  baseOverride?: BotBuilderSettings,
+): BotBuilderSettings {
+  // Use the previously-persisted settings as the base so workspace edits don't
+  // silently reset run-loop fields (maxRuns, takeProfit, stopLoss, martingale,
+  // maxStake) back to initial defaults. Workspace blocks only carry the trade
+  // definition; the run-loop knobs are managed outside Blockly and live on
+  // current-settings, so we preserve them across extractions.
+  const base = { ...(baseOverride ?? initialBotBuilderSettings) };
   if (!workspace?.getAllBlocks) return base;
 
   const blocks = workspace.getAllBlocks(true) as Array<{
@@ -262,7 +271,12 @@ export function persistWorkspaceSnapshot(
     console.warn("[bot-builder] failed to persist workspace xml", err);
   }
   try {
-    const settings = extractSettingsFromWorkspace(workspace);
+    // Seed the extraction with whatever the user (or deployed preset) most
+    // recently saved so run-loop knobs survive workspace edits. Without this,
+    // every Blockly change event reset maxRuns / takeProfit / stopLoss back to
+    // the initial defaults, capping the bot at one trade.
+    const existing = readCurrentBotSettings(userId) ?? undefined;
+    const settings = extractSettingsFromWorkspace(workspace, existing);
     // CRITICAL: don't overwrite the current-settings with the
     // initialBotBuilderSettings defaults. For complex bots where AMOUNT/
     // DURATION feed off variables we can't statically evaluate, extraction

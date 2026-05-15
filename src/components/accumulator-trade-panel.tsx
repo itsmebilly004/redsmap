@@ -60,6 +60,16 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
   const [growthRate, setGrowthRate] = useState<number>(0.03);
   const [takeProfitEnabled, setTakeProfitEnabled] = useState(false);
   const [takeProfit, setTakeProfit] = useState<number>(0);
+  // Accumulator stop-loss is implemented client-side via an auto-sell once the
+  // open contract's unrealised loss crosses the threshold. Deriv's accumulator
+  // proposal API only takes a take_profit limit, so SL has to live on the UI
+  // side. The session totals below mirror trade-panel.tsx for parity across
+  // every manual trader type.
+  const [stopLossEnabled, setStopLossEnabled] = useState(false);
+  const [stopLoss, setStopLoss] = useState<number>(0);
+  const [sessionProfit, setSessionProfit] = useState<number>(0);
+  const [sessionLimitMessage, setSessionLimitMessage] = useState<string | null>(null);
+  const autoSellInFlightRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<AccumulatorContractState>(EMPTY_ACCUMULATOR_CONTRACT);
   const unsubscribeRef = useRef<null | (() => Promise<void>)>(null);
@@ -255,6 +265,10 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
 
   async function startAccumulator() {
     if (buyInFlightRef.current || busy || state.status === "active") return;
+    if (sessionLimitMessage) {
+      toast.error(sessionLimitMessage);
+      return;
+    }
     buyInFlightRef.current = true;
     setBusy(true);
     setState({ ...EMPTY_ACCUMULATOR_CONTRACT, status: "proposing" });
@@ -366,7 +380,47 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             status: next.status,
             barrierSource: next.barrierSource,
           });
+          // Client-side stop-loss for accumulators: Deriv's accumulator
+          // proposal API doesn't accept a stop_loss limit, so we trigger an
+          // early sell once the unrealised loss crosses the threshold.
+          if (
+            stopLossEnabled &&
+            stopLoss > 0 &&
+            current.status === "active" &&
+            next.status === "active" &&
+            next.isValidToSell &&
+            next.sellPrice != null
+          ) {
+            const profit = Number(next.currentProfit ?? 0);
+            if (profit <= -Math.abs(stopLoss) && !autoSellInFlightRef.current) {
+              autoSellInFlightRef.current = true;
+              toast.info(
+                `Auto-selling: stop-loss hit (${profit.toFixed(2)} ${tradeCurrency}).`,
+              );
+              void handleSell().finally(() => {
+                autoSellInFlightRef.current = false;
+              });
+            }
+          }
           if ((next.status === "lost" || next.status === "sold") && current.status === "active") {
+            const realised = Number(next.currentProfit ?? 0);
+            if (Number.isFinite(realised)) {
+              setSessionProfit((prior) => {
+                const total = prior + realised;
+                const tp = Math.abs(Number(takeProfit) || 0);
+                const sl = Math.abs(Number(stopLoss) || 0);
+                if (takeProfitEnabled && tp > 0 && total >= tp) {
+                  setSessionLimitMessage(
+                    `Session take-profit reached (+${total.toFixed(2)} ${tradeCurrency}). Further trades are blocked until you reset.`,
+                  );
+                } else if (stopLossEnabled && sl > 0 && total <= -sl) {
+                  setSessionLimitMessage(
+                    `Session stop-loss reached (${total.toFixed(2)} ${tradeCurrency}). Further trades are blocked until you reset.`,
+                  );
+                }
+                return total;
+              });
+            }
             void cleanupSubscription();
             void markTradeClosed(next);
             void refreshBalances("accumulator-closed").catch((error) => {
@@ -502,6 +556,23 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       </div>
 
       <div className="order-4 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:p-1.5 sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
+        <div className="mb-2 flex items-center justify-between text-sm font-semibold text-[#1f2328] max-sm:mb-1 max-sm:text-[11px] dark:text-[#f2f2f2]">
+          <span>Take profit / Stop loss</span>
+          <span
+            className={cn(
+              "rounded px-2 py-0.5 text-[10px] font-bold tabular-nums max-sm:px-1 max-sm:text-[9px]",
+              sessionProfit > 0
+                ? "bg-[#e6f7ef] text-[#078a5b] dark:bg-[#163a2a] dark:text-[#42d48c]"
+                : sessionProfit < 0
+                  ? "bg-[#fdebed] text-[#cc2f39] dark:bg-[#3a1820] dark:text-[#ff6b73]"
+                  : "bg-[#f2f3f4] text-[#495057] dark:bg-[#202020] dark:text-[#dce1e5]",
+            )}
+            title="Cumulative profit/loss for this session"
+          >
+            Session {sessionProfit >= 0 ? "+" : ""}
+            {sessionProfit.toFixed(2)} {tradeCurrency}
+          </span>
+        </div>
         <label className="flex items-center justify-between text-sm max-sm:text-[11px]">
           <span className="flex items-center gap-2 font-semibold text-[#1f2328] dark:text-[#f2f2f2]">
             <input
@@ -526,6 +597,47 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             className="mt-2 h-10 rounded border-[#d6d9dc] text-center font-mono font-semibold max-sm:mt-1 max-sm:h-7 max-sm:text-[11px] dark:border-[#30343a] dark:bg-[#101010] dark:text-[#f2f2f2]"
             placeholder={`Amount (${tradeCurrency})`}
           />
+        )}
+        <label className="mt-2 flex items-center justify-between text-sm max-sm:mt-1 max-sm:text-[11px]">
+          <span className="flex items-center gap-2 font-semibold text-[#1f2328] dark:text-[#f2f2f2]">
+            <input
+              type="checkbox"
+              checked={stopLossEnabled}
+              onChange={(event) => setStopLossEnabled(event.target.checked)}
+              className="size-4 rounded border-[#d6d6d6]"
+            />
+            Stop loss
+          </span>
+          <Info className="h-3.5 w-3.5 text-[#777777] dark:text-[#a8b0b8]" />
+        </label>
+        {stopLossEnabled && (
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={stopLoss}
+            onChange={(event) => setStopLoss(Number(event.target.value))}
+            className="mt-2 h-10 rounded border-[#d6d9dc] text-center font-mono font-semibold max-sm:mt-1 max-sm:h-7 max-sm:text-[11px] dark:border-[#30343a] dark:bg-[#101010] dark:text-[#f2f2f2]"
+            placeholder={`Amount (${tradeCurrency})`}
+          />
+        )}
+        {(sessionLimitMessage || sessionProfit !== 0) && (
+          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#6f767d] max-sm:text-[10px] dark:text-[#a8b0b8]">
+            <span className="truncate">
+              {sessionLimitMessage ??
+                "Stop-loss auto-sells the active contract; both limits also stop new buys once cumulative session P/L crosses them."}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setSessionProfit(0);
+                setSessionLimitMessage(null);
+              }}
+              className="shrink-0 rounded border border-[#d6d9dc] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#495057] hover:bg-[#f6f7f8] dark:border-[#30343a] dark:bg-[#101010] dark:text-[#dce1e5] dark:hover:bg-[#202020]"
+            >
+              Reset
+            </button>
+          </div>
         )}
       </div>
 

@@ -59,6 +59,7 @@ import {
   subscribeOpenContract,
 } from "@/lib/deriv-trading-service";
 import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 
 type ChartOverlay = {
   entry: number | null;
@@ -164,6 +165,13 @@ export function TradePanel({
   const [multiplier, setMultiplier] = useState(100);
   const [takeProfit, setTakeProfit] = useState<number>(0);
   const [stopLoss, setStopLoss] = useState<number>(0);
+  // Session-level P/L tally for binary contracts (rise/fall, digits, etc.).
+  // Deriv's `limit_order` only applies to multiplier/accumulator contracts;
+  // for everything else we honor take-profit / stop-loss client-side by
+  // accumulating realised profit and blocking further buys once a threshold
+  // is hit. The badge below the trade buttons surfaces this to the user.
+  const [sessionProfit, setSessionProfit] = useState<number>(0);
+  const [sessionLimitMessage, setSessionLimitMessage] = useState<string | null>(null);
   const [quotes, setQuotes] = useState<Record<string, ProposalQuote>>({});
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -181,6 +189,7 @@ export function TradePanel({
   const activeAccountIdRef = useRef<string | null>(null);
   const pageLoadAuthorizationAttemptRef = useRef<string | null>(null);
   const closedRef = useRef(false);
+  const autoSellInFlightRef = useRef(false);
 
   const config = tradeTypeConfig(selectedTradeType);
   const currentDigit =
@@ -582,6 +591,10 @@ export function TradePanel({
 
   async function handleBuy(side: TradeSide) {
     if (buyInFlightRef.current || busy) return;
+    if (sessionLimitMessage) {
+      toast.error(sessionLimitMessage);
+      return;
+    }
     if (!token) {
       try {
         const url = await buildOAuthUrl({ returnTo: "/" });
@@ -700,7 +713,55 @@ export function TradePanel({
             status: next.status,
             websocketAccountId: getTradingSocketAccountId(),
           });
+          // Live in-contract TP/SL trigger: if the user set thresholds and the
+          // contract supports an early sell, fire a sell as soon as the
+          // current unrealised profit crosses either limit. The `awaitingAutoSellRef`
+          // guard prevents the same threshold from queuing repeated sells while
+          // the WebSocket round-trip is still in flight.
+          if (
+            !config.supportsMultiplier &&
+            config.supportsEarlySell &&
+            current.status === "active" &&
+            next.status === "active" &&
+            next.isValidToSell &&
+            next.sellPrice != null
+          ) {
+            const profit = Number(next.currentProfit ?? 0);
+            const tp = Math.abs(Number(takeProfit) || 0);
+            const sl = Math.abs(Number(stopLoss) || 0);
+            const shouldAutoSell =
+              (tp > 0 && profit >= tp) || (sl > 0 && profit <= -sl);
+            if (shouldAutoSell && !autoSellInFlightRef.current) {
+              autoSellInFlightRef.current = true;
+              toast.info(
+                profit >= 0
+                  ? `Auto-selling: take-profit hit (+${profit.toFixed(2)} ${tradeCurrency}).`
+                  : `Auto-selling: stop-loss hit (${profit.toFixed(2)} ${tradeCurrency}).`,
+              );
+              void handleSell().finally(() => {
+                autoSellInFlightRef.current = false;
+              });
+            }
+          }
           if (["sold", "won", "lost"].includes(next.status) && current.status === "active") {
+            const realised = Number(next.currentProfit ?? 0);
+            if (Number.isFinite(realised)) {
+              setSessionProfit((prior) => {
+                const total = prior + realised;
+                const tp = Math.abs(Number(takeProfit) || 0);
+                const sl = Math.abs(Number(stopLoss) || 0);
+                if (tp > 0 && total >= tp) {
+                  setSessionLimitMessage(
+                    `Session take-profit reached (+${total.toFixed(2)} ${tradeCurrency}). Further trades are blocked until you reset.`,
+                  );
+                } else if (sl > 0 && total <= -sl) {
+                  setSessionLimitMessage(
+                    `Session stop-loss reached (${total.toFixed(2)} ${tradeCurrency}). Further trades are blocked until you reset.`,
+                  );
+                }
+                return total;
+              });
+            }
             void cleanupSubscription();
             void markTradeClosed(next);
             void refreshBalances("trade-closed").catch((error) => {
@@ -868,43 +929,81 @@ export function TradePanel({
           <div className="mb-2 text-sm font-semibold text-[#1f2328] max-sm:mb-1 max-sm:text-xs">
             Multiplier
           </div>
-          <div className="max-sm:grid max-sm:grid-cols-3 max-sm:gap-1.5">
-            <Select
-              value={String(multiplier)}
-              onValueChange={(value) => setMultiplier(Number(value))}
-            >
-              <SelectTrigger className="h-10 rounded border-[#d6d9dc] font-semibold max-sm:h-8 max-sm:text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[10, 20, 30, 50, 100, 200, 300, 500].map((item) => (
-                  <SelectItem key={item} value={String(item)}>
-                    x{item}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="mt-3 grid grid-cols-2 gap-2 max-sm:col-span-2 max-sm:mt-0 max-sm:gap-1.5">
-              <Input
-                type="number"
-                min={0}
-                value={takeProfit}
-                onChange={(event) => setTakeProfit(Number(event.target.value))}
-                className="h-9 rounded border-[#d6d9dc] text-center font-mono max-sm:h-8 max-sm:text-xs"
-                placeholder="Take profit"
-              />
-              <Input
-                type="number"
-                min={0}
-                value={stopLoss}
-                onChange={(event) => setStopLoss(Number(event.target.value))}
-                className="h-9 rounded border-[#d6d9dc] text-center font-mono max-sm:h-8 max-sm:text-xs"
-                placeholder="Stop loss"
-              />
-            </div>
-          </div>
+          <Select
+            value={String(multiplier)}
+            onValueChange={(value) => setMultiplier(Number(value))}
+          >
+            <SelectTrigger className="h-10 rounded border-[#d6d9dc] font-semibold max-sm:h-8 max-sm:text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[10, 20, 30, 50, 100, 200, 300, 500].map((item) => (
+                <SelectItem key={item} value={String(item)}>
+                  x{item}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
+
+      <div className="order-6 rounded-md border border-[#d6d9dc] bg-white p-3 shadow-sm max-sm:p-2 sm:order-none dark:border-[#2f3337] dark:bg-[#151515]">
+        <div className="mb-2 flex items-center justify-between text-sm font-semibold text-[#1f2328] max-sm:mb-1 max-sm:text-xs dark:text-[#f2f2f2]">
+          <span>Take profit / Stop loss</span>
+          <span
+            className={cn(
+              "rounded px-2 py-0.5 text-[10px] font-bold tabular-nums max-sm:px-1 max-sm:text-[9px]",
+              sessionProfit > 0
+                ? "bg-[#e6f7ef] text-[#078a5b] dark:bg-[#163a2a] dark:text-[#42d48c]"
+                : sessionProfit < 0
+                  ? "bg-[#fdebed] text-[#cc2f39] dark:bg-[#3a1820] dark:text-[#ff6b73]"
+                  : "bg-[#f2f3f4] text-[#495057] dark:bg-[#202020] dark:text-[#dce1e5]",
+            )}
+            title="Cumulative profit/loss for this session"
+          >
+            Session {sessionProfit >= 0 ? "+" : ""}
+            {sessionProfit.toFixed(2)} {tradeCurrency}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 max-sm:gap-1.5">
+          <Input
+            type="number"
+            min={0}
+            value={takeProfit}
+            onChange={(event) => setTakeProfit(Number(event.target.value))}
+            className="h-9 rounded border-[#d6d9dc] text-center font-mono max-sm:h-8 max-sm:text-xs"
+            placeholder={`Take profit (${tradeCurrency || "amount"})`}
+          />
+          <Input
+            type="number"
+            min={0}
+            value={stopLoss}
+            onChange={(event) => setStopLoss(Number(event.target.value))}
+            className="h-9 rounded border-[#d6d9dc] text-center font-mono max-sm:h-8 max-sm:text-xs"
+            placeholder={`Stop loss (${tradeCurrency || "amount"})`}
+          />
+        </div>
+        {(sessionLimitMessage || sessionProfit !== 0) && (
+          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#6f767d] max-sm:text-[10px] dark:text-[#a8b0b8]">
+            <span className="truncate">
+              {sessionLimitMessage ??
+                (config.supportsEarlySell
+                  ? "Active contract auto-sells if its P/L crosses these limits."
+                  : "Limits stop new buys once cumulative session P/L crosses them.")}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setSessionProfit(0);
+                setSessionLimitMessage(null);
+              }}
+              className="shrink-0 rounded border border-[#d6d9dc] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#495057] hover:bg-[#f6f7f8] dark:border-[#30343a] dark:bg-[#101010] dark:text-[#dce1e5] dark:hover:bg-[#202020]"
+            >
+              Reset
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="order-4 sm:order-none">
         <StakePayoutToggle
@@ -922,7 +1021,9 @@ export function TradePanel({
           return (
             <ProposalButton
               key={side.value}
-              disabled={busy || quotesLoading || Boolean(quote.error)}
+              disabled={
+                busy || quotesLoading || Boolean(quote.error) || Boolean(sessionLimitMessage)
+              }
               label={side.label}
               loading={quotesLoading}
               onClick={() => void handleBuy(side)}
