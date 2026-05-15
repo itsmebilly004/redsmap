@@ -5,6 +5,7 @@ import {
   type BotBuilderSettings,
   type BotBuilderTradeType,
 } from "@/lib/bot-builder-state";
+import { scheduleRecentWorkspaceWrite } from "./recent-workspaces";
 
 const xmlStorageKey = (userId: string | null | undefined) =>
   `arktrader:bot-builder:${userId ?? "guest"}:workspace-xml`;
@@ -140,6 +141,7 @@ export function extractSettingsFromWorkspace(workspace: any): BotBuilderSettings
 export function persistWorkspaceSnapshot(
   userId: string | null | undefined,
   workspace: any,
+  options?: { name?: string },
 ) {
   if (!workspace) return;
   try {
@@ -148,6 +150,11 @@ export function persistWorkspaceSnapshot(
       const xml_dom = B.Xml.workspaceToDom(workspace);
       const xml_text = B.Xml.domToText(xml_dom);
       writeSavedWorkspaceXml(userId, xml_text);
+      // ALSO write to the localForage key dbot.initWorkspace reads from on
+      // every mount. This is the canonical restore path — by writing here,
+      // refresh / re-open of /bot-builder picks up the user's last bot
+      // automatically without any post-init React work.
+      scheduleRecentWorkspaceWrite(workspace, options?.name ?? "My bot strategy");
     }
   } catch (err) {
     // eslint-disable-next-line no-console

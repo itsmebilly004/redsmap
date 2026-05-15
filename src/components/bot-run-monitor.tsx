@@ -182,17 +182,47 @@ export function BotRunMonitorPanel({
           value="summary"
           className="m-0 min-h-0 flex-1 bg-white p-3 sm:p-4 dark:bg-[#151515]"
         >
-          <div className="flex min-h-36 items-center justify-center bg-[#f1f2f3] px-4 text-center text-sm leading-5 text-[#444] sm:h-[228px] sm:px-8 dark:bg-[#202020] dark:text-[#d8d8d8]">
-            <p>
-              When you&apos;re ready to trade, hit <strong>Run.</strong>
-              <br />
-              You&apos;ll be able to track your bot&apos;s
-              <br />
-              performance here.
-            </p>
-          </div>
+          {stats.runs === 0 ? (
+            <div className="flex min-h-36 items-center justify-center bg-[#f1f2f3] px-4 text-center text-sm leading-5 text-[#444] sm:h-[228px] sm:px-8 dark:bg-[#202020] dark:text-[#d8d8d8]">
+              <p>
+                When you&apos;re ready to trade, hit <strong>Run.</strong>
+                <br />
+                You&apos;ll be able to track your bot&apos;s
+                <br />
+                performance here.
+              </p>
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "flex flex-col items-center gap-1 rounded-md p-4 text-center",
+                stats.totalProfitLoss >= 0
+                  ? "bg-[#e6f7ef] dark:bg-[#163a2a]"
+                  : "bg-[#fdebed] dark:bg-[#3a1820]",
+              )}
+            >
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#555] dark:text-[#cfd2d4]">
+                {stats.totalProfitLoss >= 0 ? "Profit so far" : "Loss so far"}
+              </span>
+              <span
+                className={cn(
+                  "text-3xl font-bold tabular-nums sm:text-4xl",
+                  stats.totalProfitLoss >= 0
+                    ? "text-[#078a5b] dark:text-[#42d48c]"
+                    : "text-[#cc2f39] dark:text-[#ff6b73]",
+                )}
+              >
+                {stats.totalProfitLoss >= 0 ? "+" : ""}
+                {formatMoney(stats.totalProfitLoss, currency)}
+              </span>
+              <span className="text-[11px] text-[#777] dark:text-[#b7b7b7]">
+                across {stats.runs} run{stats.runs === 1 ? "" : "s"} ({stats.contractsWon} won
+                / {stats.contractsLost} lost)
+              </span>
+            </div>
+          )}
 
-          <div className="bg-[#f1f2f3] pb-4 dark:bg-[#202020]">
+          <div className="mt-3 bg-[#f1f2f3] pb-4 dark:bg-[#202020]">
             <div className="px-5 pt-4 text-right text-[11px] underline">What&apos;s this?</div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-5 px-3 pt-3 text-center sm:grid-cols-3 sm:px-5 sm:gap-y-6">
               <SummaryMetric label="Total stake" value={formatMoney(stats.totalStake, currency)} />
@@ -205,7 +235,7 @@ export function BotRunMonitorPanel({
               <SummaryMetric label="Contracts won" value={stats.contractsWon} />
               <SummaryMetric
                 label="Total profit/loss"
-                value={formatMoney(stats.totalProfitLoss, currency)}
+                value={`${stats.totalProfitLoss >= 0 ? "+" : ""}${formatMoney(stats.totalProfitLoss, currency)}`}
                 valueClassName={summaryProfitLossClassName(stats.totalProfitLoss)}
               />
             </div>

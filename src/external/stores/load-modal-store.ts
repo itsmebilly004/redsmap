@@ -33,6 +33,12 @@ export default class LoadModalStore {
     this.is_load_modal_open = true;
   }
 
+  // Reference's saveWorkspaceToRecent calls this — no-op so the call doesn't
+  // crash if ever triggered through the legacy code path.
+  updateListStrategies(_workspaces: unknown[]): void {
+    // intentionally empty
+  }
+
   onLoadModalClose(): void {
     this.is_load_modal_open = false;
   }

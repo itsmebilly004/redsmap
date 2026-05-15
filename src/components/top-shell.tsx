@@ -956,13 +956,26 @@ async function waitForSettlement(contractId: string): Promise<Settlement> {
         contract.current_spot_display_value,
       );
       const profit = Number(contract.profit ?? 0);
-      const payout = Number(contract.payout ?? contract.sell_price ?? contract.bid_price ?? 0);
+      // For a settled contract Deriv leaves `payout` at the ORIGINAL potential
+      // payout regardless of outcome. Real money received is `sell_price`
+      // (zero for a lost binary). If the contract won we credit the actual
+      // sell_price (falling back to payout); if it lost the payout is zero.
+      const sell_price = Number(contract.sell_price ?? 0);
+      const potential_payout = Number(contract.payout ?? 0);
+      const won = Number.isFinite(profit) && profit > 0;
+      const payout = won
+        ? Number.isFinite(sell_price) && sell_price > 0
+          ? sell_price
+          : Number.isFinite(potential_payout)
+            ? potential_payout
+            : 0
+        : 0;
       resolve({
         entrySpot,
         exitSpot,
-        payout: Number.isFinite(payout) ? payout : 0,
+        payout,
         profit: Number.isFinite(profit) ? profit : 0,
-        status: profit >= 0 ? "won" : "lost",
+        status: won ? "won" : "lost",
       });
       void unsubscribe?.();
     })
