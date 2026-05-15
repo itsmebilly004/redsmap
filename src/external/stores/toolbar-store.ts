@@ -6,12 +6,16 @@ export default class ToolbarStore {
   is_reset_button_clicked = false;
   is_dialog_open = false;
   file_name = "Untitled Bot";
+  has_undo_stack = false;
+  has_redo_stack = false;
 
   constructor(root_store: RootStore) {
     makeObservable(this, {
       is_reset_button_clicked: observable,
       is_dialog_open: observable,
       file_name: observable,
+      has_undo_stack: observable,
+      has_redo_stack: observable,
       setResetButtonState: action.bound,
       onResetClick: action.bound,
       onUndoClick: action.bound,
@@ -19,8 +23,20 @@ export default class ToolbarStore {
       onSortClick: action.bound,
       onZoomInOutClick: action.bound,
       setFileName: action.bound,
+      setHasUndoStack: action.bound,
+      setHasRedoStack: action.bound,
     });
     this.root_store = root_store;
+  }
+
+  setHasUndoStack(): void {
+    const workspace = window.Blockly?.derivWorkspace;
+    this.has_undo_stack = !!workspace?.undoStack_?.length;
+  }
+
+  setHasRedoStack(): void {
+    const workspace = window.Blockly?.derivWorkspace;
+    this.has_redo_stack = !!workspace?.redoStack_?.length;
   }
 
   setResetButtonState(is_reset_button_clicked: boolean): void {

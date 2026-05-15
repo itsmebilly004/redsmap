@@ -27,6 +27,7 @@ export default class FlyoutStore {
       setFlyoutWidth: action.bound,
       setSearchTerm: action.bound,
       onSequenceClick: action.bound,
+      refreshCategory: action.bound,
     });
     this.root_store = root_store;
   }
@@ -57,5 +58,10 @@ export default class FlyoutStore {
 
   onSequenceClick(): void {
     // No-op placeholder for full flyout-help flow.
+  }
+
+  refreshCategory(): void {
+    // No-op: Blockly's built-in toolbox refreshes itself when categories change.
+    // The reference re-renders the custom flyout sidebar here.
   }
 }
