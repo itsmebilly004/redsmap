@@ -1,6 +1,5 @@
 import * as React from "react";
 import { observer } from "mobx-react-lite";
-import classNames from "classnames";
 import {
   FolderOpen,
   Redo2,
@@ -21,6 +20,7 @@ const BotBuilderInner = observer(() => {
   const store = useStore();
   const { app, dashboard, toolbar, flyout, blockly_store, save_modal, load_modal } = store;
   const { is_loading } = blockly_store;
+  const wrapperRef = React.useRef<HTMLDivElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -32,9 +32,19 @@ const BotBuilderInner = observer(() => {
   React.useEffect(() => {
     let cancelled = false;
     let initialised = false;
+    let resize_observer: ResizeObserver | null = null;
 
     const init = async () => {
-      if (!containerRef.current) return;
+      // Wait for the wrapper to have measurable dimensions before injecting.
+      const wrapper = wrapperRef.current;
+      const container = containerRef.current;
+      if (!wrapper || !container) return;
+
+      // Give the browser one paint so the flex layout settles and the wrapper
+      // actually has a non-zero height.
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      if (cancelled) return;
+
       try {
         blockly_store.setLoading(true);
         let toolbox_xml: string;
@@ -49,7 +59,13 @@ const BotBuilderInner = observer(() => {
         const dbot_store = {
           is_mobile: false,
           is_dark_mode_on: document.documentElement.classList.contains("dark"),
-          client: { loginid: null },
+          client: {
+            loginid: null,
+            currency: "USD",
+            landing_company_shortcode: "svg",
+            is_logged_in: false,
+            getToken: () => "",
+          },
           dashboard,
           toolbar,
           flyout,
@@ -66,6 +82,24 @@ const BotBuilderInner = observer(() => {
         initialised = true;
         blockly_store.setLoading(false);
         blockly_store.onMount();
+
+        // Force Blockly to recompute its SVG metrics now that the workspace is
+        // mounted inside a real flex container.
+        const fireResize = () => {
+          try {
+            window.dispatchEvent(new Event("resize"));
+            const ws = (window as any).Blockly?.derivWorkspace;
+            if (ws && (window as any).Blockly?.svgResize) {
+              (window as any).Blockly.svgResize(ws);
+            }
+          } catch {
+            /* noop */
+          }
+        };
+        fireResize();
+        // Keep Blockly's SVG in sync with any future resize of the wrapper.
+        resize_observer = new ResizeObserver(fireResize);
+        resize_observer.observe(wrapper);
       } catch (err) {
         if (cancelled) return;
         const blocklyRef: any = (window as any).Blockly;
@@ -86,6 +120,7 @@ const BotBuilderInner = observer(() => {
 
     return () => {
       cancelled = true;
+      resize_observer?.disconnect();
       if (initialised) {
         blockly_store.onUnmount();
         try {
@@ -130,14 +165,14 @@ const BotBuilderInner = observer(() => {
           <ZoomOut className="size-4" />
         </Button>
       </div>
-      <div
-        ref={containerRef}
-        id="scratch_div"
-        className={classNames("bot-builder-workspace", {
-          "bot-builder-workspace--loading": is_loading,
-        })}
-      >
-        {is_loading && <div className="bot-builder-loading">Loading Blockly…</div>}
+      <div ref={wrapperRef} className="bot-builder-workspace-wrapper">
+        {/* Blockly injects an SVG into #scratch_div. Don't put React children inside it. */}
+        <div ref={containerRef} id="scratch_div" />
+        {is_loading && (
+          <div className="bot-builder-overlay" aria-live="polite">
+            Loading Blockly…
+          </div>
+        )}
         {error && (
           <div className="bot-builder-error" role="alert">
             <strong>Blockly failed to mount:</strong> {error}
