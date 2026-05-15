@@ -178,21 +178,22 @@ export function loadWorkspaceXmlIntoBlockly(
   if (!B?.Xml || !B?.utils?.xml?.textToDom) return false;
 
   const previous_group = B.Events?.getGroup?.();
-  const previous_disabled = B.Events?.disabled_ ?? 0;
   try {
     const dom = B.utils.xml.textToDom(xml_text);
 
-    // Suppress event re-entry while we tear down + rebuild so block onchange
-    // handlers don't try to enforce TRADE_OPTIONS membership on a half-built
-    // workspace.
+    // Group teardown + rebuild as one transaction. We intentionally do NOT
+    // call Events.disable() — disabling events suppresses BLOCK_CREATE and
+    // therefore prevents Blockly's renderer from drawing the new blocks
+    // until something else (page resize / refresh) triggers a redraw.
     B.Events?.setGroup?.(`bot-load-${Date.now()}`);
-    B.Events?.disable?.();
 
-    // Workspace.clear() in v10 disposes top blocks, but we explicitly dispose
-    // each first to be defensive about deletable=false guards in older saves.
+    // Dispose every top block (including deletable=false root blocks) before
+    // clear() to be defensive about older saved workspaces.
     const top_blocks = workspace.getTopBlocks?.(false) ?? [];
     for (const block of top_blocks) {
       try {
+        if (block && "deletable_" in block) block.deletable_ = true;
+        block.setDeletable?.(true);
         block.dispose?.(false, false);
       } catch (err) {
         // eslint-disable-next-line no-console
@@ -207,11 +208,19 @@ export function loadWorkspaceXmlIntoBlockly(
     // the previous bot back over the new one).
     workspace.clearUndo?.();
 
-    // Re-enable events so user interactions resume normally.
-    B.Events?.enable?.();
     B.Events?.setGroup?.(previous_group ?? false);
 
-    // Lay out the new blocks and force Blockly to recompute its SVG metrics.
+    // Force each top-level block to render now that Blockly's batch is
+    // complete. cleanUp() lays the stacks out cleanly, svgResize recomputes
+    // metrics for the SVG host, scrollCenter brings the user back to (0,0).
+    const new_top = workspace.getTopBlocks?.(false) ?? [];
+    for (const block of new_top) {
+      try {
+        block.render?.(false);
+      } catch {
+        /* noop */
+      }
+    }
     try {
       workspace.cleanUp?.(0, 60);
     } catch {
@@ -227,6 +236,13 @@ export function loadWorkspaceXmlIntoBlockly(
     } catch {
       /* noop */
     }
+    // Final nudge so any change-listeners (and React effects watching for
+    // resize) pick up the new content immediately.
+    try {
+      window.dispatchEvent(new Event("resize"));
+    } catch {
+      /* noop */
+    }
 
     const block_count = workspace.getAllBlocks?.(false)?.length ?? 0;
     // eslint-disable-next-line no-console
@@ -234,19 +250,14 @@ export function loadWorkspaceXmlIntoBlockly(
       "[bot-builder] loaded workspace, block_count =",
       block_count,
       "top_blocks =",
-      workspace.getTopBlocks?.(false)?.length ?? 0,
+      new_top.length,
     );
     return block_count > 0;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[bot-builder] failed to load workspace xml", err);
     try {
-      // Re-enable in error path so the workspace isn't left frozen.
-      B.Events?.enable?.();
       B.Events?.setGroup?.(previous_group ?? false);
-      if (typeof previous_disabled === "number") {
-        // best-effort restoration of nested disable count
-      }
     } catch {
       /* noop */
     }

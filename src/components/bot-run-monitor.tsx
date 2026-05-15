@@ -211,14 +211,6 @@ export function BotRunMonitorPanel({
             </div>
           </div>
 
-          <button
-            className="mt-3 hidden h-10 w-full rounded-[3px] border border-[#999] bg-white text-sm font-bold hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-60 sm:block dark:bg-[#151515] dark:hover:bg-[#202020]"
-            disabled={!onReset}
-            type="button"
-            onClick={onReset}
-          >
-            Reset
-          </button>
         </TabsContent>
 
         <TabsContent value="transactions" className="m-0 min-h-0 flex-1 bg-white dark:bg-[#151515]">
@@ -326,9 +318,9 @@ export function BotRunMonitorPanel({
           </ScrollArea>
         </TabsContent>
       </Tabs>
-      <div className="border-t border-[#e5e5e5] bg-white p-3 sm:hidden dark:border-[#2b2b2b] dark:bg-[#151515]">
+      <div className="border-t border-[#e5e5e5] bg-white p-3 dark:border-[#2b2b2b] dark:bg-[#151515]">
         <button
-          className="h-10 w-full rounded-[3px] border border-[#999] bg-white text-sm font-bold hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#101010] dark:hover:bg-[#202020]"
+          className="h-10 w-full rounded-[3px] border border-[#999] bg-white text-sm font-bold text-[#333] hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#101010] dark:text-[#eeeeee] dark:hover:bg-[#202020]"
           disabled={!onReset}
           type="button"
           onClick={onReset}

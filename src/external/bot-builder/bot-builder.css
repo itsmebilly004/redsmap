@@ -141,22 +141,47 @@
 
 .bot-builder-sidebar-expand-tab {
   position: absolute;
-  top: 0.75rem;
+  top: 50%;
   left: 0;
-  width: 1.75rem;
-  height: 2rem;
-  display: grid;
-  place-items: center;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.4rem;
   background: #ffffff;
   border: 1px solid hsl(var(--border));
   border-left: 0;
-  border-radius: 0 0.375rem 0.375rem 0;
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: hsl(var(--foreground));
   cursor: pointer;
   z-index: 5;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  transition:
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+
+.bot-builder-sidebar-expand-tab:hover {
+  background: #f4f4f5;
 }
 
 .dark .bot-builder-sidebar-expand-tab {
-  background: #151515;
+  background: #1f1f1f;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+.dark .bot-builder-sidebar-expand-tab:hover {
+  background: #2a2a2a;
+}
+
+.bot-builder-sidebar-expand-tab-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: inherit;
 }
 
 .bot-builder-sidebar-search {
@@ -260,6 +285,117 @@
 
 .dark #scratch_div .blocklySvg {
   background: #1a1a1a;
+}
+
+/* ------- Block + field readability (light + dark) ------- */
+
+/* Block body text: black on light blocks, near-white on dark blocks. */
+#scratch_div .blocklyText {
+  fill: #1f2937;
+  font-weight: 600;
+}
+
+.dark #scratch_div .blocklyText {
+  fill: #f1f5f9;
+}
+
+/* Root header text on the indigo "Trade parameters" block is always white. */
+#scratch_div .blocklyTextRootBlockHeader {
+  fill: #ffffff !important;
+}
+
+/* Editable field rectangle: a soft chip the user can spot against the block fill. */
+#scratch_div .blocklyEditableText > rect:not(.blocklyDropdownRect),
+#scratch_div .blocklyEditableText .blocklyFieldRect {
+  fill: #f1f5f9;
+  stroke: #cbd5e1;
+}
+
+.dark #scratch_div .blocklyEditableText > rect:not(.blocklyDropdownRect),
+.dark #scratch_div .blocklyEditableText .blocklyFieldRect {
+  fill: #2a2a2a;
+  stroke: #4a4a4a;
+}
+
+/* Editable field text colour. */
+#scratch_div .blocklyEditableText > text,
+#scratch_div .blocklyEditableText .blocklyEditableLabel {
+  fill: #0f172a;
+}
+
+.dark #scratch_div .blocklyEditableText > text,
+.dark #scratch_div .blocklyEditableText .blocklyEditableLabel {
+  fill: #f1f5f9;
+}
+
+/* The actual <input type="text"> Blockly opens when you click a field. */
+.blocklyHtmlInput {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+.dark .blocklyHtmlInput {
+  background: #1f1f1f !important;
+  color: #f1f5f9 !important;
+  border-color: #4a4a4a !important;
+}
+
+/* Dropdown menu rendered when the user opens a field_dropdown. */
+.blocklyDropDownDiv {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.blocklyDropDownContent .goog-menuitem-content,
+.blocklyDropDownContent .blocklyMenuItemContent {
+  color: #0f172a !important;
+}
+
+.dark .blocklyDropDownDiv {
+  background-color: #1f1f1f !important;
+  border-color: #4a4a4a !important;
+  color: #f1f5f9 !important;
+}
+
+.dark .blocklyDropDownContent .goog-menuitem-content,
+.dark .blocklyDropDownContent .blocklyMenuItemContent {
+  color: #f1f5f9 !important;
+}
+
+.blocklyDropDownContent .blocklyMenuItemHighlight,
+.blocklyDropDownContent .goog-menuitem-highlight {
+  background-color: #e2e8f0 !important;
+}
+
+.dark .blocklyDropDownContent .blocklyMenuItemHighlight,
+.dark .blocklyDropDownContent .goog-menuitem-highlight {
+  background-color: #2a3052 !important;
+}
+
+/* Flyout: lighten/darken the background and category label to match. */
+#scratch_div .blocklyFlyoutBackground {
+  fill: #ffffff;
+  fill-opacity: 0.96;
+}
+
+.dark #scratch_div .blocklyFlyoutBackground {
+  fill: #181818;
+  fill-opacity: 0.96;
+}
+
+#scratch_div .blocklyFlyoutLabelText {
+  fill: #1e293b;
+  font-weight: 700;
+}
+
+.dark #scratch_div .blocklyFlyoutLabelText {
+  fill: #f1f5f9;
 }
 
 /* Hide Blockly's built-in toolbox sidebar visually; we render our own React

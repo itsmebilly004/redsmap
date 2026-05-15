@@ -120,6 +120,7 @@ export function BlocksMenuSidebar({ collapsed, onToggleCollapsed, onQuickStrateg
         aria-label="Show blocks menu"
       >
         <ChevronRight className="size-4" />
+        <span className="bot-builder-sidebar-expand-tab-label">Blocks menu</span>
       </button>
     );
   }
