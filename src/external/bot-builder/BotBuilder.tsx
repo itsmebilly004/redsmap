@@ -35,17 +35,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { StoreProvider, useStore } from "@/external/stores/useStore";
 import dbot from "@/external/bot-skeleton/scratch/dbot";
 import { useAuth } from "@/hooks/use-auth";
 import {
   deleteSavedBotPreset,
   initialBotBuilderSettings,
+  persistCurrentBotSettings,
   persistSavedBotPreset,
   readSavedBotPresets,
+  settingsFromBotPreset,
   type SavedBotPreset,
 } from "@/lib/bot-builder-state";
+import { BOT_PRESET_CONFIGS } from "@/lib/bot-presets";
+import { markDeployedBotPresetId } from "@/lib/bot-preset-storage";
 import { ToolboxItems } from "./toolbox-items";
 import {
   extractSettingsFromWorkspace,
@@ -53,11 +56,7 @@ import {
   persistWorkspaceSnapshot,
   readSavedWorkspaceXml,
 } from "./workspace-persistence";
-import {
-  loadWorkspaceFromFile,
-  resetWorkspaceToDefault,
-  saveWorkspaceToFile,
-} from "./workspace-io";
+import { loadWorkspaceFromFile, resetWorkspaceToDefault } from "./workspace-io";
 import { BlocksMenuSidebar, closeBlocklyFlyout } from "./blocks-menu-sidebar";
 import { hasPresetXml, loadPresetXml } from "./preset-xml-loader";
 import "./bot-builder.css";
@@ -97,8 +96,6 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
   const [resetOpen, setResetOpen] = React.useState(false);
   const [saveOpen, setSaveOpen] = React.useState(false);
   const [saveName, setSaveName] = React.useState("My bot strategy");
-  const [saveToLibrary, setSaveToLibrary] = React.useState(true);
-  const [downloadOnSave, setDownloadOnSave] = React.useState(false);
   const [loadOpen, setLoadOpen] = React.useState(false);
   const [savedPresets, setSavedPresets] = React.useState<SavedBotPreset[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState<boolean>(() => {
@@ -353,6 +350,21 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     if (!presetId) return;
     let cancelled = false;
     (async () => {
+      // Pin the preset's known-good settings BEFORE we wait on Blockly so the
+      // footer Run button has correct stake/symbol/duration immediately —
+      // even if the workspace XML extraction can't pull a literal stake out
+      // of a variables_get chain.
+      const preset_config = BOT_PRESET_CONFIGS.find((p) => p.id === presetId);
+      if (preset_config) {
+        try {
+          const preset_settings = settingsFromBotPreset(preset_config);
+          persistCurrentBotSettings(userIdRef.current, preset_settings);
+          markDeployedBotPresetId(userIdRef.current, presetId);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("[bot-builder] failed to pin preset settings", err);
+        }
+      }
       // Wait until the first-mount init has produced a workspace.
       for (let i = 0; i < 50 && !initialisedRef.current && !cancelled; i += 1) {
         await new Promise((r) => setTimeout(r, 60));
@@ -367,6 +379,15 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       const ok = loadWorkspaceXmlIntoBlockly(workspace, preset_xml);
       if (ok) {
         persistWorkspaceSnapshot(userIdRef.current, workspace);
+        // Re-pin: persistWorkspaceSnapshot might have written extracted settings
+        // (if meaningful), but for presets the stake/tp/sl from BOT_PRESET_CONFIGS
+        // are authoritative until the user actually edits the workspace.
+        if (preset_config) {
+          persistCurrentBotSettings(
+            userIdRef.current,
+            settingsFromBotPreset(preset_config),
+          );
+        }
       }
     })();
     return () => {
@@ -430,55 +451,32 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       toast.error("Workspace isn't ready yet.");
       return;
     }
-    if (!saveToLibrary && !downloadOnSave) {
-      toast.error("Pick at least one destination.");
-      return;
-    }
-
-    let succeeded = false;
-
-    if (saveToLibrary) {
-      try {
-        const B: any = (window as any).Blockly;
-        const xml_dom = B?.Xml?.workspaceToDom?.(workspace);
-        const xml_text: string = xml_dom ? B.Xml.domToText(xml_dom) : "";
-        if (!xml_text) {
-          toast.error("Workspace is empty.");
-          return;
-        }
-        const settings = extractSettingsFromWorkspace(workspace) ?? { ...initialBotBuilderSettings };
-        const preset: SavedBotPreset = {
-          id: generatePresetId(),
-          name: saveName.trim() || "Saved bot strategy",
-          savedAt: new Date().toISOString(),
-          settings,
-          source: "manual",
-          xml: xml_text,
-        };
-        persistSavedBotPreset(userId, preset);
-        refreshSavedPresets();
-        succeeded = true;
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to save to library.");
+    try {
+      const B: any = (window as any).Blockly;
+      const xml_dom = B?.Xml?.workspaceToDom?.(workspace);
+      const xml_text: string = xml_dom ? B.Xml.domToText(xml_dom) : "";
+      if (!xml_text) {
+        toast.error("Workspace is empty.");
         return;
       }
-    }
-
-    if (downloadOnSave) {
-      const result = saveWorkspaceToFile(workspace, saveName);
-      if (!result.ok) {
-        toast.error(result.reason ?? "Could not save file.");
-        if (!succeeded) return;
-      } else {
-        succeeded = true;
-      }
-    }
-
-    if (succeeded) {
-      toolbar.setFileName(saveName);
-      const dest = saveToLibrary && downloadOnSave ? "your library and downloaded" : saveToLibrary ? "your library" : "a download";
-      toast.success(`Saved "${saveName.trim() || "Saved bot strategy"}" to ${dest}.`);
+      const settings =
+        extractSettingsFromWorkspace(workspace) ?? { ...initialBotBuilderSettings };
+      const trimmed_name = saveName.trim() || "Saved bot strategy";
+      const preset: SavedBotPreset = {
+        id: generatePresetId(),
+        name: trimmed_name,
+        savedAt: new Date().toISOString(),
+        settings,
+        source: "manual",
+        xml: xml_text,
+      };
+      persistSavedBotPreset(userId, preset);
+      refreshSavedPresets();
+      toolbar.setFileName(trimmed_name);
+      toast.success(`Saved "${trimmed_name}" to your library.`);
       setSaveOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save to library.");
     }
   };
 
@@ -588,59 +586,30 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         <DialogContent>
           <form onSubmit={handleSaveSubmit}>
             <DialogHeader>
-              <DialogTitle>Save bot strategy</DialogTitle>
+              <DialogTitle>Save bot to library</DialogTitle>
               <DialogDescription>
-                Save the current workspace so you can load it from the Load menu later, or download it as XML.
+                Name this snapshot of your workspace so you can re-open it from the Load menu
+                later. Your in-progress edits are autosaved separately and survive refreshes
+                without any action.
               </DialogDescription>
             </DialogHeader>
-            <div className="mt-4 space-y-3">
-              <div className="space-y-2">
-                <label htmlFor="bot-builder-save-name" className="text-sm font-medium">
-                  Bot name
-                </label>
-                <Input
-                  id="bot-builder-save-name"
-                  autoFocus
-                  value={saveName}
-                  onChange={(e) => setSaveName(e.target.value)}
-                  placeholder="My bot strategy"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Where to save</label>
-                <label className="flex items-start gap-3 rounded-md border border-border bg-background p-3 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={saveToLibrary}
-                    onCheckedChange={(v) => setSaveToLibrary(v === true)}
-                    className="mt-0.5"
-                  />
-                  <span className="flex-1">
-                    <span className="font-medium">Save to your library</span>
-                    <span className="block text-xs text-muted-foreground">
-                      Stored in this browser. Re-open it from the Load menu without re-uploading.
-                    </span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-3 rounded-md border border-border bg-background p-3 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={downloadOnSave}
-                    onCheckedChange={(v) => setDownloadOnSave(v === true)}
-                    className="mt-0.5"
-                  />
-                  <span className="flex-1">
-                    <span className="font-medium">Also download as .xml</span>
-                    <span className="block text-xs text-muted-foreground">
-                      Downloads the file so you can keep a backup or share it.
-                    </span>
-                  </span>
-                </label>
-              </div>
+            <div className="mt-4 space-y-2">
+              <label htmlFor="bot-builder-save-name" className="text-sm font-medium">
+                Bot name
+              </label>
+              <Input
+                id="bot-builder-save-name"
+                autoFocus
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                placeholder="My bot strategy"
+              />
             </div>
             <DialogFooter className="mt-6">
               <Button type="button" variant="outline" onClick={() => setSaveOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">Save</Button>
+              <Button type="submit">Save to library</Button>
             </DialogFooter>
           </form>
         </DialogContent>

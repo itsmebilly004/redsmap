@@ -28,7 +28,7 @@ export async function loadWorkspaceFromFile(
   const looks_like_xml =
     file.type.includes("xml") ||
     /\.xml$/i.test(file.name) ||
-    file.size < 5 * 1024 * 1024; // assume <5 MB text is XML; full validation happens below
+    file.size < 5 * 1024 * 1024;
   if (!looks_like_xml) {
     return { ok: false, reason: "Please pick a .xml file." };
   }
@@ -36,16 +36,28 @@ export async function loadWorkspaceFromFile(
   try {
     text = await file.text();
   } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[bot-builder] file.text() failed", err);
     return { ok: false, reason: err instanceof Error ? err.message : "Could not read the file." };
   }
+  // Strip the UTF-8 BOM if present — Blockly.utils.xml.textToDom (DOMParser
+  // under the hood) accepts a BOM at byte level, but when we feed it as a
+  // string DOMParser may treat the U+FEFF as the document's first character,
+  // breaking XML parsing on the very first import.
+  text = text.replace(/^﻿/, "").trim();
   if (!isBlocklyXml(text)) {
+    // eslint-disable-next-line no-console
+    console.warn("[bot-builder] file rejected by isBlocklyXml check, first 200 chars:", text.slice(0, 200));
     return { ok: false, reason: "That file isn't a Blockly strategy XML." };
   }
   const restored = loadWorkspaceXmlIntoBlockly(workspace, text);
   if (!restored) {
-    return { ok: false, reason: "Failed to parse the strategy XML." };
+    return {
+      ok: false,
+      reason:
+        "Failed to parse the strategy XML. Check the browser console for details about which block failed.",
+    };
   }
-  // Round-trip-save the new XML so navigating away and back keeps it.
   persistWorkspaceSnapshot(userId, workspace);
   const blockCount = workspace.getAllBlocks?.()?.length ?? 0;
   return { ok: true, blockCount };

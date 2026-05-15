@@ -1,4 +1,5 @@
 import {
+  hasMeaningfulBotBuilderState,
   initialBotBuilderSettings,
   persistCurrentBotSettings,
   type BotBuilderDurationUnit,
@@ -86,11 +87,111 @@ function readFirstNumber(...candidates: unknown[]): number | null {
   return null;
 }
 
-function readNumberInput(block: any, inputName: string): number | null {
+// Recursively evaluate a value-input block tree into a numeric literal. Handles
+// the most common shapes a Deriv bot uses for AMOUNT / DURATION:
+//   * math_number  (a literal `1`)
+//   * math_arithmetic (ADD/MINUS/MULTIPLY/DIVIDE/POWER over two children)
+//   * variables_get   (follow back to a matching variables_set and recurse)
+// Anything more exotic returns null so the caller can fall back to a default.
+function evaluateMathBlock(
+  block: any,
+  workspace: any,
+  visited: Set<string>,
+): number | null {
+  if (!block || !block.type) return null;
+  const id = block.id ?? `${block.type}-${Math.random()}`;
+  if (visited.has(id)) return null;
+  visited.add(id);
+
+  if (block.type === "math_number") {
+    return readFirstNumber(block.getFieldValue?.("NUM"));
+  }
+
+  if (block.type === "math_arithmetic") {
+    const op = block.getFieldValue?.("OP");
+    const a = evaluateMathBlock(
+      block.getInputTargetBlock?.("A"),
+      workspace,
+      visited,
+    );
+    const b = evaluateMathBlock(
+      block.getInputTargetBlock?.("B"),
+      workspace,
+      visited,
+    );
+    if (a === null || b === null) return null;
+    switch (op) {
+      case "ADD":
+        return a + b;
+      case "MINUS":
+        return a - b;
+      case "MULTIPLY":
+        return a * b;
+      case "DIVIDE":
+        return b === 0 ? null : a / b;
+      case "POWER":
+        return Math.pow(a, b);
+      default:
+        return null;
+    }
+  }
+
+  if (block.type === "math_single") {
+    const op = block.getFieldValue?.("OP");
+    const num = evaluateMathBlock(
+      block.getInputTargetBlock?.("NUM"),
+      workspace,
+      visited,
+    );
+    if (num === null) return null;
+    switch (op) {
+      case "ROOT":
+        return Math.sqrt(num);
+      case "ABS":
+        return Math.abs(num);
+      case "NEG":
+        return -num;
+      case "LN":
+        return Math.log(num);
+      case "LOG10":
+        return Math.log10(num);
+      case "EXP":
+        return Math.exp(num);
+      case "POW10":
+        return Math.pow(10, num);
+      default:
+        return null;
+    }
+  }
+
+  if (block.type === "variables_get") {
+    const var_id = block.getFieldValue?.("VAR");
+    if (!var_id) return null;
+    if (!workspace?.getAllBlocks) return null;
+    const all = workspace.getAllBlocks(true);
+    for (const candidate of all) {
+      if (candidate?.type !== "variables_set") continue;
+      const candidate_var = candidate.getFieldValue?.("VAR");
+      if (candidate_var !== var_id) continue;
+      const valueBlock = candidate.getInputTargetBlock?.("VALUE");
+      const evaluated = evaluateMathBlock(valueBlock, workspace, visited);
+      if (evaluated !== null) return evaluated;
+    }
+    return null;
+  }
+
+  return null;
+}
+
+function readNumberInput(block: any, inputName: string, workspace: any): number | null {
   if (!block?.getInputTargetBlock) return null;
   const target = block.getInputTargetBlock(inputName);
   if (!target) return null;
-  return readFirstNumber(target.getFieldValue?.("NUM"));
+  // Fast path: literal math_number shadow.
+  const literal = readFirstNumber(target.getFieldValue?.("NUM"));
+  if (literal !== null) return literal;
+  // Slow path: walk through math/variables blocks.
+  return evaluateMathBlock(target, workspace, new Set());
 }
 
 export function extractSettingsFromWorkspace(workspace: any): BotBuilderSettings {
@@ -118,8 +219,8 @@ export function extractSettingsFromWorkspace(workspace: any): BotBuilderSettings
   const currency = options?.getFieldValue?.("CURRENCY_LIST") || "";
   const candle_interval = candle?.getFieldValue?.("CANDLEINTERVAL_LIST") || "";
 
-  const stake = readNumberInput(options, "AMOUNT");
-  const duration = readNumberInput(options, "DURATION");
+  const stake = readNumberInput(options, "AMOUNT", workspace);
+  const duration = readNumberInput(options, "DURATION", workspace);
 
   return {
     ...base,
@@ -162,7 +263,14 @@ export function persistWorkspaceSnapshot(
   }
   try {
     const settings = extractSettingsFromWorkspace(workspace);
-    persistCurrentBotSettings(userId, settings);
+    // CRITICAL: don't overwrite the current-settings with the
+    // initialBotBuilderSettings defaults. For complex bots where AMOUNT/
+    // DURATION feed off variables we can't statically evaluate, extraction
+    // returns the base defaults. If we wrote those, the footer Run button
+    // would use $1 instead of the deployed preset's actual stake.
+    if (hasMeaningfulBotBuilderState(settings)) {
+      persistCurrentBotSettings(userId, settings);
+    }
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("[bot-builder] failed to persist derived settings", err);

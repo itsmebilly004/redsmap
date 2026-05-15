@@ -275,7 +275,7 @@ export function normalizeBotBuilderSettings(settings: BotBuilderSettings): BotBu
   };
 }
 
-function hasMeaningfulBotBuilderState(settings: BotBuilderSettings) {
+export function hasMeaningfulBotBuilderState(settings: BotBuilderSettings) {
   const baseline = normalizeBotBuilderSettings(initialBotBuilderSettings);
   const current = normalizeBotBuilderSettings(settings);
   return (
