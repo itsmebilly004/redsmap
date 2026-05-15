@@ -362,6 +362,14 @@ export function TopShell({
       }
     }
 
+    // Reset the running totals for this new run so the Summary card shows the
+    // profit/loss from THIS run only — not a stale accumulation from previous
+    // sessions. The journal/transactions get the run-start marker fresh too.
+    setBotMonitorStats(EMPTY_BOT_MONITOR_STATS);
+    setBotMonitorTransactions([]);
+    setBotMonitorJournal(DEFAULT_BOT_MONITOR_JOURNAL);
+    footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
+
     footerBotRunningRef.current = true;
     setBotMonitorStatus("running");
     setBotMonitorTab("summary");
@@ -393,7 +401,7 @@ export function TopShell({
         selectedAccountType: session.normalizedType,
       };
       let currentStake = settings.stake;
-      let runningProfit = footerBotStatsRef.current.totalProfitLoss;
+      let runningProfit = 0; // this-run-only tally; matches the reset stats above
 
       for (let index = 0; footerBotRunningRef.current && index < settings.maxRuns; index += 1) {
         const snapshot = { ...settings, currency: runCurrency };

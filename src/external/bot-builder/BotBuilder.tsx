@@ -149,7 +149,18 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
   // and only swaps the XML in the existing workspace. This avoids
   // re-injecting Blockly into the same DOM node (which silently fails) when
   // the user navigates between presets without leaving the route.
+  //
+  // userId is read via a ref so a late auth resolution (anonymous → logged in)
+  // doesn't re-fire the mount effect and reset the workspace back to main.xml.
   const initialisedRef = React.useRef(false);
+  const userIdRef = React.useRef<string | null>(userId);
+  const presetIdRef = React.useRef<string | null>(presetId);
+  React.useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
+  React.useEffect(() => {
+    presetIdRef.current = presetId;
+  }, [presetId]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -204,17 +215,28 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         const workspace: any = (window as any).Blockly?.derivWorkspace;
         if (workspace) {
           // First-mount choice: a deploy preset wins; otherwise restore the
-          // user's last saved workspace XML.
-          if (presetId && hasPresetXml(presetId)) {
-            const preset_xml = await loadPresetXml(presetId);
+          // user's last saved workspace XML — reading both user-specific AND
+          // guest keys so a bot saved while logged out is still restored once
+          // the user signs in.
+          const currentPreset = presetIdRef.current;
+          const currentUser = userIdRef.current;
+          let restoredXmlSuccessfully = false;
+          if (currentPreset && hasPresetXml(currentPreset)) {
+            const preset_xml = await loadPresetXml(currentPreset);
             if (preset_xml && !cancelled) {
-              loadWorkspaceXmlIntoBlockly(workspace, preset_xml);
-              persistWorkspaceSnapshot(userId, workspace);
+              restoredXmlSuccessfully = loadWorkspaceXmlIntoBlockly(
+                workspace,
+                preset_xml,
+              );
             }
           } else {
-            const saved_xml = readSavedWorkspaceXml(userId);
+            const saved_xml =
+              readSavedWorkspaceXml(currentUser) ?? readSavedWorkspaceXml(null);
             if (saved_xml) {
-              loadWorkspaceXmlIntoBlockly(workspace, saved_xml);
+              restoredXmlSuccessfully = loadWorkspaceXmlIntoBlockly(
+                workspace,
+                saved_xml,
+              );
             }
           }
 
@@ -222,7 +244,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
             if (persist_timer !== null) window.clearTimeout(persist_timer);
             persist_timer = window.setTimeout(() => {
               persist_timer = null;
-              persistWorkspaceSnapshot(userId, workspace);
+              persistWorkspaceSnapshot(userIdRef.current, workspace);
             }, PERSIST_DEBOUNCE_MS);
           };
           persist_listener = (event: any) => {
@@ -231,7 +253,16 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
             schedulePersist();
           };
           workspace.addChangeListener?.(persist_listener);
-          persistWorkspaceSnapshot(userId, workspace);
+
+          // CRITICAL: only persist after the load if something *was* actually
+          // restored. If the saved XML failed to parse (e.g. block type no
+          // longer registered), we'd otherwise overwrite the user's saved
+          // workspace with the default main.xml that dbot.initWorkspace put
+          // in place, losing their bot permanently. Skipping the persist here
+          // leaves the on-disk XML intact so the next refresh can retry it.
+          if (restoredXmlSuccessfully) {
+            persistWorkspaceSnapshot(userIdRef.current, workspace);
+          }
         }
 
         blockly_store.setLoading(false);
@@ -281,7 +312,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           /* noop */
         }
         try {
-          persistWorkspaceSnapshot(userId, ws);
+          persistWorkspaceSnapshot(userIdRef.current, ws);
         } catch {
           /* noop */
         }
@@ -296,9 +327,24 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         initialisedRef.current = false;
       }
     };
-    // Only re-run for a different user. presetId changes are handled by the
-    // dedicated effect below so we don't tear down + re-inject Blockly.
+    // Mount-only: run init exactly once per route mount. Auth resolution
+    // (userId null → uuid) and preset URL changes are handled by their own
+    // effects so we never re-inject Blockly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When the user signs in AFTER the bot-builder has already mounted, copy
+  // anything they had saved while anonymous into their user-specific key so
+  // future refreshes restore correctly.
+  React.useEffect(() => {
+    if (!initialisedRef.current) return;
+    if (!userId) return;
+    const guest_xml = readSavedWorkspaceXml(null);
+    const user_xml = readSavedWorkspaceXml(userId);
+    if (guest_xml && !user_xml) {
+      const ws = (window as any).Blockly?.derivWorkspace;
+      if (ws) persistWorkspaceSnapshot(userId, ws);
+    }
   }, [userId]);
 
   // Hot-swap preset XML in the existing workspace whenever the URL preset
@@ -307,10 +353,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     if (!presetId) return;
     let cancelled = false;
     (async () => {
-      // Wait until the first-mount init has actually produced a workspace.
-      // The mount effect above sets initialisedRef.current after Blockly
-      // injects; until then we just bail and let the mount effect do the
-      // initial preset load.
+      // Wait until the first-mount init has produced a workspace.
       for (let i = 0; i < 50 && !initialisedRef.current && !cancelled; i += 1) {
         await new Promise((r) => setTimeout(r, 60));
       }
@@ -323,13 +366,13 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       closeBlocklyFlyout();
       const ok = loadWorkspaceXmlIntoBlockly(workspace, preset_xml);
       if (ok) {
-        persistWorkspaceSnapshot(userId, workspace);
+        persistWorkspaceSnapshot(userIdRef.current, workspace);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [presetId, userId]);
+  }, [presetId]);
 
   const handleLoadClick = () => setLoadOpen(true);
   const handleFilePickerOpen = () => fileInputRef.current?.click();

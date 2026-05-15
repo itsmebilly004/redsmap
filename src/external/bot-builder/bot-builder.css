@@ -121,22 +121,40 @@
 
 .bot-builder-sidebar-collapse {
   position: absolute;
-  top: 0.4rem;
-  right: -1.6rem;
-  width: 1.5rem;
-  height: 1.5rem;
+  top: 50%;
+  right: -1.75rem;
+  transform: translateY(-50%);
+  width: 1.75rem;
+  height: 3rem;
   display: grid;
   place-items: center;
   background: #ffffff;
   border: 1px solid hsl(var(--border));
   border-left: 0;
-  border-radius: 0 0.375rem 0.375rem 0;
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: hsl(var(--foreground));
   cursor: pointer;
-  z-index: 5;
+  z-index: 6;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+  transition: background 0.15s ease;
+}
+
+.bot-builder-sidebar-collapse:hover {
+  background: #f4f4f5;
 }
 
 .dark .bot-builder-sidebar-collapse {
-  background: #151515;
+  background: #1f1f1f;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.4);
+}
+
+.dark .bot-builder-sidebar-collapse:hover {
+  background: #2a2a2a;
+}
+
+.bot-builder-sidebar-collapse svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .bot-builder-sidebar-expand-tab {
