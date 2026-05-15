@@ -44,6 +44,13 @@ export type SavedBotPreset = {
   savedAt: string;
   settings: BotBuilderSettings;
   source: "deployed" | "imported" | "manual";
+  /**
+   * Raw Blockly workspace XML. Optional for backwards-compatibility with older
+   * saves that only stored the derived BotBuilderSettings. When present, the
+   * bot-builder reloads the full workspace from this XML instead of the
+   * lossy settings shape.
+   */
+  xml?: string;
 };
 
 const CURRENT_SETTINGS_STORAGE_VERSION = 1;
@@ -114,6 +121,42 @@ export function readCurrentBotSettings(userId?: string | null) {
   }
 }
 
+function writeSavedBotPresets(userId: string | null | undefined, presets: SavedBotPreset[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      savedPresetsStorageKey(userId),
+      JSON.stringify({ version: SAVED_PRESETS_STORAGE_VERSION, presets }),
+    );
+  } catch {
+    // ignore quota / privacy-mode errors
+  }
+}
+
+/**
+ * Append a saved preset (or replace one with the same id) and bump it to the
+ * front of the library so the most recent save is shown first.
+ */
+export function persistSavedBotPreset(
+  userId: string | null | undefined,
+  preset: SavedBotPreset,
+): SavedBotPreset[] {
+  const current = readSavedBotPresets(userId);
+  const filtered = current.filter((entry) => entry.id !== preset.id);
+  const next = [preset, ...filtered].slice(0, 50); // cap so localStorage doesn't bloat
+  writeSavedBotPresets(userId, next);
+  return next;
+}
+
+export function deleteSavedBotPreset(
+  userId: string | null | undefined,
+  id: string,
+): SavedBotPreset[] {
+  const next = readSavedBotPresets(userId).filter((preset) => preset.id !== id);
+  writeSavedBotPresets(userId, next);
+  return next;
+}
+
 export function readSavedBotPresets(userId?: string | null): SavedBotPreset[] {
   if (typeof window === "undefined") return [];
   try {
@@ -179,8 +222,15 @@ export function settingsFromBotPreset(preset: BotPresetConfig): BotBuilderSettin
 }
 
 export function resolveRunnableBotSettings(userId?: string | null) {
-  const savedPreset = readSavedBotPresets(userId)[0];
-  if (savedPreset) return savedPreset.settings;
+  // Priority order matters: the bot-builder auto-saves currentSettings on every
+  // workspace edit, so it always reflects whatever the user is looking at right
+  // now (a freshly loaded bot, a deployed preset, or hand-edited blocks). Run
+  // must use that — falling back to library/deployed/preset entries only when
+  // the workspace itself is empty.
+  const currentSettings = readCurrentBotSettings(userId);
+  if (currentSettings && hasMeaningfulBotBuilderState(currentSettings)) {
+    return currentSettings;
+  }
 
   const deployedPresetId = readDeployedBotPresetIds(userId).at(-1);
   if (deployedPresetId) {
@@ -188,10 +238,8 @@ export function resolveRunnableBotSettings(userId?: string | null) {
     if (deployedPreset) return settingsFromBotPreset(deployedPreset);
   }
 
-  const currentSettings = readCurrentBotSettings(userId);
-  if (currentSettings && hasMeaningfulBotBuilderState(currentSettings)) {
-    return currentSettings;
-  }
+  const savedPreset = readSavedBotPresets(userId)[0];
+  if (savedPreset) return savedPreset.settings;
 
   return null;
 }
@@ -249,6 +297,7 @@ function hasMeaningfulBotBuilderState(settings: BotBuilderSettings) {
 function savedPresetFromRecord(value: unknown) {
   if (!isRecord(value) || !isRecord(value.settings)) return null;
   const source = value.source;
+  const xml = typeof value.xml === "string" && value.xml.length > 0 ? value.xml : undefined;
   return {
     id: readString(value, "id", "saved-bot-preset"),
     name: readString(value, "name", "Saved bot preset"),
@@ -256,6 +305,7 @@ function savedPresetFromRecord(value: unknown) {
     settings: settingsFromRecord(value.settings),
     source:
       source === "deployed" || source === "imported" || source === "manual" ? source : "manual",
+    ...(xml ? { xml } : {}),
   } satisfies SavedBotPreset;
 }
 

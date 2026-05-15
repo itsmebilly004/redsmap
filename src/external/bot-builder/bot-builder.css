@@ -287,45 +287,62 @@
   background: #1a1a1a;
 }
 
-/* ------- Block + field readability (light + dark) ------- */
+/* ------- Block + field readability (light + dark) -------
+   The Zelos renderer sets text fill inline so we need !important to win.
+   Default goal: BLACK text on the WHITE field chips in light mode; near-white
+   text on dark chips in dark mode. */
 
-/* Block body text: black on light blocks, near-white on dark blocks. */
-#scratch_div .blocklyText {
-  fill: #1f2937;
+/* Block body text everywhere — including inside editable fields and dropdowns. */
+#scratch_div .blocklyText,
+#scratch_div .blocklyEditableText > text,
+#scratch_div .blocklyEditableText .blocklyEditableLabel,
+#scratch_div .blocklyDropdownText,
+#scratch_div .blocklyFieldText {
+  fill: #0f172a !important;
   font-weight: 600;
 }
 
-.dark #scratch_div .blocklyText {
-  fill: #f1f5f9;
+.dark #scratch_div .blocklyText,
+.dark #scratch_div .blocklyEditableText > text,
+.dark #scratch_div .blocklyEditableText .blocklyEditableLabel,
+.dark #scratch_div .blocklyDropdownText,
+.dark #scratch_div .blocklyFieldText {
+  fill: #f1f5f9 !important;
 }
 
-/* Root header text on the indigo "Trade parameters" block is always white. */
-#scratch_div .blocklyTextRootBlockHeader {
+/* The "1. Trade parameters" / "2. Purchase conditions" headers sit on the
+   indigo root block — keep their text white in BOTH themes. */
+#scratch_div .blocklyTextRootBlockHeader,
+.dark #scratch_div .blocklyTextRootBlockHeader {
   fill: #ffffff !important;
 }
 
-/* Editable field rectangle: a soft chip the user can spot against the block fill. */
+/* Editable field background rect: pure white in light mode so the user sees
+   a clear "chip" against the surrounding block. */
 #scratch_div .blocklyEditableText > rect:not(.blocklyDropdownRect),
-#scratch_div .blocklyEditableText .blocklyFieldRect {
-  fill: #f1f5f9;
-  stroke: #cbd5e1;
+#scratch_div .blocklyEditableText .blocklyFieldRect,
+#scratch_div rect.blocklyFieldRect {
+  fill: #ffffff !important;
+  stroke: #cbd5e1 !important;
+  stroke-width: 1px !important;
 }
 
 .dark #scratch_div .blocklyEditableText > rect:not(.blocklyDropdownRect),
-.dark #scratch_div .blocklyEditableText .blocklyFieldRect {
-  fill: #2a2a2a;
-  stroke: #4a4a4a;
+.dark #scratch_div .blocklyEditableText .blocklyFieldRect,
+.dark #scratch_div rect.blocklyFieldRect {
+  fill: #1f1f1f !important;
+  stroke: #4a4a4a !important;
 }
 
-/* Editable field text colour. */
-#scratch_div .blocklyEditableText > text,
-#scratch_div .blocklyEditableText .blocklyEditableLabel {
-  fill: #0f172a;
+/* Dropdown chevron arrow inside fields — make it contrast the chip. */
+#scratch_div .blocklyArrow,
+#scratch_div .blocklyDropdownIcon path {
+  fill: #475569 !important;
 }
 
-.dark #scratch_div .blocklyEditableText > text,
-.dark #scratch_div .blocklyEditableText .blocklyEditableLabel {
-  fill: #f1f5f9;
+.dark #scratch_div .blocklyArrow,
+.dark #scratch_div .blocklyDropdownIcon path {
+  fill: #cbd5e1 !important;
 }
 
 /* The actual <input type="text"> Blockly opens when you click a field. */

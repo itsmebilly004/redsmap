@@ -3,11 +3,14 @@ import { observer } from "mobx-react-lite";
 import classNames from "classnames";
 import {
   FolderOpen,
+  Library,
   Redo2,
   RefreshCw,
   RotateCcw,
   Save,
+  Trash2,
   Undo2,
+  Upload,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -32,11 +35,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { StoreProvider, useStore } from "@/external/stores/useStore";
 import dbot from "@/external/bot-skeleton/scratch/dbot";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  deleteSavedBotPreset,
+  initialBotBuilderSettings,
+  persistSavedBotPreset,
+  readSavedBotPresets,
+  type SavedBotPreset,
+} from "@/lib/bot-builder-state";
 import { ToolboxItems } from "./toolbox-items";
 import {
+  extractSettingsFromWorkspace,
   loadWorkspaceXmlIntoBlockly,
   persistWorkspaceSnapshot,
   readSavedWorkspaceXml,
@@ -53,6 +65,25 @@ import "./bot-builder.css";
 const PERSIST_DEBOUNCE_MS = 500;
 const SIDEBAR_PREF_KEY = "arktrader:bot-builder:sidebar-collapsed";
 
+const generatePresetId = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `saved-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+};
+
+const formatSavedAt = (iso: string): string => {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+};
+
 const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => {
   const store = useStore();
   const { app, dashboard, toolbar, flyout, blockly_store, save_modal, load_modal, quick_strategy } = store;
@@ -66,11 +97,14 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
   const [resetOpen, setResetOpen] = React.useState(false);
   const [saveOpen, setSaveOpen] = React.useState(false);
   const [saveName, setSaveName] = React.useState("My bot strategy");
+  const [saveToLibrary, setSaveToLibrary] = React.useState(true);
+  const [downloadOnSave, setDownloadOnSave] = React.useState(false);
+  const [loadOpen, setLoadOpen] = React.useState(false);
+  const [savedPresets, setSavedPresets] = React.useState<SavedBotPreset[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
       const stored = window.localStorage.getItem(SIDEBAR_PREF_KEY);
-      // Default collapsed on phone sizes for more workspace.
       if (stored === null) return window.matchMedia("(max-width: 640px)").matches;
       return stored === "1";
     } catch {
@@ -78,8 +112,6 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     }
   });
 
-  // Persist sidebar pref + tell Blockly to recalculate workspace metrics
-  // whenever the sidebar width changes.
   React.useEffect(() => {
     try {
       window.localStorage.setItem(SIDEBAR_PREF_KEY, sidebarCollapsed ? "1" : "0");
@@ -103,6 +135,14 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     app.onMount();
     return () => app.onUnmount();
   }, [app]);
+
+  const refreshSavedPresets = React.useCallback(() => {
+    setSavedPresets(readSavedBotPresets(userId));
+  }, [userId]);
+
+  React.useEffect(() => {
+    refreshSavedPresets();
+  }, [refreshSavedPresets, loadOpen]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -157,9 +197,6 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
 
         const workspace: any = (window as any).Blockly?.derivWorkspace;
         if (workspace) {
-          // Deploy from Trading Bots wins over the user's last saved workspace,
-          // so opening /bot-builder?preset=osam-autobot always loads that bot's
-          // full strategy XML — the same one a manual file upload would use.
           if (presetId && hasPresetXml(presetId)) {
             const preset_xml = await loadPresetXml(presetId);
             if (preset_xml && !cancelled) {
@@ -252,7 +289,8 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, presetId]);
 
-  const handleLoadClick = () => fileInputRef.current?.click();
+  const handleLoadClick = () => setLoadOpen(true);
+  const handleFilePickerOpen = () => fileInputRef.current?.click();
 
   const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -268,9 +306,36 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     if (result.ok) {
       toast.success(`Loaded ${file.name} — ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}.`);
       setSaveName(file.name.replace(/\.xml$/i, "") || "My bot strategy");
+      setLoadOpen(false);
     } else {
       toast.error(result.reason);
     }
+  };
+
+  const handleLoadSavedPreset = (preset: SavedBotPreset) => {
+    const workspace = (window as any).Blockly?.derivWorkspace;
+    if (!workspace) {
+      toast.error("Workspace isn't ready yet.");
+      return;
+    }
+    closeBlocklyFlyout();
+    if (preset.xml) {
+      const ok = loadWorkspaceXmlIntoBlockly(workspace, preset.xml);
+      if (ok) {
+        persistWorkspaceSnapshot(userId, workspace);
+        toast.success(`Loaded "${preset.name}".`);
+        setSaveName(preset.name);
+        setLoadOpen(false);
+        return;
+      }
+    }
+    toast.error("This saved preset doesn't have a workspace snapshot. Save it again to capture the current workspace.");
+  };
+
+  const handleDeleteSavedPreset = (id: string, name: string) => {
+    const next = deleteSavedBotPreset(userId, id);
+    setSavedPresets(next);
+    toast.success(`Removed "${name}" from your library.`);
   };
 
   const handleSaveSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -280,13 +345,55 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       toast.error("Workspace isn't ready yet.");
       return;
     }
-    const result = saveWorkspaceToFile(workspace, saveName);
-    if (result.ok) {
+    if (!saveToLibrary && !downloadOnSave) {
+      toast.error("Pick at least one destination.");
+      return;
+    }
+
+    let succeeded = false;
+
+    if (saveToLibrary) {
+      try {
+        const B: any = (window as any).Blockly;
+        const xml_dom = B?.Xml?.workspaceToDom?.(workspace);
+        const xml_text: string = xml_dom ? B.Xml.domToText(xml_dom) : "";
+        if (!xml_text) {
+          toast.error("Workspace is empty.");
+          return;
+        }
+        const settings = extractSettingsFromWorkspace(workspace) ?? { ...initialBotBuilderSettings };
+        const preset: SavedBotPreset = {
+          id: generatePresetId(),
+          name: saveName.trim() || "Saved bot strategy",
+          savedAt: new Date().toISOString(),
+          settings,
+          source: "manual",
+          xml: xml_text,
+        };
+        persistSavedBotPreset(userId, preset);
+        refreshSavedPresets();
+        succeeded = true;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to save to library.");
+        return;
+      }
+    }
+
+    if (downloadOnSave) {
+      const result = saveWorkspaceToFile(workspace, saveName);
+      if (!result.ok) {
+        toast.error(result.reason ?? "Could not save file.");
+        if (!succeeded) return;
+      } else {
+        succeeded = true;
+      }
+    }
+
+    if (succeeded) {
       toolbar.setFileName(saveName);
-      toast.success("Strategy downloaded.");
+      const dest = saveToLibrary && downloadOnSave ? "your library and downloaded" : saveToLibrary ? "your library" : "a download";
+      toast.success(`Saved "${saveName.trim() || "Saved bot strategy"}" to ${dest}.`);
       setSaveOpen(false);
-    } else {
-      toast.error(result.reason ?? "Could not save.");
     }
   };
 
@@ -398,29 +505,129 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
             <DialogHeader>
               <DialogTitle>Save bot strategy</DialogTitle>
               <DialogDescription>
-                Saves the current workspace as a Blockly XML file you can re-import later.
+                Save the current workspace so you can load it from the Load menu later, or download it as XML.
               </DialogDescription>
             </DialogHeader>
-            <div className="mt-4 space-y-2">
-              <label htmlFor="bot-builder-save-name" className="text-sm font-medium">
-                File name
-              </label>
-              <Input
-                id="bot-builder-save-name"
-                autoFocus
-                value={saveName}
-                onChange={(e) => setSaveName(e.target.value)}
-                placeholder="My bot strategy"
-              />
-              <p className="text-xs text-muted-foreground">Saved as {saveName.trim() || "bot-strategy"}.xml</p>
+            <div className="mt-4 space-y-3">
+              <div className="space-y-2">
+                <label htmlFor="bot-builder-save-name" className="text-sm font-medium">
+                  Bot name
+                </label>
+                <Input
+                  id="bot-builder-save-name"
+                  autoFocus
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  placeholder="My bot strategy"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Where to save</label>
+                <label className="flex items-start gap-3 rounded-md border border-border bg-background p-3 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={saveToLibrary}
+                    onCheckedChange={(v) => setSaveToLibrary(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span className="flex-1">
+                    <span className="font-medium">Save to your library</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Stored in this browser. Re-open it from the Load menu without re-uploading.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 rounded-md border border-border bg-background p-3 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={downloadOnSave}
+                    onCheckedChange={(v) => setDownloadOnSave(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span className="flex-1">
+                    <span className="font-medium">Also download as .xml</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Downloads the file so you can keep a backup or share it.
+                    </span>
+                  </span>
+                </label>
+              </div>
             </div>
             <DialogFooter className="mt-6">
               <Button type="button" variant="outline" onClick={() => setSaveOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">Download</Button>
+              <Button type="submit">Save</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={loadOpen} onOpenChange={setLoadOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Load a bot</DialogTitle>
+            <DialogDescription>
+              Open one from your library or upload a strategy XML from your computer.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-start gap-2"
+              onClick={handleFilePickerOpen}
+            >
+              <Upload className="size-4" />
+              Open from your computer…
+            </Button>
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Library className="size-4" /> My saved bots
+                {savedPresets.length > 0 && (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                    {savedPresets.length}
+                  </span>
+                )}
+              </div>
+              {savedPresets.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border bg-background p-4 text-center text-xs text-muted-foreground">
+                  No saved bots yet. Click Save in the toolbar to add the current workspace to your library.
+                </p>
+              ) : (
+                <ul className="max-h-72 space-y-1 overflow-y-auto rounded-md border border-border bg-background p-1">
+                  {savedPresets.map((preset) => (
+                    <li key={preset.id} className="flex items-center gap-2 rounded p-2 hover:bg-muted">
+                      <button
+                        type="button"
+                        onClick={() => handleLoadSavedPreset(preset)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <span className="block truncate text-sm font-medium">{preset.name}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          Saved {formatSavedAt(preset.savedAt)} · {preset.settings.symbol || "—"}
+                          {preset.xml ? "" : " · settings only"}
+                        </span>
+                      </button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Delete ${preset.name}`}
+                        title={`Delete ${preset.name}`}
+                        onClick={() => handleDeleteSavedPreset(preset.id, preset.name)}
+                      >
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button type="button" variant="outline" onClick={() => setLoadOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
