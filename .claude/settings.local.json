@@ -26,7 +26,10 @@
       "Bash(cp -r \"src/assets/Deriv Backup/DDBOt/src/external/bot-skeleton/utils\" \"src/external/bot-skeleton/utils\")",
       "Bash(cp -r \"src/assets/Deriv Backup/DDBOt/src/external/bot-skeleton/services\" \"src/external/bot-skeleton/services\")",
       "Bash(cp -r \"src/assets/Deriv Backup/DDBOt/src/external/bot-skeleton/images\" \"src/external/bot-skeleton/images\")",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(node *)",
+      "Bash(taskkill /F /IM node.exe /T)",
+      "PowerShell(Get-Process *)"
     ]
   }
 }

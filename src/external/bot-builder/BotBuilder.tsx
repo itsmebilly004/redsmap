@@ -69,8 +69,15 @@ const BotBuilderInner = observer(() => {
         blockly_store.onMount();
       } catch (err) {
         if (cancelled) return;
+        const blocklyRef: any = (window as any).Blockly;
+        const blockKeys = blocklyRef?.Blocks ? Object.keys(blocklyRef.Blocks) : [];
         // eslint-disable-next-line no-console
-        console.error("BotBuilder init failed:", err);
+        console.error("BotBuilder init failed:", err, {
+          hasBlockly: !!blocklyRef,
+          blockCount: blockKeys.length,
+          hasTradeDefinition: blockKeys.includes("trade_definition"),
+          sampleKeys: blockKeys.slice(0, 10),
+        });
         setError(err instanceof Error ? err.message : String(err));
         blockly_store.setLoading(false);
       }

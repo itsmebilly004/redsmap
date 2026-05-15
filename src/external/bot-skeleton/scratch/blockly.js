@@ -44,5 +44,30 @@ export const loadBlockly = async isDarkMode => {
     modifyBlocklyWorkSpaceContextMenu();
     setColors(isDarkMode);
     await import('./hooks/index.js');
-    await import('./blocks');
+    try {
+        await import('./blocks');
+    } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[loadBlockly] failed while loading custom blocks barrel:', err);
+        throw err;
+    }
+    // Post-condition: every block type referenced by main.xml must be registered.
+    // If any one is missing, the import chain quietly half-succeeded.
+    const required = [
+        'trade_definition',
+        'trade_definition_market',
+        'trade_definition_tradetype',
+        'trade_definition_contracttype',
+        'trade_definition_candleinterval',
+        'trade_definition_restartbuysell',
+        'trade_definition_restartonerror',
+    ];
+    const missing = required.filter(t => !window.Blockly?.Blocks?.[t]);
+    if (missing.length > 0) {
+        // eslint-disable-next-line no-console
+        console.error('[loadBlockly] missing block registrations:', missing,
+            'Registered count:', Object.keys(window.Blockly?.Blocks ?? {}).length,
+            'Sample registered:', Object.keys(window.Blockly?.Blocks ?? {}).slice(0, 15));
+        throw new Error(`Block registrations missing: ${missing.join(', ')}`);
+    }
 };
