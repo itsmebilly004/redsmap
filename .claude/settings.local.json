@@ -19,7 +19,14 @@
       "Bash(npx vite *)",
       "Bash(Select-Object Name, Mode)",
       "Bash(npm run *)",
-      "Bash(bunx tsc *)"
+      "Bash(bunx tsc *)",
+      "Bash(npm install *)",
+      "Bash(cp -r \"src/assets/Deriv Backup/DDBOt/src/external/bot-skeleton/scratch\" \"src/external/bot-skeleton/scratch\")",
+      "Bash(cp -r \"src/assets/Deriv Backup/DDBOt/src/external/bot-skeleton/constants\" \"src/external/bot-skeleton/constants\")",
+      "Bash(cp -r \"src/assets/Deriv Backup/DDBOt/src/external/bot-skeleton/utils\" \"src/external/bot-skeleton/utils\")",
+      "Bash(cp -r \"src/assets/Deriv Backup/DDBOt/src/external/bot-skeleton/services\" \"src/external/bot-skeleton/services\")",
+      "Bash(cp -r \"src/assets/Deriv Backup/DDBOt/src/external/bot-skeleton/images\" \"src/external/bot-skeleton/images\")",
+      "Bash(curl *)"
     ]
   }
 }

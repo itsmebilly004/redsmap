@@ -1,0 +1,64 @@
+.bot-builder-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.bot-builder-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  flex: 0 0 auto;
+}
+
+.bot-builder-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: hsl(var(--border));
+  margin: 0 0.25rem;
+}
+
+.bot-builder-workspace {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 600px;
+  background: hsl(var(--muted) / 0.3);
+}
+
+.bot-builder-workspace--loading {
+  pointer-events: none;
+}
+
+.bot-builder-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.9rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.bot-builder-error {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  right: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+  border: 1px solid hsl(var(--destructive) / 0.4);
+  font-size: 0.875rem;
+}
+
+#scratch_div .blocklySvg {
+  background: transparent;
+}
