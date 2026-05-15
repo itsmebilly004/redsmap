@@ -1,16 +1,37 @@
 import * as React from "react";
 import { observer } from "mobx-react-lite";
+import classNames from "classnames";
 import {
   FolderOpen,
   Redo2,
   RefreshCw,
+  RotateCcw,
   Save,
-  Trash2,
   Undo2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { StoreProvider, useStore } from "@/external/stores/useStore";
 import dbot from "@/external/bot-skeleton/scratch/dbot";
 import { useAuth } from "@/hooks/use-auth";
@@ -20,19 +41,62 @@ import {
   persistWorkspaceSnapshot,
   readSavedWorkspaceXml,
 } from "./workspace-persistence";
+import {
+  loadWorkspaceFromFile,
+  resetWorkspaceToDefault,
+  saveWorkspaceToFile,
+} from "./workspace-io";
+import { BlocksMenuSidebar, closeBlocklyFlyout } from "./blocks-menu-sidebar";
 import "./bot-builder.css";
 
 const PERSIST_DEBOUNCE_MS = 500;
+const SIDEBAR_PREF_KEY = "arktrader:bot-builder:sidebar-collapsed";
 
 const BotBuilderInner = observer(() => {
   const store = useStore();
-  const { app, dashboard, toolbar, flyout, blockly_store, save_modal, load_modal } = store;
+  const { app, dashboard, toolbar, flyout, blockly_store, save_modal, load_modal, quick_strategy } = store;
   const { is_loading } = blockly_store;
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [resetOpen, setResetOpen] = React.useState(false);
+  const [saveOpen, setSaveOpen] = React.useState(false);
+  const [saveName, setSaveName] = React.useState("My bot strategy");
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const stored = window.localStorage.getItem(SIDEBAR_PREF_KEY);
+      // Default collapsed on phone sizes for more workspace.
+      if (stored === null) return window.matchMedia("(max-width: 640px)").matches;
+      return stored === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  // Persist sidebar pref + tell Blockly to recalculate workspace metrics
+  // whenever the sidebar width changes.
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_PREF_KEY, sidebarCollapsed ? "1" : "0");
+    } catch {
+      /* noop */
+    }
+    const id = window.requestAnimationFrame(() => {
+      try {
+        const B = (window as any).Blockly;
+        const ws = B?.derivWorkspace;
+        if (ws && B?.svgResize) B.svgResize(ws);
+        window.dispatchEvent(new Event("resize"));
+      } catch {
+        /* noop */
+      }
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [sidebarCollapsed]);
 
   React.useEffect(() => {
     app.onMount();
@@ -51,7 +115,6 @@ const BotBuilderInner = observer(() => {
       const container = containerRef.current;
       if (!wrapper || !container) return;
 
-      // Wait one paint so the flex layout settles and the wrapper has measurable height.
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
       if (cancelled) return;
 
@@ -92,15 +155,12 @@ const BotBuilderInner = observer(() => {
         initialised = true;
 
         const workspace: any = (window as any).Blockly?.derivWorkspace;
-
-        // Restore a previously-saved workspace XML (auto-save round-trip).
         if (workspace) {
           const saved_xml = readSavedWorkspaceXml(userId);
           if (saved_xml) {
             loadWorkspaceXmlIntoBlockly(workspace, saved_xml);
           }
 
-          // Debounced auto-save on every meaningful change.
           const schedulePersist = () => {
             if (persist_timer !== null) window.clearTimeout(persist_timer);
             persist_timer = window.setTimeout(() => {
@@ -109,22 +169,17 @@ const BotBuilderInner = observer(() => {
             }, PERSIST_DEBOUNCE_MS);
           };
           persist_listener = (event: any) => {
-            // Ignore UI-only events (selection, click).
             if (!event || event.type === "selected" || event.type === "ui") return;
             if (event.isUiEvent) return;
             schedulePersist();
           };
           workspace.addChangeListener?.(persist_listener);
-          // Persist the initial state too so the footer Run button has something
-          // to read on the user's very first visit.
           persistWorkspaceSnapshot(userId, workspace);
         }
 
         blockly_store.setLoading(false);
         blockly_store.onMount();
 
-        // Force Blockly to recompute its SVG metrics now that the workspace is
-        // mounted inside a real flex container.
         const fireResize = () => {
           try {
             window.dispatchEvent(new Event("resize"));
@@ -168,7 +223,6 @@ const BotBuilderInner = observer(() => {
         } catch {
           /* noop */
         }
-        // Final flush so the latest edits aren't lost on unmount.
         try {
           persistWorkspaceSnapshot(userId, ws);
         } catch {
@@ -187,53 +241,177 @@ const BotBuilderInner = observer(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
+  const handleLoadClick = () => fileInputRef.current?.click();
+
+  const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const workspace = (window as any).Blockly?.derivWorkspace;
+    if (!workspace) {
+      toast.error("Workspace isn't ready yet.");
+      return;
+    }
+    closeBlocklyFlyout();
+    const result = await loadWorkspaceFromFile(file, workspace, userId);
+    if (result.ok) {
+      toast.success(`Loaded ${file.name} — ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}.`);
+      setSaveName(file.name.replace(/\.xml$/i, "") || "My bot strategy");
+    } else {
+      toast.error(result.reason);
+    }
+  };
+
+  const handleSaveSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const workspace = (window as any).Blockly?.derivWorkspace;
+    if (!workspace) {
+      toast.error("Workspace isn't ready yet.");
+      return;
+    }
+    const result = saveWorkspaceToFile(workspace, saveName);
+    if (result.ok) {
+      toolbar.setFileName(saveName);
+      toast.success("Strategy downloaded.");
+      setSaveOpen(false);
+    } else {
+      toast.error(result.reason ?? "Could not save.");
+    }
+  };
+
+  const handleResetConfirm = () => {
+    const workspace = (window as any).Blockly?.derivWorkspace;
+    if (!workspace) return;
+    if (resetWorkspaceToDefault(workspace, userId)) {
+      toolbar.setResetButtonState(true);
+      toast.success("Workspace reset to the default strategy.");
+    } else {
+      toast.error("Could not reset workspace.");
+    }
+    setResetOpen(false);
+  };
+
   return (
-    <div className="bot-builder-shell">
+    <div
+      className={classNames("bot-builder-shell", {
+        "bot-builder-shell--sidebar-collapsed": sidebarCollapsed,
+      })}
+    >
       <div className="bot-builder-toolbar">
-        <Button variant="outline" size="sm" onClick={() => load_modal.onLoadModalOpen()}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xml,application/xml,text/xml"
+          className="sr-only"
+          onChange={handleFileSelected}
+          aria-hidden
+        />
+        <Button variant="outline" size="sm" onClick={handleLoadClick}>
           <FolderOpen className="size-4" />
-          Load
+          <span className="hidden sm:inline">Load</span>
         </Button>
-        <Button variant="outline" size="sm" onClick={() => save_modal.toggleSaveModal()}>
+        <Button variant="outline" size="sm" onClick={() => setSaveOpen(true)}>
           <Save className="size-4" />
-          Save
+          <span className="hidden sm:inline">Save</span>
         </Button>
         <div className="bot-builder-toolbar-divider" aria-hidden />
-        <Button variant="ghost" size="sm" onClick={toolbar.onUndoClick} aria-label="Undo">
+        <Button variant="ghost" size="sm" onClick={toolbar.onUndoClick} aria-label="Undo" title="Undo">
           <Undo2 className="size-4" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={toolbar.onRedoClick} aria-label="Redo">
+        <Button variant="ghost" size="sm" onClick={toolbar.onRedoClick} aria-label="Redo" title="Redo">
           <Redo2 className="size-4" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={toolbar.onSortClick} aria-label="Sort">
+        <Button variant="ghost" size="sm" onClick={toolbar.onSortClick} aria-label="Sort blocks" title="Sort blocks">
           <RefreshCw className="size-4" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={toolbar.onResetClick} aria-label="Reset">
-          <Trash2 className="size-4" />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setResetOpen(true)}
+          aria-label="Reset workspace"
+          title="Reset workspace"
+        >
+          <RotateCcw className="size-4" />
         </Button>
         <div className="bot-builder-toolbar-divider" aria-hidden />
-        <Button variant="ghost" size="sm" onClick={() => toolbar.onZoomInOutClick(true)} aria-label="Zoom in">
+        <Button variant="ghost" size="sm" onClick={() => toolbar.onZoomInOutClick(true)} aria-label="Zoom in" title="Zoom in">
           <ZoomIn className="size-4" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => toolbar.onZoomInOutClick(false)} aria-label="Zoom out">
+        <Button variant="ghost" size="sm" onClick={() => toolbar.onZoomInOutClick(false)} aria-label="Zoom out" title="Zoom out">
           <ZoomOut className="size-4" />
         </Button>
+        <div className="ml-auto truncate text-xs text-muted-foreground hidden sm:block">
+          {toolbar.file_name}
+        </div>
       </div>
-      <div ref={wrapperRef} className="bot-builder-workspace-wrapper">
-        {/* Blockly injects an SVG into #scratch_div. Don't put React children inside it. */}
-        <div ref={containerRef} id="scratch_div" />
-        {is_loading && (
-          <div className="bot-builder-overlay" aria-live="polite">
-            Loading Blockly…
-          </div>
-        )}
-        {error && (
-          <div className="bot-builder-error" role="alert">
-            <strong>Blockly failed to mount:</strong> {error}
-          </div>
-        )}
+      <div className="bot-builder-body">
+        <BlocksMenuSidebar
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+          onQuickStrategy={() => quick_strategy.setOpen(true)}
+        />
+        <div ref={wrapperRef} className="bot-builder-workspace-wrapper">
+          <div ref={containerRef} id="scratch_div" />
+          {is_loading && (
+            <div className="bot-builder-overlay" aria-live="polite">
+              Loading Blockly…
+            </div>
+          )}
+          {error && (
+            <div className="bot-builder-error" role="alert">
+              <strong>Blockly failed to mount:</strong> {error}
+            </div>
+          )}
+        </div>
       </div>
       <div id="modal_root" />
+
+      <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset workspace?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Any unsaved blocks will be cleared and the default trade-definition strategy will be loaded.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleResetConfirm}>Reset</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+        <DialogContent>
+          <form onSubmit={handleSaveSubmit}>
+            <DialogHeader>
+              <DialogTitle>Save bot strategy</DialogTitle>
+              <DialogDescription>
+                Saves the current workspace as a Blockly XML file you can re-import later.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 space-y-2">
+              <label htmlFor="bot-builder-save-name" className="text-sm font-medium">
+                File name
+              </label>
+              <Input
+                id="bot-builder-save-name"
+                autoFocus
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                placeholder="My bot strategy"
+              />
+              <p className="text-xs text-muted-foreground">Saved as {saveName.trim() || "bot-strategy"}.xml</p>
+            </div>
+            <DialogFooter className="mt-6">
+              <Button type="button" variant="outline" onClick={() => setSaveOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">Download</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });

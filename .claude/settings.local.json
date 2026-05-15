@@ -29,7 +29,8 @@
       "Bash(curl *)",
       "Bash(node *)",
       "Bash(taskkill /F /IM node.exe /T)",
-      "PowerShell(Get-Process *)"
+      "PowerShell(Get-Process *)",
+      "Bash(awk '/Category id=/{indent_level=gsub\\(/    /,\"\"\\); print NR\": \"indent_level\": \"$0}' \"src/external/bot-builder/toolbox-items.tsx\")"
     ]
   }
 }

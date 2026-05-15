@@ -6,10 +6,6 @@ import {
   type BotBuilderTradeType,
 } from "@/lib/bot-builder-state";
 
-// Local-storage key for the raw Blockly XML so the workspace round-trips
-// across navigation. Settings (the footer-monitor input) live under the
-// existing `arktrader:bot-builder:${userId}:current-settings` key managed by
-// bot-builder-state.ts so the rest of the app keeps reading one source.
 const xmlStorageKey = (userId: string | null | undefined) =>
   `arktrader:bot-builder:${userId ?? "guest"}:workspace-xml`;
 
@@ -34,7 +30,6 @@ export function writeSavedWorkspaceXml(
   }
 }
 
-// Map Deriv's TRADETYPE_LIST value → arktrader's BotBuilderTradeType.
 function mapTradeType(value: string): BotBuilderTradeType {
   const v = value.toLowerCase();
   if (v.includes("digit") || v === "matchesdiffers" || v === "evenodd" || v === "overunder") {
@@ -59,7 +54,6 @@ function mapDirection(tradeType: string, contractType: string): string {
     if (t.includes("touch")) return "touch";
     return initialBotBuilderSettings.purchaseDirection;
   }
-  // Deriv encodes contract types like CALL, PUT, DIGITEVEN, DIGITODD, ...
   if (c === "call" || c === "callput_up" || c === "rise") return "up";
   if (c === "put" || c === "callput_down" || c === "fall") return "down";
   if (c === "digiteven") return "even";
@@ -91,8 +85,6 @@ function readFirstNumber(...candidates: unknown[]): number | null {
   return null;
 }
 
-// Read a numeric Blockly value-input. Trade-options uses `math_number` shadow
-// blocks for AMOUNT / DURATION, so we peek into the child block's NUM field.
 function readNumberInput(block: any, inputName: string): number | null {
   if (!block?.getInputTargetBlock) return null;
   const target = block.getInputTargetBlock(inputName);
@@ -100,11 +92,6 @@ function readNumberInput(block: any, inputName: string): number | null {
   return readFirstNumber(target.getFieldValue?.("NUM"));
 }
 
-/**
- * Walk the Blockly workspace and pluck out the fields the footer
- * BotRunMonitorPanel needs. Anything we can't determine is filled from
- * initialBotBuilderSettings so the consumer never sees undefined.
- */
 export function extractSettingsFromWorkspace(workspace: any): BotBuilderSettings {
   const base = { ...initialBotBuilderSettings };
   if (!workspace?.getAllBlocks) return base;
@@ -155,7 +142,6 @@ export function persistWorkspaceSnapshot(
   workspace: any,
 ) {
   if (!workspace) return;
-  // Save raw XML for round-trip restore on next /bot-builder visit.
   try {
     const B = (window as any).Blockly;
     if (B?.Xml && workspace.getAllBlocks?.()?.length) {
@@ -167,8 +153,6 @@ export function persistWorkspaceSnapshot(
     // eslint-disable-next-line no-console
     console.warn("[bot-builder] failed to persist workspace xml", err);
   }
-  // Save a derived BotBuilderSettings snapshot so the footer Run button can
-  // pick it up from anywhere in the app.
   try {
     const settings = extractSettingsFromWorkspace(workspace);
     persistCurrentBotSettings(userId, settings);
@@ -178,21 +162,94 @@ export function persistWorkspaceSnapshot(
   }
 }
 
+/**
+ * Load a Blockly strategy XML into the workspace. Disposes every existing
+ * top-level block (including deletable=false root blocks), groups events so
+ * listeners see one transaction, then rerenders + recenters.
+ *
+ * Returns true if domToWorkspace completed without throwing.
+ */
 export function loadWorkspaceXmlIntoBlockly(
   workspace: any,
   xml_text: string | null,
 ): boolean {
   if (!workspace || !xml_text) return false;
+  const B = (window as any).Blockly;
+  if (!B?.Xml || !B?.utils?.xml?.textToDom) return false;
+
+  const previous_group = B.Events?.getGroup?.();
+  const previous_disabled = B.Events?.disabled_ ?? 0;
   try {
-    const B = (window as any).Blockly;
-    if (!B?.Xml || !B?.utils?.xml?.textToDom) return false;
     const dom = B.utils.xml.textToDom(xml_text);
+
+    // Suppress event re-entry while we tear down + rebuild so block onchange
+    // handlers don't try to enforce TRADE_OPTIONS membership on a half-built
+    // workspace.
+    B.Events?.setGroup?.(`bot-load-${Date.now()}`);
+    B.Events?.disable?.();
+
+    // Workspace.clear() in v10 disposes top blocks, but we explicitly dispose
+    // each first to be defensive about deletable=false guards in older saves.
+    const top_blocks = workspace.getTopBlocks?.(false) ?? [];
+    for (const block of top_blocks) {
+      try {
+        block.dispose?.(false, false);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[bot-builder] dispose failed for", block?.type, err);
+      }
+    }
     workspace.clear?.();
+
     B.Xml.domToWorkspace(dom, workspace);
-    return true;
+
+    // Reset undo so the load itself isn't undoable (otherwise Ctrl+Z brings
+    // the previous bot back over the new one).
+    workspace.clearUndo?.();
+
+    // Re-enable events so user interactions resume normally.
+    B.Events?.enable?.();
+    B.Events?.setGroup?.(previous_group ?? false);
+
+    // Lay out the new blocks and force Blockly to recompute its SVG metrics.
+    try {
+      workspace.cleanUp?.(0, 60);
+    } catch {
+      /* swallow — cleanUp can throw on stubbed dropdowns */
+    }
+    try {
+      B.svgResize?.(workspace);
+    } catch {
+      /* noop */
+    }
+    try {
+      workspace.scrollCenter?.();
+    } catch {
+      /* noop */
+    }
+
+    const block_count = workspace.getAllBlocks?.(false)?.length ?? 0;
+    // eslint-disable-next-line no-console
+    console.info(
+      "[bot-builder] loaded workspace, block_count =",
+      block_count,
+      "top_blocks =",
+      workspace.getTopBlocks?.(false)?.length ?? 0,
+    );
+    return block_count > 0;
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn("[bot-builder] failed to restore workspace xml", err);
+    console.error("[bot-builder] failed to load workspace xml", err);
+    try {
+      // Re-enable in error path so the workspace isn't left frozen.
+      B.Events?.enable?.();
+      B.Events?.setGroup?.(previous_group ?? false);
+      if (typeof previous_disabled === "number") {
+        // best-effort restoration of nested disable count
+      }
+    } catch {
+      /* noop */
+    }
     return false;
   }
 }
