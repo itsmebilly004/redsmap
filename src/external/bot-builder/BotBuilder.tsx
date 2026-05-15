@@ -47,12 +47,13 @@ import {
   saveWorkspaceToFile,
 } from "./workspace-io";
 import { BlocksMenuSidebar, closeBlocklyFlyout } from "./blocks-menu-sidebar";
+import { hasPresetXml, loadPresetXml } from "./preset-xml-loader";
 import "./bot-builder.css";
 
 const PERSIST_DEBOUNCE_MS = 500;
 const SIDEBAR_PREF_KEY = "arktrader:bot-builder:sidebar-collapsed";
 
-const BotBuilderInner = observer(() => {
+const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => {
   const store = useStore();
   const { app, dashboard, toolbar, flyout, blockly_store, save_modal, load_modal, quick_strategy } = store;
   const { is_loading } = blockly_store;
@@ -156,9 +157,19 @@ const BotBuilderInner = observer(() => {
 
         const workspace: any = (window as any).Blockly?.derivWorkspace;
         if (workspace) {
-          const saved_xml = readSavedWorkspaceXml(userId);
-          if (saved_xml) {
-            loadWorkspaceXmlIntoBlockly(workspace, saved_xml);
+          // Deploy from Trading Bots wins over the user's last saved workspace,
+          // so opening /bot-builder?preset=osam-autobot always loads that bot's
+          // full strategy XML — the same one a manual file upload would use.
+          if (presetId && hasPresetXml(presetId)) {
+            const preset_xml = await loadPresetXml(presetId);
+            if (preset_xml && !cancelled) {
+              loadWorkspaceXmlIntoBlockly(workspace, preset_xml);
+            }
+          } else {
+            const saved_xml = readSavedWorkspaceXml(userId);
+            if (saved_xml) {
+              loadWorkspaceXmlIntoBlockly(workspace, saved_xml);
+            }
           }
 
           const schedulePersist = () => {
@@ -239,7 +250,7 @@ const BotBuilderInner = observer(() => {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [userId, presetId]);
 
   const handleLoadClick = () => fileInputRef.current?.click();
 
@@ -416,9 +427,9 @@ const BotBuilderInner = observer(() => {
   );
 });
 
-export const BotBuilder: React.FC = () => (
+export const BotBuilder: React.FC<{ presetId?: string | null }> = ({ presetId = null }) => (
   <StoreProvider dbot={dbot}>
-    <BotBuilderInner />
+    <BotBuilderInner presetId={presetId} />
   </StoreProvider>
 );
 

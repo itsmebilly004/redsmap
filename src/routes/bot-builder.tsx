@@ -14,9 +14,10 @@ export const Route = createFileRoute("/bot-builder")({
 });
 
 function BotBuilderPage() {
+  const { preset } = Route.useSearch();
   return (
     <TopShell>
-      <BotBuilder />
+      <BotBuilder presetId={preset ?? null} />
     </TopShell>
   );
 }
