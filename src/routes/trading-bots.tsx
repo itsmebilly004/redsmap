@@ -1,19 +1,14 @@
 // src/routes/trading-bots.tsx
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TopShell, PageHero } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { recordBotPresetActivity } from "@/lib/activity-memory";
 import { importBotXmlIntoBuilderMemory } from "@/lib/bot-builder-memory";
-import {
-  ensureTradingBotDatabasePresets,
-  fetchTradingBotPresetFromDatabase,
-  TRADING_BOT_ASSETS,
-  type DatabaseTradingBotPreset,
-  type TradingBotAsset,
-} from "@/lib/trading-bot-database";
+import { ensureBotXmlPresets, fetchBotXmlFromDatabase } from "@/lib/bot-xml-storage";
+import { TRADING_BOT_ASSETS, type TradingBotAsset } from "@/lib/trading-bot-database";
 import { Zap, Target, Cpu, BrainCircuit, Flame, Rocket, Shield } from "lucide-react";
 
 export const Route = createFileRoute("/trading-bots")({
@@ -47,30 +42,19 @@ export const BOT_PRESETS = TRADING_BOT_ASSETS.map((preset) => ({
 function TradingBots() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [databasePresets, setDatabasePresets] = useState<DatabaseTradingBotPreset[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState(false);
   const [deployingId, setDeployingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const visiblePresets = useMemo(() => {
-    const byId = new Map(databasePresets.map((preset) => [preset.id, preset]));
-    return BOT_PRESETS.map((preset) => ({
-      ...preset,
-      ...(byId.get(preset.id) ?? {}),
-    }));
-  }, [databasePresets]);
 
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
     setLoadingLibrary(true);
     setLoadError(null);
-    ensureTradingBotDatabasePresets(user.id)
-      .then((presets) => {
-        if (!cancelled) setDatabasePresets(presets);
-      })
+    ensureBotXmlPresets()
       .catch((error) => {
         const message =
-          error instanceof Error ? error.message : "Could not load trading bot presets.";
+          error instanceof Error ? error.message : "Could not sync bot presets to database.";
         if (!cancelled) setLoadError(message);
       })
       .finally(() => {
@@ -88,13 +72,10 @@ function TradingBots() {
     }
     setDeployingId(bot.id);
     try {
-      const preset = await fetchTradingBotPresetFromDatabase(user.id, bot.id);
-      await importBotXmlIntoBuilderMemory(user.id, {
-        name: preset.name,
-        xml: preset.xml,
-      });
-      recordBotPresetActivity(user.id, "deployed", preset.name, preset.id);
-      toast.success(`Imported "${preset.name}" into the bot builder.`);
+      const xml = await fetchBotXmlFromDatabase(bot.id);
+      await importBotXmlIntoBuilderMemory(user.id, { name: bot.name, xml });
+      recordBotPresetActivity(user.id, "deployed", bot.name, bot.id);
+      toast.success(`Imported "${bot.name}" into the bot builder.`);
       navigate({ to: "/bot-builder" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not deploy this bot preset.";
@@ -116,7 +97,7 @@ function TradingBots() {
           </div>
         )}
         <div className="grid gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-3">
-          {visiblePresets.map((b) => (
+          {BOT_PRESETS.map((b) => (
             <div
               key={b.id}
               className="group relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-card p-4 shadow-xl transition-all hover:border-primary/50 sm:p-6"

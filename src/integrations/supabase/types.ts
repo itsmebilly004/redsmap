@@ -8,6 +8,30 @@ export type Database = {
   };
   public: {
     Tables: {
+      bot_xml_presets: {
+        Row: {
+          bot_id: string;
+          created_at: string;
+          name: string;
+          updated_at: string;
+          xml_content: string;
+        };
+        Insert: {
+          bot_id: string;
+          created_at?: string;
+          name: string;
+          updated_at?: string;
+          xml_content: string;
+        };
+        Update: {
+          bot_id?: string;
+          created_at?: string;
+          name?: string;
+          updated_at?: string;
+          xml_content?: string;
+        };
+        Relationships: [];
+      };
       bots: {
         Row: {
           created_at: string;

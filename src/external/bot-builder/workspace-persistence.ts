@@ -1,5 +1,4 @@
 import {
-  hasMeaningfulBotBuilderState,
   initialBotBuilderSettings,
   persistCurrentBotSettings,
   readCurrentBotSettings,
@@ -104,10 +103,14 @@ function readFirstNumber(...candidates: unknown[]): number | null {
 //   * math_arithmetic (ADD/MINUS/MULTIPLY/DIVIDE/POWER over two children)
 //   * variables_get   (follow back to a matching variables_set and recurse)
 // Anything more exotic returns null so the caller can fall back to a default.
+// `forbidden` blocks variables_get from resolving a variable whose ID or name
+// is in the set — this prevents self-referential assignments like
+// `Stake = Stake * 1.95` from being evaluated as an initial value.
 function evaluateMathBlock(
   block: BlocklyBlockLike | null | undefined,
   workspace: BlocklyWorkspaceLike,
   visited: Set<string>,
+  forbidden?: Set<string>,
 ): number | null {
   if (!block || !block.type) return null;
   const id = block.id ?? `${block.type}-${Math.random()}`;
@@ -120,8 +123,8 @@ function evaluateMathBlock(
 
   if (block.type === "math_arithmetic") {
     const op = block.getFieldValue?.("OP");
-    const a = evaluateMathBlock(block.getInputTargetBlock?.("A"), workspace, visited);
-    const b = evaluateMathBlock(block.getInputTargetBlock?.("B"), workspace, visited);
+    const a = evaluateMathBlock(block.getInputTargetBlock?.("A"), workspace, visited, forbidden);
+    const b = evaluateMathBlock(block.getInputTargetBlock?.("B"), workspace, visited, forbidden);
     if (a === null || b === null) return null;
     switch (op) {
       case "ADD":
@@ -141,7 +144,7 @@ function evaluateMathBlock(
 
   if (block.type === "math_single") {
     const op = block.getFieldValue?.("OP");
-    const num = evaluateMathBlock(block.getInputTargetBlock?.("NUM"), workspace, visited);
+    const num = evaluateMathBlock(block.getInputTargetBlock?.("NUM"), workspace, visited, forbidden);
     if (num === null) return null;
     switch (op) {
       case "ROOT":
@@ -166,6 +169,8 @@ function evaluateMathBlock(
   if (block.type === "variables_get") {
     const var_id = block.getFieldValue?.("VAR");
     if (!var_id) return null;
+    // Self-reference guard: skip if this variable is forbidden (being resolved up the call stack)
+    if (forbidden?.has(var_id)) return null;
     if (!workspace?.getAllBlocks) return null;
     const all = workspace.getAllBlocks(true);
     for (const candidate of all) {
@@ -173,7 +178,7 @@ function evaluateMathBlock(
       const candidate_var = candidate.getFieldValue?.("VAR");
       if (candidate_var !== var_id) continue;
       const valueBlock = candidate.getInputTargetBlock?.("VALUE");
-      const evaluated = evaluateMathBlock(valueBlock, workspace, visited);
+      const evaluated = evaluateMathBlock(valueBlock, workspace, visited, forbidden);
       if (evaluated !== null) return evaluated;
     }
     return null;
@@ -193,7 +198,7 @@ function readNumberInput(
   // Fast path: literal math_number shadow.
   const literal = readFirstNumber(target.getFieldValue?.("NUM"));
   if (literal !== null) return literal;
-  // Slow path: walk through math/variables blocks.
+  // Slow path: walk through math/variables blocks (no forbidden — trade options inputs are not self-referential).
   return evaluateMathBlock(target, workspace, new Set());
 }
 
@@ -217,8 +222,14 @@ function readNamedVariableNumber(workspace: BlocklyWorkspaceLike, names: string[
     if (block?.type !== "variables_set") continue;
     const variableName = normalizeVariableName(getVariableNameFromBlock(block));
     if (!wanted.has(variableName)) continue;
+    const varId = block.getFieldValue?.("VAR") ?? "";
+    const varName = getVariableNameFromBlock(block);
+    // Build forbidden set: prevents variables_get(X) inside variables_set(X) value from
+    // creating a false reading (e.g. martingale block "Stake = Stake * 1.95" returning 1.95
+    // instead of being skipped so we read the initial "Stake = 1.0" block instead).
+    const forbidden = new Set<string>([varId, varName].filter(Boolean));
     const valueBlock = block.getInputTargetBlock?.("VALUE");
-    const value = evaluateMathBlock(valueBlock, workspace, new Set());
+    const value = evaluateMathBlock(valueBlock, workspace, new Set(), forbidden);
     if (value !== null) return value;
   }
   return null;
@@ -378,6 +389,7 @@ function evaluateXmlMathBlock(
   block: Element | null,
   variableSets: Element[],
   visited: Set<Element>,
+  forbidden?: Set<string>,
 ): number | null {
   if (!block) return null;
   if (visited.has(block)) return null;
@@ -390,8 +402,8 @@ function evaluateXmlMathBlock(
 
   if (type === "math_arithmetic") {
     const op = xmlField(block, "OP");
-    const a = evaluateXmlMathBlock(xmlValueBlock(block, "A"), variableSets, visited);
-    const b = evaluateXmlMathBlock(xmlValueBlock(block, "B"), variableSets, visited);
+    const a = evaluateXmlMathBlock(xmlValueBlock(block, "A"), variableSets, visited, forbidden);
+    const b = evaluateXmlMathBlock(xmlValueBlock(block, "B"), variableSets, visited, forbidden);
     if (a === null || b === null) return null;
     switch (op) {
       case "ADD":
@@ -411,7 +423,7 @@ function evaluateXmlMathBlock(
 
   if (type === "math_single") {
     const op = xmlField(block, "OP");
-    const num = evaluateXmlMathBlock(xmlValueBlock(block, "NUM"), variableSets, visited);
+    const num = evaluateXmlMathBlock(xmlValueBlock(block, "NUM"), variableSets, visited, forbidden);
     if (num === null) return null;
     switch (op) {
       case "ROOT":
@@ -435,9 +447,11 @@ function evaluateXmlMathBlock(
 
   if (type === "variables_get") {
     const variable = readXmlVariableField(block);
+    // Self-reference guard: skip if this variable ID or name is forbidden
+    if (forbidden?.has(variable.id) || forbidden?.has(variable.name)) return null;
     for (const candidate of variableSets) {
       if (!xmlVariableMatches(candidate, variable.id, variable.name)) continue;
-      const value = evaluateXmlMathBlock(xmlValueBlock(candidate, "VALUE"), variableSets, visited);
+      const value = evaluateXmlMathBlock(xmlValueBlock(candidate, "VALUE"), variableSets, visited, forbidden);
       if (value !== null) return value;
     }
   }
@@ -457,9 +471,13 @@ function readXmlNumberInput(
 function readXmlNamedVariableNumber(variableSets: Element[], names: string[]): number | null {
   const wanted = new Set(names.map(normalizeVariableName));
   for (const block of variableSets) {
-    const variable = normalizeVariableName(readXmlVariableField(block).name);
+    const varField = readXmlVariableField(block);
+    const variable = normalizeVariableName(varField.name);
     if (!wanted.has(variable)) continue;
-    const value = evaluateXmlMathBlock(xmlValueBlock(block, "VALUE"), variableSets, new Set());
+    // Forbidden set prevents self-referential assignments (e.g. Stake = Stake * 1.95) from
+    // being evaluated as an initial value; instead we skip to the next setter block.
+    const forbidden = new Set<string>([varField.id, varField.name].filter(Boolean));
+    const value = evaluateXmlMathBlock(xmlValueBlock(block, "VALUE"), variableSets, new Set(), forbidden);
     if (value !== null) return value;
   }
   return null;
@@ -571,14 +589,7 @@ export function persistWorkspaceSnapshot(
     // workspace edits instead of snapping back to the initial defaults.
     const existing = readCurrentBotSettings(userId) ?? undefined;
     const settings = extractSettingsFromWorkspace(workspace, existing);
-    // CRITICAL: don't overwrite the current-settings with the
-    // initialBotBuilderSettings defaults. For complex bots where AMOUNT/
-    // DURATION feed off variables we can't statically evaluate, extraction
-    // returns the base defaults. If we wrote those, the footer Run button
-    // would use $1 instead of the deployed preset's actual stake.
-    if (hasMeaningfulBotBuilderState(settings)) {
-      persistCurrentBotSettings(userId, settings);
-    }
+    persistCurrentBotSettings(userId, settings);
   } catch (err) {
     console.warn("[bot-builder] failed to persist derived settings", err);
   }

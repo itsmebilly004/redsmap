@@ -1,14 +1,6 @@
-import {
-  clearCurrentBotPresetId,
-  initialBotBuilderSettings,
-  persistCurrentBotSettings,
-  type BotBuilderSettings,
-} from "@/lib/bot-builder-state";
+import { clearCurrentBotPresetId } from "@/lib/bot-builder-state";
 import { writeRecentWorkspaceXml } from "@/external/bot-builder/recent-workspaces";
-import {
-  extractSettingsFromXmlText,
-  writeSavedWorkspaceXml,
-} from "@/external/bot-builder/workspace-persistence";
+import { writeSavedWorkspaceXml } from "@/external/bot-builder/workspace-persistence";
 
 export type BuilderMemoryImport = {
   name: string;
@@ -16,7 +8,7 @@ export type BuilderMemoryImport = {
 };
 
 function normalizeXml(xml: string): string {
-  return xml.replace(/^\uFEFF/, "").trim();
+  return xml.replace(/^﻿/, "").trim();
 }
 
 function isBlocklyXml(xml: string): boolean {
@@ -26,19 +18,13 @@ function isBlocklyXml(xml: string): boolean {
 export async function importBotXmlIntoBuilderMemory(
   userId: string | null | undefined,
   input: BuilderMemoryImport,
-): Promise<BotBuilderSettings> {
+): Promise<void> {
   const xml = normalizeXml(input.xml);
   if (!isBlocklyXml(xml)) {
     throw new Error("The selected bot preset is not a Blockly XML strategy.");
   }
-
-  const settings = extractSettingsFromXmlText(xml) ?? { ...initialBotBuilderSettings };
-
   clearCurrentBotPresetId(userId);
   if (userId) clearCurrentBotPresetId(null);
   writeSavedWorkspaceXml(userId, xml);
-  persistCurrentBotSettings(userId, settings);
   await writeRecentWorkspaceXml(xml, input.name);
-
-  return settings;
 }
