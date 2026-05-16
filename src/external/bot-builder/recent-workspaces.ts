@@ -1,5 +1,6 @@
 import localForage from "localforage";
 import LZString from "lz-string";
+import { getBlocklyRuntime, type BlocklyWorkspaceLike } from "./blockly-runtime";
 
 /**
  * Writes to the SAME localForage key (`saved_workspaces`) that dbot.initWorkspace
@@ -41,12 +42,14 @@ export async function getRecentWorkspaces(): Promise<RecentWorkspace[]> {
  * latest entry sits at index 0 so dbot.initWorkspace loads it on next mount.
  */
 export async function writeRecentWorkspace(
-  workspace: any,
+  workspace: BlocklyWorkspaceLike,
   name: string,
 ): Promise<boolean> {
   try {
-    const B = (window as any).Blockly;
-    if (!B?.Xml || !workspace?.getAllBlocks?.()?.length) return false;
+    const B = getBlocklyRuntime();
+    if (!B?.Xml?.workspaceToDom || !B.Xml.domToText || !workspace?.getAllBlocks?.()?.length) {
+      return false;
+    }
     const xml_dom = B.Xml.workspaceToDom(workspace);
     const xml_text = B.Xml.domToText(xml_dom);
 
@@ -54,10 +57,7 @@ export async function writeRecentWorkspace(
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : `local-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    const id =
-      workspace.current_strategy_id ??
-      B.utils?.idGenerator?.genUid?.() ??
-      generatedId;
+    const id = workspace.current_strategy_id ?? B.utils?.idGenerator?.genUid?.() ?? generatedId;
     workspace.current_strategy_id = id;
 
     const list = await getRecentWorkspaces();
@@ -80,8 +80,31 @@ export async function writeRecentWorkspace(
     await localForage.setItem(STORAGE_KEY, LZString.compress(JSON.stringify(list)));
     return true;
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn("[bot-builder] writeRecentWorkspace failed", err);
+    return false;
+  }
+}
+
+export async function writeRecentWorkspaceXml(xml: string, name: string): Promise<boolean> {
+  try {
+    if (!xml.trim()) return false;
+    const generatedId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `local-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const list = await getRecentWorkspaces();
+    const entry: RecentWorkspace = {
+      id: generatedId,
+      name: name || "Bot strategy",
+      xml,
+      timestamp: Date.now(),
+      save_type: "unsaved",
+    };
+    const next = [entry, ...list.filter((item) => item.xml !== xml)].slice(0, MAX_RECENT);
+    await localForage.setItem(STORAGE_KEY, LZString.compress(JSON.stringify(next)));
+    return true;
+  } catch (err) {
+    console.warn("[bot-builder] writeRecentWorkspaceXml failed", err);
     return false;
   }
 }
@@ -90,6 +113,6 @@ export async function writeRecentWorkspace(
  * Synchronous best-effort wrapper that schedules the async write without
  * blocking the caller (used inside the debounced workspace change listener).
  */
-export function scheduleRecentWorkspaceWrite(workspace: any, name: string): void {
+export function scheduleRecentWorkspaceWrite(workspace: BlocklyWorkspaceLike, name: string): void {
   void writeRecentWorkspace(workspace, name);
 }

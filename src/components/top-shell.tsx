@@ -32,11 +32,8 @@ import {
   redirectToDerivOAuth,
   sanitizeDerivOAuthUrl,
 } from "@/lib/deriv";
-import {
-  readCurrentBotPresetId,
-  resolveRunnableBotSettings,
-  type BotBuilderSettings,
-} from "@/lib/bot-builder-state";
+import { resolveRunnableBotSettings, type BotBuilderSettings } from "@/lib/bot-builder-state";
+import { getDerivWorkspace } from "@/external/bot-builder/blockly-runtime";
 import { buyProposal, requestProposal, subscribeOpenContract } from "@/lib/deriv-trading-service";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import { supabase } from "@/integrations/supabase/client";
@@ -310,10 +307,7 @@ export function TopShell({
     window.open("https://app.deriv.com/cashier/deposit", "_blank", "noopener,noreferrer");
   }
 
-  function addFooterBotJournal(
-    message: string,
-    type: BotMonitorJournalEntry["type"] = "info",
-  ) {
+  function addFooterBotJournal(message: string, type: BotMonitorJournalEntry["type"] = "info") {
     setBotMonitorJournal((current) => [
       { id: crypto.randomUUID(), message, time: formatTime(), type },
       ...current,
@@ -340,16 +334,11 @@ export function TopShell({
       return;
     }
 
-    const workspace = (window as any).Blockly?.derivWorkspace;
+    const workspace = getDerivWorkspace();
     if (workspace?.getAllBlocks?.()?.length) {
-      const activePresetId =
-        readCurrentBotPresetId(user?.id) ?? (user?.id ? readCurrentBotPresetId(null) : null);
-      const { persistWorkspaceSnapshot } = await import(
-        "@/external/bot-builder/workspace-persistence"
-      );
-      persistWorkspaceSnapshot(user?.id, workspace, {
-        presetId: activePresetId,
-      });
+      const { persistWorkspaceSnapshot } =
+        await import("@/external/bot-builder/workspace-persistence");
+      persistWorkspaceSnapshot(user?.id, workspace);
     }
 
     const settings = resolveRunnableBotSettings(user?.id);
@@ -397,8 +386,12 @@ export function TopShell({
 
     try {
       const session = await ensureDerivTradingConnection(account, { context: "footer-bot-run" });
-      const sessionAccountUpper = String(session.account_id ?? "").trim().toUpperCase();
-      const selectedAccountUpper = String(account.account_id ?? "").trim().toUpperCase();
+      const sessionAccountUpper = String(session.account_id ?? "")
+        .trim()
+        .toUpperCase();
+      const selectedAccountUpper = String(account.account_id ?? "")
+        .trim()
+        .toUpperCase();
       if (!sessionAccountUpper || sessionAccountUpper !== selectedAccountUpper) {
         footerBotRunningRef.current = false;
         setBotMonitorStatus("stopped");
@@ -521,7 +514,10 @@ export function TopShell({
                 console.warn("[Bot Footer] insert trade row threw", err);
               }
             }
-            addFooterBotJournal(`Bought contract ${contractId}. Waiting for settlement.`, "success");
+            addFooterBotJournal(
+              `Bought contract ${contractId}. Waiting for settlement.`,
+              "success",
+            );
             settlement = await waitForSettlement(contractId);
 
             setBotMonitorTransactions((items) =>

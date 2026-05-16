@@ -1,5 +1,4 @@
 import { BOT_PRESET_CONFIGS, type BotPresetConfig } from "@/lib/bot-presets";
-import { readDeployedBotPresetIds } from "@/lib/bot-preset-storage";
 
 export type BotBuilderDurationUnit = "m" | "s" | "t";
 export type BotBuilderTradeType =
@@ -145,10 +144,7 @@ function readPresetSettingsStore(userId?: string | null): PresetSettingsStore {
   }
 }
 
-function writePresetSettingsStore(
-  userId: string | null | undefined,
-  entries: PresetSettingsStore,
-) {
+function writePresetSettingsStore(userId: string | null | undefined, entries: PresetSettingsStore) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
@@ -224,10 +220,7 @@ export function readPresetWorkspaceXml(
   return store[presetId]?.xml ?? null;
 }
 
-export function clearPresetWorkspaceXml(
-  userId: string | null | undefined,
-  presetId: string,
-) {
+export function clearPresetWorkspaceXml(userId: string | null | undefined, presetId: string) {
   if (!presetId) return;
   const store = readPresetWorkspacesStore(userId);
   if (!(presetId in store)) return;
@@ -235,10 +228,7 @@ export function clearPresetWorkspaceXml(
   writePresetWorkspacesStore(userId, store);
 }
 
-export function persistCurrentBotPresetId(
-  userId: string | null | undefined,
-  presetId: string,
-) {
+export function persistCurrentBotPresetId(userId: string | null | undefined, presetId: string) {
   if (typeof window === "undefined" || !presetId) return;
   try {
     window.localStorage.setItem(
@@ -392,14 +382,13 @@ export function settingsFromBotPreset(preset: BotPresetConfig): BotBuilderSettin
       ? "down"
       : "up"
     : direction;
-  const condition =
-    isRiseFall
-      ? {
-          conditionLeft: "Run Count",
-          conditionOperator: ">",
-          conditionRight: "0",
-        }
-      : preset.tradeType === "even_odd"
+  const condition = isRiseFall
+    ? {
+        conditionLeft: "Run Count",
+        conditionOperator: ">",
+        conditionRight: "0",
+      }
+    : preset.tradeType === "even_odd"
       ? {
           conditionLeft: "Last Digit",
           conditionOperator: "contains",
@@ -449,42 +438,7 @@ export function settingsFromBotPreset(preset: BotPresetConfig): BotBuilderSettin
 }
 
 export function resolveRunnableBotSettings(userId?: string | null) {
-  const activePresetId =
-    readCurrentBotPresetId(userId) ??
-    (userId ? readCurrentBotPresetId(null) : null) ??
-    readDeployedBotPresetIds(userId).at(-1);
-  if (activePresetId) {
-    const presetSettings =
-      readPresetBotSettings(userId, activePresetId) ??
-      (userId ? readPresetBotSettings(null, activePresetId) : null);
-    if (presetSettings && hasMeaningfulBotBuilderState(presetSettings)) {
-      return presetSettings;
-    }
-
-    const activePreset = BOT_PRESET_CONFIGS.find((preset) => preset.id === activePresetId);
-    if (activePreset) return settingsFromBotPreset(activePreset);
-  }
-
-  // Priority order matters: the bot-builder auto-saves currentSettings on every
-  // workspace edit, so it always reflects whatever the user is looking at right
-  // now (a freshly loaded bot, a deployed preset, or hand-edited blocks). Run
-  // must use that — falling back to library/deployed/preset entries only when
-  // the workspace itself is empty.
-  const currentSettings = readCurrentBotSettings(userId);
-  if (currentSettings && hasMeaningfulBotBuilderState(currentSettings)) {
-    return currentSettings;
-  }
-
-  const deployedPresetId = readDeployedBotPresetIds(userId).at(-1);
-  if (deployedPresetId) {
-    const deployedPreset = BOT_PRESET_CONFIGS.find((preset) => preset.id === deployedPresetId);
-    if (deployedPreset) return settingsFromBotPreset(deployedPreset);
-  }
-
-  const savedPreset = readSavedBotPresets(userId)[0];
-  if (savedPreset) return savedPreset.settings;
-
-  return null;
+  return readCurrentBotSettings(userId) ?? (userId ? readCurrentBotSettings(null) : null);
 }
 
 export function normalizeBotBuilderSettings(settings: BotBuilderSettings): BotBuilderSettings {
@@ -583,14 +537,13 @@ function settingsFromRecord(record: Record<string, unknown>): BotBuilderSettings
         ? "down"
         : "up"
       : rawPurchaseDirection;
-    const condition =
-      isRiseFallPreset
-        ? {
-            conditionLeft: "Run Count",
-            conditionOperator: ">",
-            conditionRight: "0",
-          }
-        : digitContract === "even_odd"
+    const condition = isRiseFallPreset
+      ? {
+          conditionLeft: "Run Count",
+          conditionOperator: ">",
+          conditionRight: "0",
+        }
+      : digitContract === "even_odd"
         ? {
             conditionLeft: "Last Digit",
             conditionOperator: "contains",
@@ -639,7 +592,10 @@ function settingsFromRecord(record: Record<string, unknown>): BotBuilderSettings
     ...initialBotBuilderSettings,
     assetCategory: readString(record, "assetCategory", initialBotBuilderSettings.assetCategory),
     candleInterval: readString(record, "candleInterval", initialBotBuilderSettings.candleInterval),
-    conditionJoin: conditionJoinValue(record.conditionJoin, initialBotBuilderSettings.conditionJoin),
+    conditionJoin: conditionJoinValue(
+      record.conditionJoin,
+      initialBotBuilderSettings.conditionJoin,
+    ),
     conditionLeft: readString(record, "conditionLeft", initialBotBuilderSettings.conditionLeft),
     conditionOperator: readString(
       record,
@@ -673,21 +629,13 @@ function settingsFromRecord(record: Record<string, unknown>): BotBuilderSettings
       "restartLastTradeOnError",
       initialBotBuilderSettings.restartLastTradeOnError,
     ),
-    runOnceAtStart: readBoolean(
-      record,
-      "runOnceAtStart",
-      initialBotBuilderSettings.runOnceAtStart,
-    ),
+    runOnceAtStart: readBoolean(record, "runOnceAtStart", initialBotBuilderSettings.runOnceAtStart),
     selectedDigit: readNumber(record, "selectedDigit", initialBotBuilderSettings.selectedDigit),
     stake: readNumber(record, "stake", initialBotBuilderSettings.stake),
     stopLoss: readNumber(record, "stopLoss", initialBotBuilderSettings.stopLoss),
     symbol: readString(record, "symbol", initialBotBuilderSettings.symbol),
     takeProfit: readNumber(record, "takeProfit", initialBotBuilderSettings.takeProfit),
-    tradeEveryTick: readBoolean(
-      record,
-      "tradeEveryTick",
-      initialBotBuilderSettings.tradeEveryTick,
-    ),
+    tradeEveryTick: readBoolean(record, "tradeEveryTick", initialBotBuilderSettings.tradeEveryTick),
     tradeType: tradeTypeValue(record.tradeType, initialBotBuilderSettings.tradeType),
   });
 }

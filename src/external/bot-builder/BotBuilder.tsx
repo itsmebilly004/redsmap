@@ -43,16 +43,10 @@ import {
   deleteSavedBotPreset,
   initialBotBuilderSettings,
   persistCurrentBotSettings,
-  persistPresetWorkspaceXml,
   persistSavedBotPreset,
-  readPresetBotSettings,
-  readPresetWorkspaceXml,
   readSavedBotPresets,
-  settingsFromBotPreset,
   type SavedBotPreset,
 } from "@/lib/bot-builder-state";
-import { BOT_PRESET_CONFIGS } from "@/lib/bot-presets";
-import { markDeployedBotPresetId } from "@/lib/bot-preset-storage";
 import { ToolboxItems } from "./toolbox-items";
 import {
   extractSettingsFromWorkspace,
@@ -62,7 +56,7 @@ import {
 } from "./workspace-persistence";
 import { loadWorkspaceFromFile, resetWorkspaceToDefault } from "./workspace-io";
 import { BlocksMenuSidebar, closeBlocklyFlyout } from "./blocks-menu-sidebar";
-import { hasPresetXml, loadPresetXml } from "./preset-xml-loader";
+import { getBlocklyRuntime, getDerivWorkspace, type BlocklyEventLike } from "./blockly-runtime";
 import "./bot-builder.css";
 
 const PERSIST_DEBOUNCE_MS = 500;
@@ -87,9 +81,10 @@ const formatSavedAt = (iso: string): string => {
   }
 };
 
-const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => {
+const BotBuilderInner = observer(() => {
   const store = useStore();
-  const { app, dashboard, toolbar, flyout, blockly_store, save_modal, load_modal, quick_strategy } = store;
+  const { app, dashboard, toolbar, flyout, blockly_store, save_modal, load_modal, quick_strategy } =
+    store;
   const { is_loading } = blockly_store;
   const { user } = useAuth();
   const userId = user?.id ?? null;
@@ -121,7 +116,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     }
     const id = window.requestAnimationFrame(() => {
       try {
-        const B = (window as any).Blockly;
+        const B = getBlocklyRuntime();
         const ws = B?.derivWorkspace;
         if (ws && B?.svgResize) B.svgResize(ws);
         window.dispatchEvent(new Event("resize"));
@@ -145,29 +140,20 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     refreshSavedPresets();
   }, [refreshSavedPresets, loadOpen]);
 
-  // Two-effect split: a *mount* effect does the heavy Blockly init once per
-  // component instance, then a *load* effect re-runs whenever presetId changes
-  // and only swaps the XML in the existing workspace. This avoids
-  // re-injecting Blockly into the same DOM node (which silently fails) when
-  // the user navigates between presets without leaving the route.
-  //
-  // userId is read via a ref so a late auth resolution (anonymous → logged in)
+  // The mount effect does the heavy Blockly init once per component instance.
+  // userId is read via a ref so a late auth resolution does not
   // doesn't re-fire the mount effect and reset the workspace back to main.xml.
   const initialisedRef = React.useRef(false);
   const userIdRef = React.useRef<string | null>(userId);
-  const presetIdRef = React.useRef<string | null>(presetId);
   React.useEffect(() => {
     userIdRef.current = userId;
   }, [userId]);
-  React.useEffect(() => {
-    presetIdRef.current = presetId;
-  }, [presetId]);
 
   React.useEffect(() => {
     let cancelled = false;
     let resize_observer: ResizeObserver | null = null;
     let persist_timer: number | null = null;
-    let persist_listener: ((event: unknown) => void) | null = null;
+    let persist_listener: ((event: BlocklyEventLike) => void) | null = null;
 
     const init = async () => {
       const wrapper = wrapperRef.current;
@@ -183,7 +169,6 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         try {
           toolbox_xml = ToolboxItems();
         } catch (err) {
-          // eslint-disable-next-line no-console
           console.error("Failed to build toolbox XML", err);
           toolbox_xml =
             '<xml id="toolbox"><category name="Logic" id="logic"><block type="controls_if"/><block type="logic_compare"/><block type="logic_operation"/></category><category name="Math" id="math"><block type="math_number"/><block type="math_arithmetic"/></category></xml>';
@@ -213,51 +198,26 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         if (cancelled) return;
         initialisedRef.current = true;
 
-        const workspace: any = (window as any).Blockly?.derivWorkspace;
+        const workspace = getDerivWorkspace();
         if (workspace) {
-          // First-mount choice: a deploy preset wins; otherwise restore the
-          // user's last saved workspace XML — reading both user-specific AND
-          // guest keys so a bot saved while logged out is still restored once
-          // the user signs in.
-          const currentPreset = presetIdRef.current;
+          // Restore the latest builder memory written by Deploy, local import,
+          // or the autosave listener.
           const currentUser = userIdRef.current;
           let restoredXmlSuccessfully = false;
-          if (currentPreset && hasPresetXml(currentPreset)) {
-            // Prefer the user's previously-customised version of this preset
-            // (if any) over the stock xml — otherwise re-Deploying the preset
-            // wipes their saved edits on every visit.
-            const user_xml =
-              readPresetWorkspaceXml(currentUser, currentPreset) ??
-              readPresetWorkspaceXml(null, currentPreset);
-            const preset_xml = user_xml ?? (await loadPresetXml(currentPreset));
-            if (preset_xml && !cancelled) {
-              restoredXmlSuccessfully = loadWorkspaceXmlIntoBlockly(
-                workspace,
-                preset_xml,
-              );
-            }
-          } else {
-            clearCurrentBotPresetId(currentUser);
-            const saved_xml =
-              readSavedWorkspaceXml(currentUser) ?? readSavedWorkspaceXml(null);
-            if (saved_xml) {
-              restoredXmlSuccessfully = loadWorkspaceXmlIntoBlockly(
-                workspace,
-                saved_xml,
-              );
-            }
+          clearCurrentBotPresetId(currentUser);
+          const saved_xml = readSavedWorkspaceXml(currentUser) ?? readSavedWorkspaceXml(null);
+          if (saved_xml) {
+            restoredXmlSuccessfully = loadWorkspaceXmlIntoBlockly(workspace, saved_xml);
           }
 
           const schedulePersist = () => {
             if (persist_timer !== null) window.clearTimeout(persist_timer);
             persist_timer = window.setTimeout(() => {
               persist_timer = null;
-              persistWorkspaceSnapshot(userIdRef.current, workspace, {
-                presetId: presetIdRef.current,
-              });
+              persistWorkspaceSnapshot(userIdRef.current, workspace);
             }, PERSIST_DEBOUNCE_MS);
           };
-          persist_listener = (event: any) => {
+          persist_listener = (event: BlocklyEventLike) => {
             if (!event || event.type === "selected" || event.type === "ui") return;
             if (event.isUiEvent) return;
             schedulePersist();
@@ -271,9 +231,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           // in place, losing their bot permanently. Skipping the persist here
           // leaves the on-disk XML intact so the next refresh can retry it.
           if (restoredXmlSuccessfully) {
-            persistWorkspaceSnapshot(userIdRef.current, workspace, {
-              presetId: presetIdRef.current,
-            });
+            persistWorkspaceSnapshot(userIdRef.current, workspace);
           }
         }
 
@@ -283,9 +241,10 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         const fireResize = () => {
           try {
             window.dispatchEvent(new Event("resize"));
-            const ws = (window as any).Blockly?.derivWorkspace;
-            if (ws && (window as any).Blockly?.svgResize) {
-              (window as any).Blockly.svgResize(ws);
+            const B = getBlocklyRuntime();
+            const ws = B?.derivWorkspace;
+            if (ws && B?.svgResize) {
+              B.svgResize(ws);
             }
           } catch {
             /* noop */
@@ -296,9 +255,8 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         resize_observer.observe(wrapper);
       } catch (err) {
         if (cancelled) return;
-        const blocklyRef: any = (window as any).Blockly;
+        const blocklyRef = getBlocklyRuntime();
         const blockKeys = blocklyRef?.Blocks ? Object.keys(blocklyRef.Blocks) : [];
-        // eslint-disable-next-line no-console
         console.error("BotBuilder init failed:", err, {
           hasBlockly: !!blocklyRef,
           blockCount: blockKeys.length,
@@ -316,7 +274,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
       cancelled = true;
       resize_observer?.disconnect();
       if (persist_timer !== null) window.clearTimeout(persist_timer);
-      const ws: any = (window as any).Blockly?.derivWorkspace;
+      const ws = getDerivWorkspace();
       if (persist_listener && ws?.removeChangeListener) {
         try {
           ws.removeChangeListener(persist_listener);
@@ -324,9 +282,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           /* noop */
         }
         try {
-          persistWorkspaceSnapshot(userIdRef.current, ws, {
-            presetId: presetIdRef.current,
-          });
+          persistWorkspaceSnapshot(userIdRef.current, ws);
         } catch {
           /* noop */
         }
@@ -356,82 +312,12 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     const guest_xml = readSavedWorkspaceXml(null);
     const user_xml = readSavedWorkspaceXml(userId);
     if (guest_xml && !user_xml) {
-      const ws = (window as any).Blockly?.derivWorkspace;
+      const ws = getDerivWorkspace();
       if (ws) {
-        persistWorkspaceSnapshot(userId, ws, {
-          presetId: presetIdRef.current,
-        });
+        persistWorkspaceSnapshot(userId, ws);
       }
     }
   }, [userId]);
-
-  // Hot-swap preset XML in the existing workspace whenever the URL preset
-  // changes (e.g. /trading-bots → Deploy → /bot-builder?preset=mega-mind).
-  React.useEffect(() => {
-    if (!presetId) return;
-    let cancelled = false;
-    (async () => {
-      // Pin the preset's known-good settings BEFORE we wait on Blockly so the
-      // footer Run button has correct stake/symbol/duration immediately —
-      // even if the workspace XML extraction can't pull a literal stake out
-      // of a variables_get chain.
-      const preset_config = BOT_PRESET_CONFIGS.find((p) => p.id === presetId);
-      if (preset_config) {
-        try {
-          const preset_settings =
-            readPresetBotSettings(userIdRef.current, presetId) ??
-            readPresetBotSettings(null, presetId) ??
-            settingsFromBotPreset(preset_config);
-          persistCurrentBotSettings(userIdRef.current, preset_settings, {
-            presetId,
-          });
-          markDeployedBotPresetId(userIdRef.current, presetId);
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn("[bot-builder] failed to pin preset settings", err);
-        }
-      }
-      // Wait until the first-mount init has produced a workspace.
-      for (let i = 0; i < 50 && !initialisedRef.current && !cancelled; i += 1) {
-        await new Promise((r) => setTimeout(r, 60));
-      }
-      if (cancelled) return;
-      if (!hasPresetXml(presetId)) return;
-      const workspace = (window as any).Blockly?.derivWorkspace;
-      if (!workspace) return;
-      // Prefer the user's saved edits for this preset over the stock xml so
-      // re-clicking Deploy (or refreshing the bot-builder URL) does NOT wipe
-      // their customisations. Only fall back to stock when there's nothing
-      // saved for this preset yet.
-      const user_xml =
-        readPresetWorkspaceXml(userIdRef.current, presetId) ??
-        readPresetWorkspaceXml(null, presetId);
-      const preset_xml = user_xml ?? (await loadPresetXml(presetId));
-      if (!preset_xml || cancelled) return;
-      closeBlocklyFlyout();
-      const ok = loadWorkspaceXmlIntoBlockly(workspace, preset_xml);
-      if (ok) {
-        persistWorkspaceSnapshot(userIdRef.current, workspace, {
-          presetId,
-        });
-        // Re-pin: persistWorkspaceSnapshot might have written extracted settings
-        // (if meaningful), but for presets the stake/tp/sl from BOT_PRESET_CONFIGS
-        // are authoritative until the user actually edits the workspace. Only
-        // re-pin when we loaded the STOCK xml; if we restored a user-customised
-        // version, their workspace-extracted settings should take precedence.
-        if (preset_config && !user_xml) {
-          persistCurrentBotSettings(
-            userIdRef.current,
-            settingsFromBotPreset(preset_config),
-            { presetId },
-          );
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [presetId]);
 
   const handleLoadClick = () => setLoadOpen(true);
   const handleFilePickerOpen = () => fileInputRef.current?.click();
@@ -440,17 +326,18 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    const workspace = (window as any).Blockly?.derivWorkspace;
+    const workspace = getDerivWorkspace();
     if (!workspace) {
       toast.error("Workspace isn't ready yet.");
       return;
     }
     closeBlocklyFlyout();
     clearCurrentBotPresetId(userId);
-    presetIdRef.current = null;
     const result = await loadWorkspaceFromFile(file, workspace, userId);
     if (result.ok) {
-      toast.success(`Loaded ${file.name} — ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}.`);
+      toast.success(
+        `Loaded ${file.name} — ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}.`,
+      );
       setSaveName(file.name.replace(/\.xml$/i, "") || "My bot strategy");
       setLoadOpen(false);
     } else {
@@ -459,14 +346,13 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
   };
 
   const handleLoadSavedPreset = (preset: SavedBotPreset) => {
-    const workspace = (window as any).Blockly?.derivWorkspace;
+    const workspace = getDerivWorkspace();
     if (!workspace) {
       toast.error("Workspace isn't ready yet.");
       return;
     }
     closeBlocklyFlyout();
     clearCurrentBotPresetId(userId);
-    presetIdRef.current = null;
     if (preset.xml) {
       const ok = loadWorkspaceXmlIntoBlockly(workspace, preset.xml);
       if (ok) {
@@ -477,7 +363,9 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         return;
       }
     }
-    toast.error("This saved preset doesn't have a workspace snapshot. Save it again to capture the current workspace.");
+    toast.error(
+      "This saved preset doesn't have a workspace snapshot. Save it again to capture the current workspace.",
+    );
   };
 
   const handleDeleteSavedPreset = (id: string, name: string) => {
@@ -488,21 +376,20 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
 
   const handleSaveSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const workspace = (window as any).Blockly?.derivWorkspace;
+    const workspace = getDerivWorkspace();
     if (!workspace) {
       toast.error("Workspace isn't ready yet.");
       return;
     }
     try {
-      const B: any = (window as any).Blockly;
+      const B = getBlocklyRuntime();
       const xml_dom = B?.Xml?.workspaceToDom?.(workspace);
-      const xml_text: string = xml_dom ? B.Xml.domToText(xml_dom) : "";
+      const xml_text = xml_dom && B?.Xml?.domToText ? B.Xml.domToText(xml_dom) : "";
       if (!xml_text) {
         toast.error("Workspace is empty.");
         return;
       }
-      const settings =
-        extractSettingsFromWorkspace(workspace) ?? { ...initialBotBuilderSettings };
+      const settings = extractSettingsFromWorkspace(workspace) ?? { ...initialBotBuilderSettings };
       const trimmed_name = saveName.trim() || "Saved bot strategy";
       const preset: SavedBotPreset = {
         id: generatePresetId(),
@@ -513,15 +400,7 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
         xml: xml_text,
       };
       persistSavedBotPreset(userId, preset);
-      // If this workspace was deployed from a preset, also stamp the per-preset
-      // slot so the next time the user clicks Deploy on that same preset their
-      // saved version loads instead of the stock xml.
-      if (presetIdRef.current) {
-        persistPresetWorkspaceXml(userId, presetIdRef.current, xml_text);
-      }
-      persistCurrentBotSettings(userId, settings, {
-        presetId: presetIdRef.current,
-      });
+      persistCurrentBotSettings(userId, settings);
       refreshSavedPresets();
       toolbar.setFileName(trimmed_name);
       toast.success(`Saved "${trimmed_name}" to your library.`);
@@ -532,10 +411,9 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
   };
 
   const handleResetConfirm = () => {
-    const workspace = (window as any).Blockly?.derivWorkspace;
+    const workspace = getDerivWorkspace();
     if (!workspace) return;
     clearCurrentBotPresetId(userId);
-    presetIdRef.current = null;
     if (resetWorkspaceToDefault(workspace, userId)) {
       toolbar.setResetButtonState(true);
       toast.success("Workspace reset to the default strategy.");
@@ -569,13 +447,31 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           <span className="hidden sm:inline">Save</span>
         </Button>
         <div className="bot-builder-toolbar-divider" aria-hidden />
-        <Button variant="ghost" size="sm" onClick={toolbar.onUndoClick} aria-label="Undo" title="Undo">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toolbar.onUndoClick}
+          aria-label="Undo"
+          title="Undo"
+        >
           <Undo2 className="size-4" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={toolbar.onRedoClick} aria-label="Redo" title="Redo">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toolbar.onRedoClick}
+          aria-label="Redo"
+          title="Redo"
+        >
           <Redo2 className="size-4" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={toolbar.onSortClick} aria-label="Sort blocks" title="Sort blocks">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toolbar.onSortClick}
+          aria-label="Sort blocks"
+          title="Sort blocks"
+        >
           <RefreshCw className="size-4" />
         </Button>
         <Button
@@ -588,10 +484,22 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           <RotateCcw className="size-4" />
         </Button>
         <div className="bot-builder-toolbar-divider" aria-hidden />
-        <Button variant="ghost" size="sm" onClick={() => toolbar.onZoomInOutClick(true)} aria-label="Zoom in" title="Zoom in">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => toolbar.onZoomInOutClick(true)}
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
           <ZoomIn className="size-4" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => toolbar.onZoomInOutClick(false)} aria-label="Zoom out" title="Zoom out">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => toolbar.onZoomInOutClick(false)}
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
           <ZoomOut className="size-4" />
         </Button>
         <div className="ml-auto truncate text-xs text-muted-foreground hidden sm:block">
@@ -625,7 +533,8 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
           <AlertDialogHeader>
             <AlertDialogTitle>Reset workspace?</AlertDialogTitle>
             <AlertDialogDescription>
-              Any unsaved blocks will be cleared and the default trade-definition strategy will be loaded.
+              Any unsaved blocks will be cleared and the default trade-definition strategy will be
+              loaded.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -641,9 +550,9 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
             <DialogHeader>
               <DialogTitle>Save bot to library</DialogTitle>
               <DialogDescription>
-                Name this snapshot of your workspace so you can re-open it from the Load menu
-                later. Your in-progress edits are autosaved separately and survive refreshes
-                without any action.
+                Name this snapshot of your workspace so you can re-open it from the Load menu later.
+                Your in-progress edits are autosaved separately and survive refreshes without any
+                action.
               </DialogDescription>
             </DialogHeader>
             <div className="mt-4 space-y-2">
@@ -697,12 +606,16 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
               </div>
               {savedPresets.length === 0 ? (
                 <p className="rounded-md border border-dashed border-border bg-background p-4 text-center text-xs text-muted-foreground">
-                  No saved bots yet. Click Save in the toolbar to add the current workspace to your library.
+                  No saved bots yet. Click Save in the toolbar to add the current workspace to your
+                  library.
                 </p>
               ) : (
                 <ul className="max-h-72 space-y-1 overflow-y-auto rounded-md border border-border bg-background p-1">
                   {savedPresets.map((preset) => (
-                    <li key={preset.id} className="flex items-center gap-2 rounded p-2 hover:bg-muted">
+                    <li
+                      key={preset.id}
+                      className="flex items-center gap-2 rounded p-2 hover:bg-muted"
+                    >
                       <button
                         type="button"
                         onClick={() => handleLoadSavedPreset(preset)}
@@ -741,9 +654,9 @@ const BotBuilderInner = observer(({ presetId }: { presetId: string | null }) => 
   );
 });
 
-export const BotBuilder: React.FC<{ presetId?: string | null }> = ({ presetId = null }) => (
+export const BotBuilder: React.FC = () => (
   <StoreProvider dbot={dbot}>
-    <BotBuilderInner presetId={presetId} />
+    <BotBuilderInner />
   </StoreProvider>
 );
 

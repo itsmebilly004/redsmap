@@ -1,12 +1,20 @@
 // src/routes/trading-bots.tsx
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { TopShell, PageHero } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { recordBotPresetActivity } from "@/lib/activity-memory";
-import { BOT_PRESET_CONFIGS } from "@/lib/bot-presets";
-import { markDeployedBotPresetId } from "@/lib/bot-preset-storage";
-import { Zap, Target, ShieldCheck, Cpu, BrainCircuit, Flame, Radar } from "lucide-react";
+import { importBotXmlIntoBuilderMemory } from "@/lib/bot-builder-memory";
+import {
+  ensureTradingBotDatabasePresets,
+  fetchTradingBotPresetFromDatabase,
+  TRADING_BOT_ASSETS,
+  type DatabaseTradingBotPreset,
+  type TradingBotAsset,
+} from "@/lib/trading-bot-database";
+import { Zap, Target, Cpu, BrainCircuit, Flame } from "lucide-react";
 
 export const Route = createFileRoute("/trading-bots")({
   head: () => ({
@@ -25,27 +33,88 @@ const ICONS = {
   brain: BrainCircuit,
   cpu: Cpu,
   flame: Flame,
-  radar: Radar,
-  shield: ShieldCheck,
   target: Target,
   zap: Zap,
 };
 
-export const BOT_PRESETS = BOT_PRESET_CONFIGS.map((preset) => ({
+export const BOT_PRESETS = TRADING_BOT_ASSETS.map((preset) => ({
   ...preset,
   icon: ICONS[preset.iconKey],
 }));
 
 function TradingBots() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [databasePresets, setDatabasePresets] = useState<DatabaseTradingBotPreset[]>([]);
+  const [loadingLibrary, setLoadingLibrary] = useState(false);
+  const [deployingId, setDeployingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const visiblePresets = useMemo(() => {
+    const byId = new Map(databasePresets.map((preset) => [preset.id, preset]));
+    return BOT_PRESETS.map((preset) => ({
+      ...preset,
+      ...(byId.get(preset.id) ?? {}),
+    }));
+  }, [databasePresets]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    setLoadingLibrary(true);
+    setLoadError(null);
+    ensureTradingBotDatabasePresets(user.id)
+      .then((presets) => {
+        if (!cancelled) setDatabasePresets(presets);
+      })
+      .catch((error) => {
+        const message =
+          error instanceof Error ? error.message : "Could not load trading bot presets.";
+        if (!cancelled) setLoadError(message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLibrary(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  async function handleDeployBot(bot: TradingBotAsset) {
+    if (!user?.id) {
+      navigate({ to: "/auth", search: { mode: "signin" } });
+      return;
+    }
+    setDeployingId(bot.id);
+    try {
+      const preset = await fetchTradingBotPresetFromDatabase(user.id, bot.id);
+      await importBotXmlIntoBuilderMemory(user.id, {
+        name: preset.name,
+        xml: preset.xml,
+      });
+      recordBotPresetActivity(user.id, "deployed", preset.name, preset.id);
+      toast.success(`Imported "${preset.name}" into the bot builder.`);
+      navigate({ to: "/bot-builder" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not deploy this bot preset.";
+      toast.error(message);
+    } finally {
+      setDeployingId(null);
+    }
+  }
+
   return (
     <TopShell>
       <PageHero
         title="Trading Bot Presets"
-        subtitle="Deployment-ready bot configurations from your library. Load them into the builder to start trading."
+        subtitle="Deployment-ready XML bot presets stored in your bot database and imported into the builder memory."
       >
+        {loadError && (
+          <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
         <div className="grid gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-3">
-          {BOT_PRESETS.map((b) => (
+          {visiblePresets.map((b) => (
             <div
               key={b.id}
               className="group relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-card p-4 shadow-xl transition-all hover:border-primary/50 sm:p-6"
@@ -73,24 +142,22 @@ function TradingBots() {
                   </div>
 
                   <div className="mt-6">
-                    <Button asChild size="lg" className="w-full rounded-xl font-bold shadow-glow">
-                      {user ? (
-                        <Link
-                          to="/bot-builder"
-                          search={{ preset: b.id }}
-                          onClick={() => {
-                            markDeployedBotPresetId(user.id, b.id);
-                            recordBotPresetActivity(user.id, "deployed", b.name, b.id);
-                          }}
-                        >
-                          Deploy Bot
-                        </Link>
-                      ) : (
+                    {user ? (
+                      <Button
+                        size="lg"
+                        className="w-full rounded-xl font-bold shadow-glow"
+                        disabled={loadingLibrary || deployingId === b.id}
+                        onClick={() => void handleDeployBot(b)}
+                      >
+                        {deployingId === b.id ? "Deploying..." : "Deploy Bot"}
+                      </Button>
+                    ) : (
+                      <Button asChild size="lg" className="w-full rounded-xl font-bold shadow-glow">
                         <Link to="/auth" search={{ mode: "signin" }}>
                           Sign in to deploy
                         </Link>
-                      )}
-                    </Button>
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>

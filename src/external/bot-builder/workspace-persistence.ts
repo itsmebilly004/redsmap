@@ -2,13 +2,17 @@ import {
   hasMeaningfulBotBuilderState,
   initialBotBuilderSettings,
   persistCurrentBotSettings,
-  persistPresetWorkspaceXml,
   readCurrentBotSettings,
-  readPresetBotSettings,
   type BotBuilderDurationUnit,
+  type BotBuilderDigitContract,
   type BotBuilderSettings,
   type BotBuilderTradeType,
 } from "@/lib/bot-builder-state";
+import {
+  getBlocklyRuntime,
+  type BlocklyBlockLike,
+  type BlocklyWorkspaceLike,
+} from "./blockly-runtime";
 import { scheduleRecentWorkspaceWrite } from "./recent-workspaces";
 
 const xmlStorageKey = (userId: string | null | undefined) =>
@@ -23,10 +27,7 @@ export function readSavedWorkspaceXml(userId: string | null | undefined): string
   }
 }
 
-export function writeSavedWorkspaceXml(
-  userId: string | null | undefined,
-  xml: string,
-) {
+export function writeSavedWorkspaceXml(userId: string | null | undefined, xml: string) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(xmlStorageKey(userId), xml);
@@ -45,6 +46,13 @@ function mapTradeType(value: string): BotBuilderTradeType {
   if (v === "touchnotouch" || v === "touch_no_touch" || v === "touch") return "touch_no_touch";
   if (v === "multiplier" || v.startsWith("mult")) return "multiplier";
   return initialBotBuilderSettings.tradeType;
+}
+
+function mapDigitContract(value: string): BotBuilderDigitContract {
+  const v = value.toLowerCase();
+  if (v.includes("matches") || v.includes("diff")) return "matches_differs";
+  if (v.includes("even") || v.includes("odd")) return "even_odd";
+  return "over_under";
 }
 
 function mapDirection(tradeType: string, contractType: string): string {
@@ -97,8 +105,8 @@ function readFirstNumber(...candidates: unknown[]): number | null {
 //   * variables_get   (follow back to a matching variables_set and recurse)
 // Anything more exotic returns null so the caller can fall back to a default.
 function evaluateMathBlock(
-  block: any,
-  workspace: any,
+  block: BlocklyBlockLike | null | undefined,
+  workspace: BlocklyWorkspaceLike,
   visited: Set<string>,
 ): number | null {
   if (!block || !block.type) return null;
@@ -106,22 +114,14 @@ function evaluateMathBlock(
   if (visited.has(id)) return null;
   visited.add(id);
 
-  if (block.type === "math_number") {
+  if (block.type === "math_number" || block.type === "math_number_positive") {
     return readFirstNumber(block.getFieldValue?.("NUM"));
   }
 
   if (block.type === "math_arithmetic") {
     const op = block.getFieldValue?.("OP");
-    const a = evaluateMathBlock(
-      block.getInputTargetBlock?.("A"),
-      workspace,
-      visited,
-    );
-    const b = evaluateMathBlock(
-      block.getInputTargetBlock?.("B"),
-      workspace,
-      visited,
-    );
+    const a = evaluateMathBlock(block.getInputTargetBlock?.("A"), workspace, visited);
+    const b = evaluateMathBlock(block.getInputTargetBlock?.("B"), workspace, visited);
     if (a === null || b === null) return null;
     switch (op) {
       case "ADD":
@@ -141,11 +141,7 @@ function evaluateMathBlock(
 
   if (block.type === "math_single") {
     const op = block.getFieldValue?.("OP");
-    const num = evaluateMathBlock(
-      block.getInputTargetBlock?.("NUM"),
-      workspace,
-      visited,
-    );
+    const num = evaluateMathBlock(block.getInputTargetBlock?.("NUM"), workspace, visited);
     if (num === null) return null;
     switch (op) {
       case "ROOT":
@@ -186,7 +182,11 @@ function evaluateMathBlock(
   return null;
 }
 
-function readNumberInput(block: any, inputName: string, workspace: any): number | null {
+function readNumberInput(
+  block: BlocklyBlockLike | null | undefined,
+  inputName: string,
+  workspace: BlocklyWorkspaceLike,
+): number | null {
   if (!block?.getInputTargetBlock) return null;
   const target = block.getInputTargetBlock(inputName);
   if (!target) return null;
@@ -197,8 +197,35 @@ function readNumberInput(block: any, inputName: string, workspace: any): number 
   return evaluateMathBlock(target, workspace, new Set());
 }
 
+function normalizeVariableName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function getVariableNameFromBlock(block: BlocklyBlockLike): string {
+  const field = block?.getField?.("VAR");
+  const text = field?.getText?.();
+  if (typeof text === "string" && text.trim()) return text.trim();
+  const value = block?.getFieldValue?.("VAR");
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function readNamedVariableNumber(workspace: BlocklyWorkspaceLike, names: string[]): number | null {
+  if (!workspace?.getAllBlocks) return null;
+  const wanted = new Set(names.map(normalizeVariableName));
+  const blocks = workspace.getAllBlocks(true);
+  for (const block of blocks) {
+    if (block?.type !== "variables_set") continue;
+    const variableName = normalizeVariableName(getVariableNameFromBlock(block));
+    if (!wanted.has(variableName)) continue;
+    const valueBlock = block.getInputTargetBlock?.("VALUE");
+    const value = evaluateMathBlock(valueBlock, workspace, new Set());
+    if (value !== null) return value;
+  }
+  return null;
+}
+
 export function extractSettingsFromWorkspace(
-  workspace: any,
+  workspace: BlocklyWorkspaceLike | null | undefined,
   baseOverride?: BotBuilderSettings,
 ): BotBuilderSettings {
   // Use the previously-persisted settings as the base so workspace edits don't
@@ -209,11 +236,7 @@ export function extractSettingsFromWorkspace(
   const base = { ...(baseOverride ?? initialBotBuilderSettings) };
   if (!workspace?.getAllBlocks) return base;
 
-  const blocks = workspace.getAllBlocks(true) as Array<{
-    type: string;
-    getFieldValue?: (name: string) => string | null;
-    getInputTargetBlock?: (name: string) => unknown;
-  }>;
+  const blocks = workspace.getAllBlocks(true);
   const find = (type: string) => blocks.find((b) => b.type === type) ?? null;
 
   const market = find("trade_definition_market");
@@ -221,44 +244,316 @@ export function extractSettingsFromWorkspace(
   const contracttype = find("trade_definition_contracttype");
   const options = find("trade_definition_tradeoptions");
   const candle = find("trade_definition_candleinterval");
+  const purchase = find("purchase");
 
   const symbol = market?.getFieldValue?.("SYMBOL_LIST") || "";
   const market_value = market?.getFieldValue?.("MARKET_LIST") || "";
   const trade_type = tradetype?.getFieldValue?.("TRADETYPE_LIST") || "";
   const contract_type = contracttype?.getFieldValue?.("TYPE_LIST") || "";
+  const purchase_type = purchase?.getFieldValue?.("PURCHASE_LIST") || "";
   const duration_unit = options?.getFieldValue?.("DURATIONTYPE_LIST") || "";
   const currency = options?.getFieldValue?.("CURRENCY_LIST") || "";
   const candle_interval = candle?.getFieldValue?.("CANDLEINTERVAL_LIST") || "";
 
   const stake = readNumberInput(options, "AMOUNT", workspace);
   const duration = readNumberInput(options, "DURATION", workspace);
+  const prediction = readNumberInput(options, "PREDICTION", workspace);
+  const takeProfit = readNamedVariableNumber(workspace, [
+    "take profit",
+    "target profit",
+    "expected profit",
+    "profit",
+  ]);
+  const stopLoss = readNamedVariableNumber(workspace, ["stop loss", "stoploss"]);
+  const martingale = readNamedVariableNumber(workspace, [
+    "martingale",
+    "martigale",
+    "martigale factor",
+  ]);
+  const selectedDigit =
+    prediction ??
+    readNamedVariableNumber(workspace, ["prediction", "entry point", "entrypoint"]) ??
+    base.selectedDigit;
+  const resolvedStake =
+    stake ??
+    readNamedVariableNumber(workspace, ["initial stake", "initial amount", "stake", "amount"]) ??
+    base.stake;
+  const resolvedMartingale = martingale ?? base.martingale;
 
   return {
     ...base,
     symbol: symbol || base.symbol,
     market: market_value || base.market,
     tradeType: trade_type ? mapTradeType(trade_type) : base.tradeType,
+    digitContract: trade_type ? mapDigitContract(trade_type) : base.digitContract,
     purchaseDirection:
-      trade_type || contract_type
-        ? mapDirection(trade_type, contract_type)
+      trade_type || contract_type || purchase_type
+        ? mapDirection(trade_type, purchase_type || contract_type)
         : base.purchaseDirection,
     durationUnit: duration_unit ? mapDurationUnit(duration_unit) : base.durationUnit,
     duration: duration ?? base.duration,
-    stake: stake ?? base.stake,
+    martingale: resolvedMartingale,
+    maxStake: Math.max(base.maxStake, resolvedStake * Math.max(1, resolvedMartingale) * 8),
+    selectedDigit,
+    stake: resolvedStake,
+    stopLoss: stopLoss ?? base.stopLoss,
+    takeProfit: takeProfit ?? base.takeProfit,
     currency: currency || base.currency,
     candleInterval: candle_interval || base.candleInterval,
   };
 }
 
+function parseBlocklyXml(xmlText: string): Document | null {
+  if (typeof DOMParser === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(xmlText, "application/xml");
+    if (doc.getElementsByTagName("parsererror").length) return null;
+    return doc;
+  } catch {
+    return null;
+  }
+}
+
+function childElement(
+  parent: Element | null | undefined,
+  tagName: string,
+  name?: string,
+): Element | null {
+  if (!parent) return null;
+  for (const child of Array.from(parent.children)) {
+    if (child.tagName.toLowerCase() !== tagName.toLowerCase()) continue;
+    if (name && child.getAttribute("name") !== name) continue;
+    return child;
+  }
+  return null;
+}
+
+function childBlock(parent: Element | null | undefined): Element | null {
+  if (!parent) return null;
+  for (const child of Array.from(parent.children)) {
+    const tag = child.tagName.toLowerCase();
+    if (tag === "block" || tag === "shadow") return child;
+  }
+  return null;
+}
+
+function xmlField(block: Element | null | undefined, name: string): string {
+  return childElement(block, "field", name)?.textContent?.trim() ?? "";
+}
+
+function xmlFieldElement(block: Element | null | undefined, name: string): Element | null {
+  return childElement(block, "field", name);
+}
+
+function xmlValueBlock(block: Element | null | undefined, name: string): Element | null {
+  return childBlock(childElement(block, "value", name));
+}
+
+function xmlBlocks(doc: Document): Element[] {
+  return Array.from(doc.getElementsByTagName("block"));
+}
+
+function firstXmlBlock(doc: Document, type: string): Element | null {
+  return xmlBlocks(doc).find((block) => block.getAttribute("type") === type) ?? null;
+}
+
+function readXmlVariableField(block: Element | null | undefined) {
+  const field = xmlFieldElement(block, "VAR");
+  return {
+    id: field?.getAttribute("id") ?? "",
+    name: field?.textContent?.trim() ?? "",
+  };
+}
+
+function xmlVariableMatches(candidate: Element, variableId: string, variableName: string): boolean {
+  const candidateVariable = readXmlVariableField(candidate);
+  if (variableId && candidateVariable.id === variableId) return true;
+  return (
+    !!variableName &&
+    normalizeVariableName(candidateVariable.name) === normalizeVariableName(variableName)
+  );
+}
+
+function evaluateXmlMathBlock(
+  block: Element | null,
+  variableSets: Element[],
+  visited: Set<Element>,
+): number | null {
+  if (!block) return null;
+  if (visited.has(block)) return null;
+  visited.add(block);
+
+  const type = block.getAttribute("type") ?? "";
+  if (type === "math_number" || type === "math_number_positive") {
+    return readFirstNumber(xmlField(block, "NUM"));
+  }
+
+  if (type === "math_arithmetic") {
+    const op = xmlField(block, "OP");
+    const a = evaluateXmlMathBlock(xmlValueBlock(block, "A"), variableSets, visited);
+    const b = evaluateXmlMathBlock(xmlValueBlock(block, "B"), variableSets, visited);
+    if (a === null || b === null) return null;
+    switch (op) {
+      case "ADD":
+        return a + b;
+      case "MINUS":
+        return a - b;
+      case "MULTIPLY":
+        return a * b;
+      case "DIVIDE":
+        return b === 0 ? null : a / b;
+      case "POWER":
+        return Math.pow(a, b);
+      default:
+        return null;
+    }
+  }
+
+  if (type === "math_single") {
+    const op = xmlField(block, "OP");
+    const num = evaluateXmlMathBlock(xmlValueBlock(block, "NUM"), variableSets, visited);
+    if (num === null) return null;
+    switch (op) {
+      case "ROOT":
+        return Math.sqrt(num);
+      case "ABS":
+        return Math.abs(num);
+      case "NEG":
+        return -num;
+      case "LN":
+        return Math.log(num);
+      case "LOG10":
+        return Math.log10(num);
+      case "EXP":
+        return Math.exp(num);
+      case "POW10":
+        return Math.pow(10, num);
+      default:
+        return null;
+    }
+  }
+
+  if (type === "variables_get") {
+    const variable = readXmlVariableField(block);
+    for (const candidate of variableSets) {
+      if (!xmlVariableMatches(candidate, variable.id, variable.name)) continue;
+      const value = evaluateXmlMathBlock(xmlValueBlock(candidate, "VALUE"), variableSets, visited);
+      if (value !== null) return value;
+    }
+  }
+
+  return null;
+}
+
+function readXmlNumberInput(
+  block: Element | null,
+  inputName: string,
+  variableSets: Element[],
+): number | null {
+  const target = xmlValueBlock(block, inputName);
+  return evaluateXmlMathBlock(target, variableSets, new Set());
+}
+
+function readXmlNamedVariableNumber(variableSets: Element[], names: string[]): number | null {
+  const wanted = new Set(names.map(normalizeVariableName));
+  for (const block of variableSets) {
+    const variable = normalizeVariableName(readXmlVariableField(block).name);
+    if (!wanted.has(variable)) continue;
+    const value = evaluateXmlMathBlock(xmlValueBlock(block, "VALUE"), variableSets, new Set());
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+export function extractSettingsFromXmlText(
+  xmlText: string,
+  baseOverride?: BotBuilderSettings,
+): BotBuilderSettings | null {
+  const doc = parseBlocklyXml(xmlText);
+  if (!doc) return null;
+  const base = { ...(baseOverride ?? initialBotBuilderSettings) };
+  const variableSets = xmlBlocks(doc).filter(
+    (block) => block.getAttribute("type") === "variables_set",
+  );
+
+  const market = firstXmlBlock(doc, "trade_definition_market");
+  const tradetype = firstXmlBlock(doc, "trade_definition_tradetype");
+  const contracttype = firstXmlBlock(doc, "trade_definition_contracttype");
+  const options = firstXmlBlock(doc, "trade_definition_tradeoptions");
+  const candle = firstXmlBlock(doc, "trade_definition_candleinterval");
+  const purchase = firstXmlBlock(doc, "purchase");
+
+  const symbol = xmlField(market, "SYMBOL_LIST");
+  const marketValue = xmlField(market, "MARKET_LIST");
+  const tradeType = xmlField(tradetype, "TRADETYPE_LIST");
+  const contractType = xmlField(contracttype, "TYPE_LIST");
+  const purchaseType = xmlField(purchase, "PURCHASE_LIST");
+  const durationUnit = xmlField(options, "DURATIONTYPE_LIST");
+  const currency = xmlField(options, "CURRENCY_LIST");
+  const candleInterval = xmlField(candle, "CANDLEINTERVAL_LIST");
+
+  const stake = readXmlNumberInput(options, "AMOUNT", variableSets);
+  const duration = readXmlNumberInput(options, "DURATION", variableSets);
+  const prediction = readXmlNumberInput(options, "PREDICTION", variableSets);
+  const takeProfit = readXmlNamedVariableNumber(variableSets, [
+    "take profit",
+    "target profit",
+    "expected profit",
+    "profit",
+  ]);
+  const stopLoss = readXmlNamedVariableNumber(variableSets, ["stop loss", "stoploss"]);
+  const martingale = readXmlNamedVariableNumber(variableSets, [
+    "martingale",
+    "martigale",
+    "martigale factor",
+  ]);
+  const selectedDigit =
+    prediction ??
+    readXmlNamedVariableNumber(variableSets, ["prediction", "entry point", "entrypoint"]) ??
+    base.selectedDigit;
+  const resolvedStake =
+    stake ??
+    readXmlNamedVariableNumber(variableSets, [
+      "initial stake",
+      "initial amount",
+      "stake",
+      "amount",
+    ]) ??
+    base.stake;
+  const resolvedMartingale = martingale ?? base.martingale;
+
+  return {
+    ...base,
+    symbol: symbol || base.symbol,
+    market: marketValue || base.market,
+    tradeType: tradeType ? mapTradeType(tradeType) : base.tradeType,
+    digitContract: tradeType ? mapDigitContract(tradeType) : base.digitContract,
+    purchaseDirection:
+      tradeType || contractType || purchaseType
+        ? mapDirection(tradeType, purchaseType || contractType)
+        : base.purchaseDirection,
+    durationUnit: durationUnit ? mapDurationUnit(durationUnit) : base.durationUnit,
+    duration: duration ?? base.duration,
+    martingale: resolvedMartingale,
+    maxStake: Math.max(base.maxStake, resolvedStake * Math.max(1, resolvedMartingale) * 8),
+    selectedDigit,
+    stake: resolvedStake,
+    stopLoss: stopLoss ?? base.stopLoss,
+    takeProfit: takeProfit ?? base.takeProfit,
+    currency: currency || base.currency,
+    candleInterval: candleInterval || base.candleInterval,
+  };
+}
+
 export function persistWorkspaceSnapshot(
   userId: string | null | undefined,
-  workspace: any,
-  options?: { name?: string; presetId?: string | null },
+  workspace: BlocklyWorkspaceLike | null | undefined,
+  options?: { name?: string },
 ) {
   if (!workspace) return;
   try {
-    const B = (window as any).Blockly;
-    if (B?.Xml && workspace.getAllBlocks?.()?.length) {
+    const B = getBlocklyRuntime();
+    if (B?.Xml?.workspaceToDom && B.Xml.domToText && workspace.getAllBlocks?.()?.length) {
       const xml_dom = B.Xml.workspaceToDom(workspace);
       const xml_text = B.Xml.domToText(xml_dom);
       writeSavedWorkspaceXml(userId, xml_text);
@@ -267,31 +562,14 @@ export function persistWorkspaceSnapshot(
       // refresh / re-open of /bot-builder picks up the user's last bot
       // automatically without any post-init React work.
       scheduleRecentWorkspaceWrite(workspace, options?.name ?? "My bot strategy");
-      // If this workspace is currently associated with a deployed preset,
-      // ALSO write to the per-preset slot so re-clicking Deploy on the same
-      // preset restores the user's edits instead of overwriting them with the
-      // stock preset xml. Without this, every Deploy click was wiping the
-      // user's customisations.
-      if (options?.presetId) {
-        persistPresetWorkspaceXml(userId, options.presetId, xml_text);
-      }
     }
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn("[bot-builder] failed to persist workspace xml", err);
   }
   try {
-    // Seed the extraction with whatever the user (or deployed preset) most
-    // recently saved so run-loop knobs survive workspace edits. Without this,
-    // every Blockly change event reset maxRuns / takeProfit / stopLoss back to
-    // the initial defaults, capping the bot at one trade.
-    const existing =
-      (options?.presetId
-        ? readPresetBotSettings(userId, options.presetId) ??
-          readPresetBotSettings(null, options.presetId)
-        : null) ??
-      readCurrentBotSettings(userId) ??
-      undefined;
+    // Seed extraction with the builder memory so run-loop knobs survive
+    // workspace edits instead of snapping back to the initial defaults.
+    const existing = readCurrentBotSettings(userId) ?? undefined;
     const settings = extractSettingsFromWorkspace(workspace, existing);
     // CRITICAL: don't overwrite the current-settings with the
     // initialBotBuilderSettings defaults. For complex bots where AMOUNT/
@@ -299,12 +577,9 @@ export function persistWorkspaceSnapshot(
     // returns the base defaults. If we wrote those, the footer Run button
     // would use $1 instead of the deployed preset's actual stake.
     if (hasMeaningfulBotBuilderState(settings)) {
-      persistCurrentBotSettings(userId, settings, {
-        presetId: options?.presetId ?? null,
-      });
+      persistCurrentBotSettings(userId, settings);
     }
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn("[bot-builder] failed to persist derived settings", err);
   }
 }
@@ -317,11 +592,11 @@ export function persistWorkspaceSnapshot(
  * Returns true if domToWorkspace completed without throwing.
  */
 export function loadWorkspaceXmlIntoBlockly(
-  workspace: any,
+  workspace: BlocklyWorkspaceLike | null | undefined,
   xml_text: string | null,
 ): boolean {
   if (!workspace || !xml_text) return false;
-  const B = (window as any).Blockly;
+  const B = getBlocklyRuntime();
   if (!B?.Xml || !B?.utils?.xml?.textToDom) return false;
 
   const previous_group = B.Events?.getGroup?.();
@@ -351,10 +626,12 @@ export function loadWorkspaceXmlIntoBlockly(
     //    DOM into the same workspace — no race, no leftover blocks.
     if (typeof B.Xml.clearWorkspaceAndLoadFromXml === "function") {
       B.Xml.clearWorkspaceAndLoadFromXml(dom, workspace);
-    } else {
+    } else if (B.Xml.domToWorkspace) {
       // Fallback for older Blockly builds.
       workspace.clear?.();
       B.Xml.domToWorkspace(dom, workspace);
+    } else {
+      return false;
     }
 
     workspace.clearUndo?.();
@@ -405,7 +682,6 @@ export function loadWorkspaceXmlIntoBlockly(
     }
 
     const block_count = workspace.getAllBlocks?.(false)?.length ?? 0;
-    // eslint-disable-next-line no-console
     console.info(
       "[bot-builder] loaded workspace, block_count =",
       block_count,
@@ -414,7 +690,6 @@ export function loadWorkspaceXmlIntoBlockly(
     );
     return block_count > 0;
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.error("[bot-builder] failed to load workspace xml", err);
     try {
       B.Events?.setGroup?.(previous_group ?? false);
