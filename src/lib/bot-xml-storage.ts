@@ -13,6 +13,7 @@ async function loadAssetXml(asset: TradingBotAsset): Promise<string> {
   return (await loader()).replace(/^﻿/, "").trim();
 }
 
+
 export async function ensureBotXmlPresets(): Promise<void> {
   for (const asset of TRADING_BOT_ASSETS) {
     try {
