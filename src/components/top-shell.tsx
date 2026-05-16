@@ -34,8 +34,18 @@ import {
 } from "@/lib/deriv";
 import { resolveRunnableBotSettings, type BotBuilderSettings } from "@/lib/bot-builder-state";
 import { getDerivWorkspace } from "@/external/bot-builder/blockly-runtime";
+import { readSavedWorkspaceXml } from "@/external/bot-builder/workspace-persistence";
 import { buyProposal, requestProposal, subscribeOpenContract } from "@/lib/deriv-trading-service";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
+import {
+  initBotState,
+  runAfterPurchase,
+  runBeforePurchase,
+  evalBotPrediction,
+  getBotStakeVar,
+  purchaseTypeToSide,
+  type BotVarState,
+} from "@/lib/bot-xml-runtime";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -190,7 +200,7 @@ export function TopShell({
       setBotMonitorMemoryReady(true);
       return;
     }
-    setBotMonitorStatus(snapshot.status);
+    setBotMonitorStatus(snapshot.status === "running" ? "stopped" : snapshot.status);
     setBotMonitorStats(snapshot.stats);
     setBotMonitorTransactions(snapshot.transactions);
     setBotMonitorJournal(snapshot.journal.length ? snapshot.journal : DEFAULT_BOT_MONITOR_JOURNAL);
@@ -422,6 +432,17 @@ export function TopShell({
       const slThreshold = Math.abs(Number(settings.stopLoss) || 0);
       const runCap = Math.max(1, Math.round(Number(settings.maxRuns) || 10000));
 
+      // Read the deployed bot XML once and initialise the block interpreter.
+      // This drives stake updates, prediction digit, and contract type per-trade
+      // based on the actual XML logic rather than the static settings snapshot.
+      const workspaceXml = readSavedWorkspaceXml(user?.id);
+      let botState: BotVarState | null = workspaceXml ? initBotState(workspaceXml) : null;
+      if (botState) {
+        botState.totalProfit = 0;
+        const xmlInitStake = getBotStakeVar(botState);
+        if (xmlInitStake != null) currentStake = xmlInitStake;
+      }
+
       // Run loop is primarily bounded by take-profit / stop-loss thresholds —
       // maxRuns is a safety cap so a misconfigured bot can't trade forever.
       // Each contract that actually settles increments completedRuns; trades
@@ -443,7 +464,31 @@ export function TopShell({
           continue;
         }
 
-        const input = proposalInput(snapshot, stake);
+        if (workspaceXml && botState) {
+          runBeforePurchase(workspaceXml, botState);
+        }
+        const botPrediction =
+          workspaceXml && botState ? evalBotPrediction(workspaceXml, botState) : null;
+        const baseInput = proposalInput(snapshot, stake);
+        const xmlPurchaseOverride =
+          botState?.purchaseType ? purchaseTypeToSide(botState.purchaseType) : null;
+        const input: ProposalInput = xmlPurchaseOverride
+          ? {
+              ...baseInput,
+              tradeType: xmlPurchaseOverride.tradeType,
+              side: xmlPurchaseOverride.side,
+              selectedDigit:
+                botPrediction != null
+                  ? Math.max(0, Math.min(9, Math.round(botPrediction)))
+                  : baseInput.selectedDigit,
+            }
+          : {
+              ...baseInput,
+              selectedDigit:
+                botPrediction != null
+                  ? Math.max(0, Math.min(9, Math.round(botPrediction)))
+                  : baseInput.selectedDigit,
+            };
         let settlement: Settlement | null = null;
         let tradeError: unknown = null;
         for (let attempt = 1; attempt <= BOT_TRADE_MAX_ATTEMPTS; attempt += 1) {
@@ -648,10 +693,24 @@ export function TopShell({
           );
           break;
         }
-        currentStake =
-          settlement.status === "lost"
-            ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
-            : snapshot.stake;
+        if (workspaceXml && botState) {
+          botState.result = settlement.status === "won" ? "win" : "loss";
+          botState.totalProfit = runningProfit;
+          botState.lastProfit = settlement.profit;
+          runAfterPurchase(workspaceXml, botState);
+          const xmlStake = getBotStakeVar(botState);
+          currentStake =
+            xmlStake != null
+              ? clampNumber(xmlStake, 0.35, snapshot.maxStake)
+              : settlement.status === "lost"
+                ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
+                : snapshot.stake;
+        } else {
+          currentStake =
+            settlement.status === "lost"
+              ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
+              : snapshot.stake;
+        }
         if (!snapshot.tradeEveryTick) await sleep(100);
       }
 
@@ -671,7 +730,7 @@ export function TopShell({
     } catch (error) {
       const message = getDerivTradingErrorMessage(error);
       footerBotRunningRef.current = false;
-      setBotMonitorStatus("error");
+      setBotMonitorStatus("stopped");
       addFooterBotJournal(message, "error");
       toast.error(message);
     }
