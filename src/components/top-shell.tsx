@@ -439,7 +439,7 @@ export function TopShell({
           // multi-run bot that gates on a digit / profit threshold can resume
           // once the market satisfies the rule. Pace the polls so we don't
           // hammer the WebSocket.
-          await sleep(snapshot.tradeEveryTick ? 700 : 1500);
+          await sleep(snapshot.tradeEveryTick ? 350 : 750);
           continue;
         }
 
@@ -592,7 +592,7 @@ export function TopShell({
                 "Deriv returned a temporary processing error. Retrying once.",
                 "warning",
               );
-              await sleep(1500);
+              await sleep(750);
               continue;
             }
             break;
@@ -606,7 +606,7 @@ export function TopShell({
               `Skipped one bot run after Deriv rejected the trade: ${message}`,
               "warning",
             );
-            await sleep(700);
+            await sleep(350);
             continue;
           }
           throw tradeError;
@@ -652,7 +652,7 @@ export function TopShell({
           settlement.status === "lost"
             ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
             : snapshot.stake;
-        if (!snapshot.tradeEveryTick) await sleep(1000);
+        if (!snapshot.tradeEveryTick) await sleep(500);
       }
 
       if (footerBotRunningRef.current && completedRuns >= runCap) {
@@ -1009,9 +1009,11 @@ function conditionAllowsTrade(
         ? stake
         : settings.conditionLeft === "Run Count"
           ? runNumber
-          : settings.selectedDigit;
+          : null; // "Last Digit" and anything else → bypass the condition gate
+  if (leftValue === null) return true;
   const rightValue = Number(settings.conditionRight);
   if (settings.conditionOperator === "contains") {
+    if (!settings.conditionRight) return true;
     return settings.conditionRight
       .split(",")
       .map((item) => item.trim())

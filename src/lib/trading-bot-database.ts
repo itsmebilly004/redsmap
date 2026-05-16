@@ -98,9 +98,9 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
   },
   {
     id: "osam-auto-pilot",
-    name: "ArkTraders Osam AutoPilot",
+    name: "ArkTraders AutoBot Pro",
     iconKey: "rocket",
-    desc: "Fully automated Over/Under pilot strategy on 1HZ10V, loaded from the Osam AutoPilot XML asset.",
+    desc: "Fully automated Over/Under pilot strategy on 1HZ10V, loaded from the AutoPilot XML asset.",
     fileMatch: "ArkTraders Osam AutoPilot",
     market: "1HZ10V",
     tradeType: "Over/Under",
