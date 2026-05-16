@@ -14,7 +14,7 @@ import {
   type DatabaseTradingBotPreset,
   type TradingBotAsset,
 } from "@/lib/trading-bot-database";
-import { Zap, Target, Cpu, BrainCircuit, Flame } from "lucide-react";
+import { Zap, Target, Cpu, BrainCircuit, Flame, Rocket, Shield } from "lucide-react";
 
 export const Route = createFileRoute("/trading-bots")({
   head: () => ({
@@ -33,6 +33,8 @@ const ICONS = {
   brain: BrainCircuit,
   cpu: Cpu,
   flame: Flame,
+  rocket: Rocket,
+  shield: Shield,
   target: Target,
   zap: Zap,
 };

@@ -353,17 +353,24 @@ export function TopShell({
       return;
     }
 
-    // Safety guard: confirm before placing real-money trades from the footer.
+    // Safety guard: confirm before placing real-money trades — only once per browser session.
     const accountIsReal = account.normalizedType === "real" || account.is_demo === false;
     if (accountIsReal) {
-      const accountLabel = account.loginid || account.account_id;
-      const confirmed = window.confirm(
-        `You are about to run a bot on a REAL Deriv account (${accountLabel}). This will use real funds. Continue?`,
-      );
-      if (!confirmed) {
-        addFooterBotJournal("Run cancelled — confirmation declined on real account.", "warning");
-        toast.info("Bot run cancelled.");
-        return;
+      const SESSION_WARNED_KEY = "arktrader:bot:real-account-session-warned";
+      const alreadyWarned = (() => {
+        try { return sessionStorage.getItem(SESSION_WARNED_KEY) === "1"; } catch { return false; }
+      })();
+      if (!alreadyWarned) {
+        const accountLabel = account.loginid || account.account_id;
+        const confirmed = window.confirm(
+          `You are about to run a bot on a REAL Deriv account (${accountLabel}). This will use real funds. Continue?`,
+        );
+        if (!confirmed) {
+          addFooterBotJournal("Run cancelled — confirmation declined on real account.", "warning");
+          toast.info("Bot run cancelled.");
+          return;
+        }
+        try { sessionStorage.setItem(SESSION_WARNED_KEY, "1"); } catch { /* noop */ }
       }
     }
 

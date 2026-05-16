@@ -1,7 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 
-export type TradingBotIconKey = "brain" | "cpu" | "flame" | "target" | "zap";
+export type TradingBotIconKey = "brain" | "cpu" | "flame" | "rocket" | "shield" | "target" | "zap";
 
 export type TradingBotAsset = {
   contractType: string;
@@ -85,6 +85,26 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
     market: "1HZ10V",
     tradeType: "Over/Under",
     contractType: "Over",
+  },
+  {
+    id: "under-pro-sentinel",
+    name: "ArkTraders UnderPro Sentinel",
+    iconKey: "shield",
+    desc: "Precision Digit Under sentinel strategy on 1HZ10V, loaded from the UnderPro Sentinel XML asset.",
+    fileMatch: "ArkTraders UnderPro Sentinel",
+    market: "1HZ10V",
+    tradeType: "Over/Under",
+    contractType: "Under",
+  },
+  {
+    id: "osam-auto-pilot",
+    name: "ArkTraders Osam AutoPilot",
+    iconKey: "rocket",
+    desc: "Fully automated Over/Under pilot strategy on 1HZ10V, loaded from the Osam AutoPilot XML asset.",
+    fileMatch: "ArkTraders Osam AutoPilot",
+    market: "1HZ10V",
+    tradeType: "Over/Under",
+    contractType: "Over/Under",
   },
 ];
 
@@ -170,28 +190,32 @@ export async function ensureTradingBotDatabasePresets(
   }
 
   for (const asset of TRADING_BOT_ASSETS) {
-    const xml = await loadTradingBotAssetXml(asset);
-    const strategy = strategyDocument(asset, xml);
-    const existing = rowByPresetId.get(asset.id);
-    if (existing) {
-      if (existing.name !== asset.name || strategyXml(existing.strategy) !== xml) {
-        const { error } = await supabase
-          .from("bots")
-          .update({ name: asset.name, status: "stopped", strategy })
-          .eq("id", existing.id)
-          .eq("user_id", userId);
-        if (error) throw error;
+    try {
+      const xml = await loadTradingBotAssetXml(asset);
+      const strategy = strategyDocument(asset, xml);
+      const existing = rowByPresetId.get(asset.id);
+      if (existing) {
+        if (existing.name !== asset.name || strategyXml(existing.strategy) !== xml) {
+          const { error } = await supabase
+            .from("bots")
+            .update({ name: asset.name, status: "stopped", strategy })
+            .eq("id", existing.id)
+            .eq("user_id", userId);
+          if (error) console.warn(`[trading-bots] failed to update ${asset.name}:`, error);
+        }
+        continue;
       }
-      continue;
-    }
 
-    const { error } = await supabase.from("bots").insert({
-      name: asset.name,
-      status: "stopped",
-      strategy,
-      user_id: userId,
-    });
-    if (error) throw error;
+      const { error } = await supabase.from("bots").insert({
+        name: asset.name,
+        status: "stopped",
+        strategy,
+        user_id: userId,
+      });
+      if (error) console.warn(`[trading-bots] failed to insert ${asset.name}:`, error);
+    } catch (err) {
+      console.warn(`[trading-bots] skipped ${asset.name} — could not load XML asset:`, err);
+    }
   }
 
   return fetchTradingBotDatabasePresets(userId);
@@ -218,14 +242,18 @@ export async function fetchTradingBotPresetFromDatabase(
   presetId: string,
 ): Promise<DatabaseTradingBotPreset> {
   const asset = assetForId(presetId);
-  let presets = await fetchTradingBotDatabasePresets(userId);
-  let preset = presets.find((item) => item.id === asset.id);
-  if (!preset) {
-    presets = await ensureTradingBotDatabasePresets(userId);
-    preset = presets.find((item) => item.id === asset.id);
-  }
+
+  // Always ensure the DB is up-to-date so fresh deploys work even if the
+  // trading-bots page hasn't been visited yet (which seeds the database).
+  await ensureTradingBotDatabasePresets(userId);
+
+  const presets = await fetchTradingBotDatabasePresets(userId);
+  const preset = presets.find((item) => item.id === asset.id);
+
   if (!preset?.xml) {
-    throw new Error(`The database preset for ${asset.name} does not contain XML.`);
+    throw new Error(
+      `Could not load the XML for ${asset.name}. Make sure the XML asset file exists in the project and try again.`,
+    );
   }
   return preset;
 }

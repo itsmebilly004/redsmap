@@ -243,7 +243,7 @@ export function BotRunMonitorPanel({
 
         </TabsContent>
 
-        <TabsContent value="transactions" className="m-0 min-h-0 flex-1 bg-white dark:bg-[#151515]">
+        <TabsContent value="transactions" className="m-0 min-h-0 flex-1 overflow-hidden bg-white dark:bg-[#151515]">
           <ScrollArea className="h-full">
             {transactions.length === 0 ? (
               <EmptyPanel title="No transactions yet" />
@@ -323,7 +323,7 @@ export function BotRunMonitorPanel({
             )}
           </ScrollArea>
         </TabsContent>
-        <TabsContent value="journal" className="m-0 min-h-0 flex-1 bg-white dark:bg-[#151515]">
+        <TabsContent value="journal" className="m-0 min-h-0 flex-1 overflow-hidden bg-white dark:bg-[#151515]">
           <ScrollArea className="h-full p-4">
             <div className="space-y-2">
               {journal.map((entry) => (
