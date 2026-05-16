@@ -46,6 +46,7 @@ import {
   purchaseTypeToSide,
   type BotVarState,
 } from "@/lib/bot-xml-runtime";
+import { DERIV_LEGACY_WEBSOCKET_URL, DERIV_LEGACY_APP_ID } from "@/lib/deriv-config";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -401,6 +402,7 @@ export function TopShell({
       "success",
     );
 
+    let stopTickWs: () => void = () => {};
     try {
       const session = await ensureDerivTradingConnection(account, { context: "footer-bot-run" });
       const sessionAccountUpper = String(session.account_id ?? "")
@@ -443,27 +445,71 @@ export function TopShell({
         if (xmlInitStake != null) currentStake = xmlInitStake;
       }
 
+      // Tick-driven loop: subscribe to the symbol's public tick stream and
+      // drive each trade cycle from a real market tick instead of a timer.
+      // Uses the legacy public WebSocket (wss://ws.derivws.com) which supports
+      // unauthenticated tick subscriptions — the trading WS does not.
+      let pendingTickResolve: ((data: { quote: number; epoch: number }) => void) | null = null;
+      let tickSubId: string | null = null;
+      const tickWs = new WebSocket(
+        `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${DERIV_LEGACY_APP_ID}`,
+      );
+      const nextTick = (): Promise<{ quote: number; epoch: number }> =>
+        new Promise((resolve) => {
+          pendingTickResolve = resolve;
+        });
+      const resolvePendingTick = (quote: number, epoch: number) => {
+        if (pendingTickResolve) {
+          const resolve = pendingTickResolve;
+          pendingTickResolve = null;
+          resolve({ quote, epoch });
+        }
+      };
+      tickWs.onopen = () => {
+        tickWs.send(JSON.stringify({ ticks: settings.symbol, subscribe: 1 }));
+      };
+      tickWs.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data as string) as Record<string, unknown>;
+          const sub = msg.subscription as Record<string, unknown> | undefined;
+          if (sub?.id && !tickSubId) tickSubId = String(sub.id);
+          if (msg.msg_type === "tick" && msg.tick && typeof msg.tick === "object") {
+            const tick = msg.tick as Record<string, unknown>;
+            const quote = Number(tick.quote ?? 0);
+            const epoch = Number(tick.epoch ?? 0);
+            const qStr = String(Math.abs(quote));
+            const lastDigit = Number(qStr.replace(".", "").slice(-1));
+            if (botState) botState.tickDigits = [...botState.tickDigits.slice(-49), lastDigit];
+            console.log("[TICK]", { symbol: String(tick.symbol ?? settings.symbol), quote, epoch });
+            resolvePendingTick(quote, epoch);
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      };
+      tickWs.onerror = () => resolvePendingTick(0, 0);
+      tickWs.onclose = () => resolvePendingTick(0, 0);
+      stopTickWs = () => {
+        try {
+          if (tickSubId && tickWs.readyState === WebSocket.OPEN) {
+            tickWs.send(JSON.stringify({ forget: tickSubId }));
+          }
+          tickWs.close();
+        } catch {
+          // ignore cleanup errors
+        }
+      };
+
       // Run loop is primarily bounded by take-profit / stop-loss thresholds —
       // maxRuns is a safety cap so a misconfigured bot can't trade forever.
       // Each contract that actually settles increments completedRuns; trades
-      // that error out or were skipped by the purchase condition don't count.
+      // that error out don't count.
       let completedRuns = 0;
       while (footerBotRunningRef.current && completedRuns < runCap) {
         const snapshot = { ...settings, currency: runCurrency };
         const stake = clampNumber(currentStake, 0.35, snapshot.maxStake);
-        if (!conditionAllowsTrade(snapshot, stake, completedRuns + 1, runningProfit)) {
-          addFooterBotJournal(
-            "Purchase condition is false. Waiting for the next run cycle.",
-            "warning",
-          );
-          // Don't break — keep waiting for the condition to become true so a
-          // multi-run bot that gates on a digit / profit threshold can resume
-          // once the market satisfies the rule. Pace the polls so we don't
-          // hammer the WebSocket.
-          await sleep(snapshot.tradeEveryTick ? 350 : 750);
-          continue;
-        }
-
+        await nextTick();
+        if (!footerBotRunningRef.current) break;
         if (workspaceXml && botState) {
           runBeforePurchase(workspaceXml, botState);
         }
@@ -490,11 +536,13 @@ export function TopShell({
                   : baseInput.selectedDigit,
             };
         let settlement: Settlement | null = null;
+        let capturedBuyPrice: number | null = null;
         let tradeError: unknown = null;
         for (let attempt = 1; attempt <= BOT_TRADE_MAX_ATTEMPTS; attempt += 1) {
           let contractWasBought = false;
           try {
             const payload = buildStandardProposalPayload(input, session.adapter as TradingAdapter);
+            console.log("[PROPOSAL]", JSON.stringify(payload));
             addFooterBotJournal(
               `Requesting proposal for ${contractTypeLabel(snapshot)} with ${stake.toFixed(2)} ${snapshot.currency}.`,
             );
@@ -509,6 +557,7 @@ export function TopShell({
               contractType: String(payload.contract_type ?? context.contractType),
             });
             const contractId = String(buy.buy?.contract_id ?? "");
+            capturedBuyPrice = Number(buy.buy?.buy_price ?? 0) || null;
             const contractType = String(payload.contract_type ?? context.contractType);
             contractWasBought = true;
             const record: BotMonitorTransaction = {
@@ -651,7 +700,6 @@ export function TopShell({
               `Skipped one bot run after Deriv rejected the trade: ${message}`,
               "warning",
             );
-            await sleep(350);
             continue;
           }
           throw tradeError;
@@ -697,7 +745,24 @@ export function TopShell({
           botState.result = settlement.status === "won" ? "win" : "loss";
           botState.totalProfit = runningProfit;
           botState.lastProfit = settlement.profit;
+          botState.entrySpot = settlement.entrySpot ?? null;
+          botState.exitSpot = settlement.exitSpot ?? null;
+          botState.buyPrice = capturedBuyPrice;
+          botState.payout = settlement.payout ?? null;
+          console.log("[SETTLEMENT]", {
+            result: settlement.status,
+            entrySpot: settlement.entrySpot,
+            exitSpot: settlement.exitSpot,
+            buyPrice: capturedBuyPrice,
+            payout: settlement.payout,
+            lastProfit: settlement.profit,
+          });
           runAfterPurchase(workspaceXml, botState);
+          console.log("[STATE AFTER PURCHASE]", {
+            stake: botState.vars["stake"],
+            loss: botState.vars["loss"],
+            totalProfit: botState.totalProfit,
+          });
           const xmlStake = getBotStakeVar(botState);
           currentStake =
             xmlStake != null
@@ -711,7 +776,7 @@ export function TopShell({
               ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
               : snapshot.stake;
         }
-        if (!snapshot.tradeEveryTick) await sleep(100);
+        console.log("[NEXT STAKE]", currentStake);
       }
 
       if (footerBotRunningRef.current && completedRuns >= runCap) {
@@ -721,6 +786,7 @@ export function TopShell({
         );
       }
 
+      stopTickWs();
       await refreshBalances("footer-bot-run-complete", account.account_id).catch((error) => {
         console.warn("[Top Shell] final balance refresh after run failed", error);
       });
@@ -728,6 +794,7 @@ export function TopShell({
       footerBotRunningRef.current = false;
       addFooterBotJournal("Bot run completed.", "success");
     } catch (error) {
+      stopTickWs();
       const message = getDerivTradingErrorMessage(error);
       footerBotRunningRef.current = false;
       setBotMonitorStatus("stopped");

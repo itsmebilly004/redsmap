@@ -7,6 +7,10 @@ export type BotVarState = {
   lastProfit: number;
   purchaseType: string | null;
   tickDigits: number[];
+  entrySpot: number | null;
+  exitSpot: number | null;
+  buyPrice: number | null;
+  payout: number | null;
 };
 
 class BreakSignal extends Error {
@@ -213,7 +217,10 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
 
     case "read_details": {
       const idx = Number(getField(block, "DETAIL_INDEX"));
-      // Index 4 = profit/loss (negative on loss), index 5 = sell price (0 on loss)
+      if (idx === 0) return state.entrySpot ?? 0;
+      if (idx === 1) return state.exitSpot ?? 0;
+      if (idx === 2) return state.buyPrice ?? 0;
+      if (idx === 3) return state.payout ?? 0;
       if (idx === 4) return state.lastProfit;
       if (idx === 5) return state.lastProfit > 0 ? state.lastProfit : 0;
       return 0;
@@ -350,6 +357,10 @@ export function initBotState(xmlText: string): BotVarState | null {
     lastProfit: 0,
     purchaseType: null,
     tickDigits: [],
+    entrySpot: null,
+    exitSpot: null,
+    buyPrice: null,
+    payout: null,
   };
 
   // Seed all declared variables with 0 as default
