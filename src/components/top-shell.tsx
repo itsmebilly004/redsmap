@@ -652,7 +652,7 @@ export function TopShell({
           settlement.status === "lost"
             ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
             : snapshot.stake;
-        if (!snapshot.tradeEveryTick) await sleep(500);
+        if (!snapshot.tradeEveryTick) await sleep(100);
       }
 
       if (footerBotRunningRef.current && completedRuns >= runCap) {
