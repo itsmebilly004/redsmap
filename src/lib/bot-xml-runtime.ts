@@ -20,6 +20,10 @@ export type BotVarState = {
   buyPrice: number | null;
   payout: number | null;
   balance: number;
+  /** True when before_purchase contains a purchase block, meaning the XML controls
+   *  whether to trade each tick. When true and purchaseType is null after
+   *  runBeforePurchase, the tick should be skipped (entry condition not met). */
+  hasConditionalPurchase: boolean;
 };
 
 class BreakSignal extends Error {
@@ -365,6 +369,17 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
     case "read_balance":
       return state.balance;
 
+    case "text_length": {
+      const valBlock = getValueBlock(block, "VALUE");
+      if (!valBlock) return 0;
+      if (valBlock.getAttribute("type") === "variables_get") {
+        const name = getField(valBlock, "VAR").toLowerCase();
+        if (state.listVars[name] !== undefined) return state.listVars[name].length;
+        return String(state.vars[name] ?? "").length;
+      }
+      return String(evalExpr(valBlock, state)).length;
+    }
+
     case "text":
       return getField(block, "TEXT");
 
@@ -525,8 +540,26 @@ function execBlock(block: Element, state: BotVarState): void {
       break;
     }
 
+    // DDBOt statement-form list creation: <block type="lists_create_with" VARIABLE="...">
+    //   <statement name="STACK"><block type="lists_statement"><value name="VALUE">…
+    // Collects items from the lists_statement chain and stores them in state.listVars.
+    case "lists_create_with": {
+      const varName = getField(block, "VARIABLE").toLowerCase();
+      if (varName) {
+        const items: number[] = [];
+        let stmt = getStatementBlock(block, "STACK");
+        while (stmt) {
+          if (stmt.getAttribute("type") === "lists_statement") {
+            items.push(Number(evalExpr(getValueBlock(stmt, "VALUE"), state)));
+          }
+          stmt = nextBlock(stmt);
+        }
+        state.listVars[varName] = items;
+      }
+      break;
+    }
+
     // Expression blocks that may appear in statement position — no side effects needed
-    case "lists_create_with":
     case "text_join":
     case "text_append":
     case "trade_again":
@@ -534,6 +567,7 @@ function execBlock(block: Element, state: BotVarState): void {
     case "btnotify":
     case "text_print":
     case "text_statement":
+    case "lists_statement":
     // Procedure definitions are processed at init time via buildProcRegistry
     case "procedures_defnoreturn":
     case "procedures_defreturn":
@@ -574,6 +608,11 @@ export function initBotState(xmlText: string): BotVarState | null {
   const doc = parseXmlDoc(xmlText);
   if (!doc) return null;
 
+  const beforePurchaseEl = doc.querySelector('block[type="before_purchase"]');
+  const hasConditionalPurchase = !!(
+    beforePurchaseEl?.querySelector('block[type="purchase"], block[type="apollo_purchase"]')
+  );
+
   const state: BotVarState = {
     vars: {},
     listVars: {},
@@ -588,6 +627,7 @@ export function initBotState(xmlText: string): BotVarState | null {
     buyPrice: null,
     payout: null,
     balance: 0,
+    hasConditionalPurchase,
   };
 
   for (const variable of doc.querySelectorAll("variables > variable")) {

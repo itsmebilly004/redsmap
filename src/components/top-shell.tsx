@@ -523,6 +523,12 @@ export function TopShell({
           // Inject the current account balance so read_balance returns a real value
           botState.balance = Number(balance ?? account.balance ?? 0);
           runBeforePurchase(workspaceXml, botState);
+          // If before_purchase contains purchase blocks (conditional entry logic)
+          // but didn't set one this tick, the entry condition wasn't met.
+          // Skip this trade and wait for the next tick — tick analysis keeps running.
+          if (botState.hasConditionalPurchase && botState.purchaseType === null) {
+            continue;
+          }
         }
         // Read stake AFTER before_purchase has run — in DDBOt, before_purchase
         // sets the stake for the current trade, not the next one.
