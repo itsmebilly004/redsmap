@@ -1,7 +1,15 @@
 import type { TradeCategory } from "@/lib/deriv";
 
+type ProcDef = {
+  params: string[];
+  body: Element | null;
+  returnBlock: Element | null;
+};
+
 export type BotVarState = {
   vars: Record<string, number>;
+  listVars: Record<string, number[]>;
+  procs: Record<string, ProcDef>;
   result: "win" | "loss" | null;
   totalProfit: number;
   lastProfit: number;
@@ -83,6 +91,62 @@ function getMutation(el: Element): Element | null {
   return null;
 }
 
+function isListBlock(block: Element | null): boolean {
+  if (!block) return false;
+  const type = block.getAttribute("type") ?? "";
+  return type === "lastDigitList" || type === "lists_create_with";
+}
+
+function evalListExpr(block: Element | null, state: BotVarState): number[] {
+  if (!block) return [];
+  const type = block.getAttribute("type") ?? "";
+  switch (type) {
+    case "lastDigitList":
+      return [...state.tickDigits];
+    case "variables_get": {
+      const name = getField(block, "VAR").toLowerCase();
+      return state.listVars[name] ?? [];
+    }
+    case "lists_create_with": {
+      const mutation = getMutation(block);
+      const items = Number(mutation?.getAttribute("items") ?? 0);
+      const result: number[] = [];
+      for (let i = 0; i < items; i++) {
+        result.push(Number(evalExpr(getValueBlock(block, `ADD${i}`), state)));
+      }
+      return result;
+    }
+    default:
+      return [];
+  }
+}
+
+function callProcedure(
+  name: string,
+  args: (number | boolean | string)[],
+  state: BotVarState,
+): number {
+  const proc = state.procs[name.toLowerCase()];
+  if (!proc) return 0;
+  const saved: Record<string, number> = {};
+  for (let i = 0; i < proc.params.length; i++) {
+    const p = proc.params[i]!;
+    saved[p] = state.vars[p] ?? 0;
+    state.vars[p] = Number(args[i] ?? 0);
+  }
+  let returnValue = 0;
+  try {
+    if (proc.body) execChain(proc.body, state);
+    if (proc.returnBlock) returnValue = Number(evalExpr(proc.returnBlock, state));
+  } catch (e) {
+    if (!(e instanceof BreakSignal)) throw e;
+  }
+  for (const p of proc.params) {
+    state.vars[p] = saved[p] ?? 0;
+  }
+  return returnValue;
+}
+
 function evalExpr(block: Element | null, state: BotVarState): number | boolean | string {
   if (!block) return 0;
   const type = block.getAttribute("type") ?? "";
@@ -94,6 +158,7 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
 
     case "variables_get": {
       const name = getField(block, "VAR").toLowerCase();
+      if (state.listVars[name] !== undefined) return 0;
       return state.vars[name] ?? 0;
     }
 
@@ -126,6 +191,27 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
       if (op === "COS") return Math.cos((n * Math.PI) / 180);
       if (op === "TAN") return Math.tan((n * Math.PI) / 180);
       return n;
+    }
+
+    case "math_round": {
+      const op = getField(block, "OP");
+      const n = Number(evalExpr(getValueBlock(block, "NUM"), state));
+      if (op === "ROUNDUP") return Math.ceil(n);
+      if (op === "ROUNDDOWN") return Math.floor(n);
+      return Math.round(n);
+    }
+
+    case "math_modulo": {
+      const a = Number(evalExpr(getValueBlock(block, "DIVIDEND"), state));
+      const b = Number(evalExpr(getValueBlock(block, "DIVISOR"), state));
+      return b !== 0 ? a % b : 0;
+    }
+
+    case "math_constrain": {
+      const n = Number(evalExpr(getValueBlock(block, "VALUE"), state));
+      const low = Number(evalExpr(getValueBlock(block, "LOW"), state));
+      const high = Number(evalExpr(getValueBlock(block, "HIGH"), state));
+      return Math.min(Math.max(n, low), high);
     }
 
     case "math_constant": {
@@ -168,6 +254,9 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
       const max = Math.max(from, to);
       return Math.floor(Math.random() * (max - min + 1)) + min;
     }
+
+    case "math_random_float":
+      return Math.random();
 
     case "logic_compare": {
       const op = getField(block, "OP");
@@ -216,13 +305,18 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
       return state.lastProfit;
 
     case "read_details": {
+      // DDBOt createDetails(contract) array, accessed via readDetails(i) = createDetails[i-1]:
+      // idx 2 → buy_price (stake paid)
+      // idx 3 → sell_price (payout received)
+      // idx 4 → profit = sell_price - buy_price (signed)
+      // idx 7 → entry_tick spot value
+      // idx 9 → exit_tick spot value
       const idx = Number(getField(block, "DETAIL_INDEX"));
-      if (idx === 0) return state.entrySpot ?? 0;
-      if (idx === 1) return state.exitSpot ?? 0;
       if (idx === 2) return state.buyPrice ?? 0;
       if (idx === 3) return state.payout ?? 0;
       if (idx === 4) return state.lastProfit;
-      if (idx === 5) return state.lastProfit > 0 ? state.lastProfit : 0;
+      if (idx === 7) return state.entrySpot ?? 0;
+      if (idx === 9) return state.exitSpot ?? 0;
       return 0;
     }
 
@@ -238,6 +332,24 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
       return d.length > 0 ? (d[d.length - 1] ?? 0) : 0;
     }
 
+    // lastDigitList used directly as a number expression → returns list length
+    case "lastDigitList":
+    case "lastdigitlist":
+      return state.tickDigits.length;
+
+    // DDBOt camelCase variant — VALUE holds a list-producing block, AT holds the index
+    case "lists_getIndex": {
+      const where = getField(block, "WHERE");
+      const list = evalListExpr(getValueBlock(block, "VALUE"), state);
+      const at = Math.max(1, Math.round(Number(evalExpr(getValueBlock(block, "AT"), state)) || 1));
+      if (where === "FROM_END") return list.length >= at ? (list[list.length - at] ?? 0) : 0;
+      if (where === "FROM_START") return list.length >= at ? (list[at - 1] ?? 0) : 0;
+      if (where === "FIRST") return list.length > 0 ? (list[0] ?? 0) : 0;
+      if (where === "LAST") return list.length > 0 ? (list[list.length - 1] ?? 0) : 0;
+      return list.length >= at ? (list[list.length - at] ?? 0) : 0;
+    }
+
+    // Legacy lowercase variant — operates directly on tickDigits via WHERE1/AT1
     case "lists_getindex": {
       const where = getField(block, "WHERE1");
       const at = Math.max(1, Math.round(Number(evalExpr(getValueBlock(block, "AT1"), state)) || 1));
@@ -249,14 +361,20 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
       return d.length >= at ? (d[d.length - at] ?? 0) : 0;
     }
 
-    case "lastdigitlist":
-      return state.tickDigits.length;
-
     case "read_balance":
       return 0;
 
     case "text":
       return getField(block, "TEXT");
+
+    case "procedures_callreturn": {
+      const mutation = getMutation(block);
+      const name = (mutation?.getAttribute("name") ?? "").toLowerCase();
+      const proc = state.procs[name];
+      if (!proc) return 0;
+      const args = proc.params.map((_, i) => evalExpr(getValueBlock(block, `ARG${i}`), state));
+      return callProcedure(name, args, state);
+    }
 
     default:
       return 0;
@@ -277,7 +395,12 @@ function execBlock(block: Element, state: BotVarState): void {
   switch (type) {
     case "variables_set": {
       const name = getField(block, "VAR").toLowerCase();
-      state.vars[name] = Number(evalExpr(getValueBlock(block, "VALUE"), state));
+      const valueBlock = getValueBlock(block, "VALUE");
+      if (isListBlock(valueBlock)) {
+        state.listVars[name] = evalListExpr(valueBlock, state);
+      } else {
+        state.vars[name] = Number(evalExpr(valueBlock, state));
+      }
       break;
     }
 
@@ -328,22 +451,122 @@ function execBlock(block: Element, state: BotVarState): void {
       break;
     }
 
+    case "controls_for": {
+      const varName = getField(block, "VAR").toLowerCase();
+      const from = Number(evalExpr(getValueBlock(block, "FROM"), state));
+      const to = Number(evalExpr(getValueBlock(block, "TO"), state));
+      const by = Number(evalExpr(getValueBlock(block, "BY"), state)) || 1;
+      const doBlock = getStatementBlock(block, "DO");
+      let safetyCount = 0;
+      try {
+        if (by > 0) {
+          for (let i = from; i <= to && safetyCount++ < 10000; i += by) {
+            state.vars[varName] = i;
+            execChain(doBlock, state);
+          }
+        } else if (by < 0) {
+          for (let i = from; i >= to && safetyCount++ < 10000; i += by) {
+            state.vars[varName] = i;
+            execChain(doBlock, state);
+          }
+        }
+      } catch (e) {
+        if (!(e instanceof BreakSignal)) throw e;
+      }
+      break;
+    }
+
+    case "controls_whileUntil": {
+      const mode = getField(block, "MODE");
+      const doBlock = getStatementBlock(block, "DO");
+      let safetyCount = 0;
+      try {
+        while (safetyCount++ < 10000) {
+          const cond = Boolean(evalExpr(getValueBlock(block, "BOOL"), state));
+          if (mode === "UNTIL" ? cond : !cond) break;
+          execChain(doBlock, state);
+        }
+      } catch (e) {
+        if (!(e instanceof BreakSignal)) throw e;
+      }
+      break;
+    }
+
     case "purchase":
+    case "apollo_purchase":
       state.purchaseType = getField(block, "PURCHASE_LIST") || null;
       break;
 
-    // Text / notify / side-effect blocks — skip content, let chain continue
+    case "tick_analysis":
+      try {
+        execChain(getStatementBlock(block, "TICKANALYSIS_STACK"), state);
+      } catch {
+        // ignore tick-level errors
+      }
+      break;
+
+    case "timeout":
+      try {
+        execChain(getStatementBlock(block, "TIMEOUTSTACK"), state);
+      } catch {
+        // ignore
+      }
+      break;
+
+    case "procedures_callnoreturn": {
+      const mutation = getMutation(block);
+      const name = (mutation?.getAttribute("name") ?? "").toLowerCase();
+      const proc = state.procs[name];
+      if (proc) {
+        const args = proc.params.map((_, i) => evalExpr(getValueBlock(block, `ARG${i}`), state));
+        callProcedure(name, args, state);
+      }
+      break;
+    }
+
+    // Expression blocks that may appear in statement position — no side effects needed
+    case "lists_create_with":
     case "text_join":
+    case "text_append":
     case "trade_again":
     case "notify":
+    case "btnotify":
     case "text_print":
     case "text_statement":
-    case "timeout":
+    // Procedure definitions are processed at init time via buildProcRegistry
+    case "procedures_defnoreturn":
+    case "procedures_defreturn":
       break;
 
     default:
       break;
   }
+}
+
+function buildProcRegistry(doc: Document): Record<string, ProcDef> {
+  const procs: Record<string, ProcDef> = {};
+  for (const defType of ["procedures_defnoreturn", "procedures_defreturn"]) {
+    for (const defBlock of doc.querySelectorAll(`block[type="${defType}"]`)) {
+      const name = getField(defBlock as Element, "NAME").toLowerCase();
+      if (!name) continue;
+      const mutation = getMutation(defBlock as Element);
+      const params: string[] = [];
+      if (mutation) {
+        for (const arg of mutation.children) {
+          if (arg.tagName === "arg") {
+            const paramName = arg.getAttribute("name");
+            if (paramName) params.push(paramName.toLowerCase());
+          }
+        }
+      }
+      procs[name] = {
+        params,
+        body: getStatementBlock(defBlock as Element, "STACK"),
+        returnBlock: getValueBlock(defBlock as Element, "RETURN"),
+      };
+    }
+  }
+  return procs;
 }
 
 export function initBotState(xmlText: string): BotVarState | null {
@@ -352,6 +575,8 @@ export function initBotState(xmlText: string): BotVarState | null {
 
   const state: BotVarState = {
     vars: {},
+    listVars: {},
+    procs: buildProcRegistry(doc),
     result: null,
     totalProfit: 0,
     lastProfit: 0,
@@ -363,13 +588,11 @@ export function initBotState(xmlText: string): BotVarState | null {
     payout: null,
   };
 
-  // Seed all declared variables with 0 as default
   for (const variable of doc.querySelectorAll("variables > variable")) {
     const name = (variable.textContent ?? "").trim().toLowerCase();
     if (name) state.vars[name] = 0;
   }
 
-  // Execute INITIALIZATION block to set initial variable values
   const tradeDef = doc.querySelector('block[type="trade_definition"]');
   if (tradeDef) {
     try {
@@ -390,7 +613,7 @@ export function runAfterPurchase(xmlText: string, state: BotVarState): void {
   try {
     execChain(getStatementBlock(afterPurchase, "AFTERPURCHASE_STACK"), state);
   } catch {
-    // Ignore runtime errors in after_purchase
+    // ignore runtime errors in after_purchase
   }
 }
 
@@ -403,7 +626,19 @@ export function runBeforePurchase(xmlText: string, state: BotVarState): void {
   try {
     execChain(getStatementBlock(beforePurchase, "BEFOREPURCHASE_STACK"), state);
   } catch {
-    // Ignore runtime errors in before_purchase
+    // ignore runtime errors in before_purchase
+  }
+}
+
+export function runTickAnalysis(xmlText: string, state: BotVarState): void {
+  const doc = parseXmlDoc(xmlText);
+  if (!doc) return;
+  for (const block of doc.querySelectorAll('block[type="tick_analysis"]')) {
+    try {
+      execChain(getStatementBlock(block as Element, "TICKANALYSIS_STACK"), state);
+    } catch {
+      // ignore runtime errors in tick_analysis
+    }
   }
 }
 

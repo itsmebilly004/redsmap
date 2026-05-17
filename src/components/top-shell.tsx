@@ -41,6 +41,7 @@ import {
   initBotState,
   runAfterPurchase,
   runBeforePurchase,
+  runTickAnalysis,
   evalBotPrediction,
   getBotStakeVar,
   purchaseTypeToSide,
@@ -477,9 +478,13 @@ export function TopShell({
             const tick = msg.tick as Record<string, unknown>;
             const quote = Number(tick.quote ?? 0);
             const epoch = Number(tick.epoch ?? 0);
-            const qStr = String(Math.abs(quote));
-            const lastDigit = Number(qStr.replace(".", "").slice(-1));
-            if (botState) botState.tickDigits = [...botState.tickDigits.slice(-49), lastDigit];
+            const pipSize = Number(tick.pip_size ?? 0);
+            const qStr = pipSize > 0 ? Number(Math.abs(quote)).toFixed(pipSize) : String(Math.abs(quote));
+            const lastDigit = Number(qStr.slice(-1));
+            if (botState) {
+              botState.tickDigits = [...botState.tickDigits.slice(-49), lastDigit];
+              if (workspaceXml) runTickAnalysis(workspaceXml, botState);
+            }
             console.log("[TICK]", { symbol: String(tick.symbol ?? settings.symbol), quote, epoch });
             resolvePendingTick(quote, epoch);
           }

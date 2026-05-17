@@ -33,7 +33,11 @@
       "Bash(awk '/Category id=/{indent_level=gsub\\(/    /,\"\"\\); print NR\": \"indent_level\": \"$0}' \"src/external/bot-builder/toolbox-items.tsx\")",
       "Bash(cat C:\\\\\\\\Users\\\\\\\\ADMIN\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\C--Users-ADMIN-Desktop-deriv-arktrader-hub\\\\\\\\4d4e6806-2cb2-49cd-b5ee-627853bafee3\\\\\\\\tasks\\\\\\\\bjo95lz57.output)",
       "Bash(Select-Object Name)",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(gh repo *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
