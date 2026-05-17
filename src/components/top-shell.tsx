@@ -446,6 +446,11 @@ export function TopShell({
         if (xmlInitStake != null) currentStake = xmlInitStake;
       }
 
+      // Paused while a trade is in-flight so tick_analysis blocks don't mutate
+      // bot state during async proposal/buy/settlement, which would advance
+      // internal counters beyond where they should be at after_purchase time.
+      let botAnalysisPaused = false;
+
       // Tick-driven loop: subscribe to the symbol's public tick stream and
       // drive each trade cycle from a real market tick instead of a timer.
       // Uses the legacy public WebSocket (wss://ws.derivws.com) which supports
@@ -483,7 +488,7 @@ export function TopShell({
             const lastDigit = Number(qStr.slice(-1));
             if (botState) {
               botState.tickDigits = [...botState.tickDigits.slice(-49), lastDigit];
-              if (workspaceXml) runTickAnalysis(workspaceXml, botState);
+              if (workspaceXml && !botAnalysisPaused) runTickAnalysis(workspaceXml, botState);
             }
             console.log("[TICK]", { symbol: String(tick.symbol ?? settings.symbol), quote, epoch });
             resolvePendingTick(quote, epoch);
@@ -512,12 +517,17 @@ export function TopShell({
       let completedRuns = 0;
       while (footerBotRunningRef.current && completedRuns < runCap) {
         const snapshot = { ...settings, currency: runCurrency };
-        const stake = clampNumber(currentStake, 0.35, snapshot.maxStake);
         await nextTick();
         if (!footerBotRunningRef.current) break;
         if (workspaceXml && botState) {
+          // Inject the current account balance so read_balance returns a real value
+          botState.balance = Number(balance ?? account.balance ?? 0);
           runBeforePurchase(workspaceXml, botState);
         }
+        // Read stake AFTER before_purchase has run — in DDBOt, before_purchase
+        // sets the stake for the current trade, not the next one.
+        const xmlBeforeStake = botState ? getBotStakeVar(botState) : null;
+        const stake = clampNumber(xmlBeforeStake ?? currentStake, 0.35, snapshot.maxStake);
         const botPrediction =
           workspaceXml && botState ? evalBotPrediction(workspaceXml, botState) : null;
         const baseInput = proposalInput(snapshot, stake);
@@ -543,6 +553,7 @@ export function TopShell({
         let settlement: Settlement | null = null;
         let capturedBuyPrice: number | null = null;
         let tradeError: unknown = null;
+        botAnalysisPaused = true;
         for (let attempt = 1; attempt <= BOT_TRADE_MAX_ATTEMPTS; attempt += 1) {
           let contractWasBought = false;
           try {
@@ -781,6 +792,7 @@ export function TopShell({
               ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
               : snapshot.stake;
         }
+        botAnalysisPaused = false;
         console.log("[NEXT STAKE]", currentStake);
       }
 

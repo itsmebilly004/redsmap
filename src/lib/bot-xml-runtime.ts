@@ -19,6 +19,7 @@ export type BotVarState = {
   exitSpot: number | null;
   buyPrice: number | null;
   payout: number | null;
+  balance: number;
 };
 
 class BreakSignal extends Error {
@@ -362,7 +363,7 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
     }
 
     case "read_balance":
-      return 0;
+      return state.balance;
 
     case "text":
       return getField(block, "TEXT");
@@ -586,6 +587,7 @@ export function initBotState(xmlText: string): BotVarState | null {
     exitSpot: null,
     buyPrice: null,
     payout: null,
+    balance: 0,
   };
 
   for (const variable of doc.querySelectorAll("variables > variable")) {
