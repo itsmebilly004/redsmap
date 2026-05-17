@@ -35,17 +35,20 @@ import {
 import { resolveRunnableBotSettings, type BotBuilderSettings } from "@/lib/bot-builder-state";
 import { getDerivWorkspace } from "@/external/bot-builder/blockly-runtime";
 import { readSavedWorkspaceXml } from "@/external/bot-builder/workspace-persistence";
-import { buyProposal, requestProposal, subscribeOpenContract } from "@/lib/deriv-trading-service";
+import { buyProposal, requestProposal, sellContract, subscribeOpenContract } from "@/lib/deriv-trading-service";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import {
   initBotState,
   runAfterPurchase,
   runBeforePurchase,
+  runDuringPurchase,
   runTickAnalysis,
   evalBotPrediction,
   getBotStakeVar,
+  getXmlOhlcGranularity,
   purchaseTypeToSide,
   type BotVarState,
+  type OhlcCandle,
 } from "@/lib/bot-xml-runtime";
 import { DERIV_LEGACY_WEBSOCKET_URL, DERIV_LEGACY_APP_ID } from "@/lib/deriv-config";
 import { supabase } from "@/integrations/supabase/client";
@@ -141,6 +144,11 @@ type Settlement = {
   payout: number;
   profit: number;
   status: "lost" | "open" | "won";
+  // Extra readDetails fields populated from the settled contract
+  transactionIdSell: string | null;
+  entryTickTime: number | null;
+  exitTickTime: number | null;
+  barrierValue: string | null;
 };
 
 export function TopShell({
@@ -451,6 +459,14 @@ export function TopShell({
       // internal counters beyond where they should be at after_purchase time.
       let botAnalysisPaused = false;
 
+      // Called on every tick while a contract is open — runs during_purchase blocks.
+      // Set before waitForSettlement, cleared immediately after it resolves.
+      let duringPurchaseCallback: (() => void) | null = null;
+
+      // OHLC candle granularity derived from the XML (e.g. 60 = 1-minute candles)
+      const ohlcGranularity = workspaceXml ? getXmlOhlcGranularity(workspaceXml) : 60;
+      let ohlcSubId: string | null = null;
+
       // Tick-driven loop: subscribe to the symbol's public tick stream and
       // drive each trade cycle from a real market tick instead of a timer.
       // Uses the legacy public WebSocket (wss://ws.derivws.com) which supports
@@ -473,11 +489,64 @@ export function TopShell({
       };
       tickWs.onopen = () => {
         tickWs.send(JSON.stringify({ ticks: settings.symbol, subscribe: 1 }));
+        // Subscribe to OHLC candle stream alongside the tick stream
+        tickWs.send(JSON.stringify({
+          ticks_history: settings.symbol,
+          adjust_start_time: 1,
+          count: 100,
+          end: "latest",
+          granularity: ohlcGranularity,
+          style: "candles",
+          subscribe: 1,
+        }));
       };
       tickWs.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data as string) as Record<string, unknown>;
           const sub = msg.subscription as Record<string, unknown> | undefined;
+
+          // Initial candle history batch
+          if (msg.msg_type === "candles" && Array.isArray(msg.candles)) {
+            if (sub?.id && !ohlcSubId) ohlcSubId = String(sub.id);
+            if (botState) {
+              const candles: OhlcCandle[] = (msg.candles as Record<string, unknown>[]).map((c) => ({
+                open: Number(c.open ?? 0),
+                high: Number(c.high ?? 0),
+                low: Number(c.low ?? 0),
+                close: Number(c.close ?? 0),
+                epoch: Number(c.epoch ?? 0),
+              }));
+              botState.ohlcHistory[ohlcGranularity] = candles;
+            }
+            return;
+          }
+
+          // Incremental candle update
+          if (msg.msg_type === "ohlc" && msg.ohlc && typeof msg.ohlc === "object") {
+            const o = msg.ohlc as Record<string, unknown>;
+            if (sub?.id && !ohlcSubId) ohlcSubId = String(sub.id);
+            const gran = Number(o.granularity ?? ohlcGranularity);
+            if (botState) {
+              const candle: OhlcCandle = {
+                open: Number(o.open ?? 0),
+                high: Number(o.high ?? 0),
+                low: Number(o.low ?? 0),
+                close: Number(o.close ?? 0),
+                epoch: Number(o.epoch ?? 0),
+              };
+              const hist = botState.ohlcHistory[gran] ?? [];
+              const last = hist[hist.length - 1];
+              if (last && last.epoch === candle.epoch) {
+                hist[hist.length - 1] = candle;
+              } else {
+                hist.push(candle);
+                if (hist.length > 200) hist.splice(0, hist.length - 200);
+              }
+              botState.ohlcHistory[gran] = hist;
+            }
+            return;
+          }
+
           if (sub?.id && !tickSubId) tickSubId = String(sub.id);
           if (msg.msg_type === "tick" && msg.tick && typeof msg.tick === "object") {
             const tick = msg.tick as Record<string, unknown>;
@@ -488,7 +557,11 @@ export function TopShell({
             const lastDigit = Number(qStr.slice(-1));
             if (botState) {
               botState.tickDigits = [...botState.tickDigits.slice(-49), lastDigit];
+              botState.tickPrices = [...(botState.tickPrices ?? []).slice(-49), quote];
+              botState.lastTickPrice = quote;
               if (workspaceXml && !botAnalysisPaused) runTickAnalysis(workspaceXml, botState);
+              // Run during_purchase blocks on each tick while a contract is live
+              duringPurchaseCallback?.();
             }
             console.log("[TICK]", { symbol: String(tick.symbol ?? settings.symbol), quote, epoch });
             resolvePendingTick(quote, epoch);
@@ -501,8 +574,9 @@ export function TopShell({
       tickWs.onclose = () => resolvePendingTick(0, 0);
       stopTickWs = () => {
         try {
-          if (tickSubId && tickWs.readyState === WebSocket.OPEN) {
-            tickWs.send(JSON.stringify({ forget: tickSubId }));
+          if (tickWs.readyState === WebSocket.OPEN) {
+            if (tickSubId) tickWs.send(JSON.stringify({ forget: tickSubId }));
+            if (ohlcSubId) tickWs.send(JSON.stringify({ forget: ohlcSubId }));
           }
           tickWs.close();
         } catch {
@@ -520,9 +594,11 @@ export function TopShell({
         await nextTick();
         if (!footerBotRunningRef.current) break;
         if (workspaceXml && botState) {
-          // Inject the current account balance so read_balance returns a real value
+          // Inject live values before_purchase runs so blocks read accurate data
           botState.balance = Number(balance ?? account.balance ?? 0);
+          botState.totalRuns = completedRuns;
           runBeforePurchase(workspaceXml, botState);
+          drainNotifyQueue(botState, addFooterBotJournal);
           // If before_purchase contains purchase blocks (conditional entry logic)
           // but didn't set one this tick, the entry condition wasn't met.
           // Skip this trade and wait for the next tick — tick analysis keeps running.
@@ -581,7 +657,41 @@ export function TopShell({
             const contractId = String(buy.buy?.contract_id ?? "");
             capturedBuyPrice = Number(buy.buy?.buy_price ?? 0) || null;
             const contractType = String(payload.contract_type ?? context.contractType);
+            const capturedTransactionId = String(buy.buy?.transaction_id ?? "") || null;
             contractWasBought = true;
+
+            // Populate readDetails fields available immediately after buy
+            if (botState) {
+              botState.transactionId = capturedTransactionId;
+              botState.contractType = contractType;
+              botState.isSellAtMarketAvailable = false;
+              botState.currentSellPrice = 0;
+            }
+
+            // Wire up during_purchase execution on each tick while contract is live.
+            // Also updates isSellAtMarketAvailable / currentSellPrice from contract messages.
+            let sellExecuted = false;
+            const onContractUpdate = (contract: Record<string, unknown>) => {
+              if (!botState) return;
+              botState.isSellAtMarketAvailable =
+                !contract.is_sold && Boolean(contract.is_valid_to_sell);
+              const bid = Number(contract.bid_price ?? 0);
+              const bought = capturedBuyPrice ?? 0;
+              botState.currentSellPrice = Math.max(0, bid - bought);
+            };
+            duringPurchaseCallback = () => {
+              if (!workspaceXml || !botState) return;
+              runDuringPurchase(workspaceXml, botState);
+              drainNotifyQueue(botState, addFooterBotJournal);
+              if (botState.sellAtMarketRequested && !sellExecuted) {
+                sellExecuted = true;
+                const sellPrice = botState.currentSellPrice;
+                sellContract(contractId, sellPrice).catch((err) => {
+                  console.warn("[Bot] sell_at_market failed", err);
+                });
+              }
+            };
+
             const record: BotMonitorTransaction = {
               contractId,
               entrySpot: null,
@@ -641,7 +751,7 @@ export function TopShell({
               `Bought contract ${contractId}. Waiting for settlement.`,
               "success",
             );
-            settlement = await waitForSettlement(contractId);
+            settlement = await waitForSettlement(contractId, onContractUpdate);
 
             setBotMonitorTransactions((items) =>
               items.map((item) =>
@@ -695,9 +805,11 @@ export function TopShell({
                 console.warn("[Bot Footer] update settled trade threw", err);
               }
             }
+            duringPurchaseCallback = null;
             tradeError = null;
             break;
           } catch (error) {
+            duringPurchaseCallback = null;
             tradeError = error;
             if (
               !contractWasBought &&
@@ -771,6 +883,14 @@ export function TopShell({
           botState.exitSpot = settlement.exitSpot ?? null;
           botState.buyPrice = capturedBuyPrice;
           botState.payout = settlement.payout ?? null;
+          // Populate full readDetails contract fields from the settled contract
+          botState.entryTickTime = settlement.entryTickTime;
+          botState.exitTickTime = settlement.exitTickTime;
+          botState.barrierValue = settlement.barrierValue;
+          // Reset sell-at-market flags for next cycle
+          botState.isSellAtMarketAvailable = false;
+          botState.sellAtMarketRequested = false;
+          botState.currentSellPrice = 0;
           console.log("[SETTLEMENT]", {
             result: settlement.status,
             entrySpot: settlement.entrySpot,
@@ -780,6 +900,7 @@ export function TopShell({
             lastProfit: settlement.profit,
           });
           runAfterPurchase(workspaceXml, botState);
+          drainNotifyQueue(botState, addFooterBotJournal);
           console.log("[STATE AFTER PURCHASE]", {
             stake: botState.vars["stake"],
             loss: botState.vars["loss"],
@@ -1174,24 +1295,43 @@ function conditionAllowsTrade(
   return leftValue === rightValue;
 }
 
-async function waitForSettlement(contractId: string): Promise<Settlement> {
+async function waitForSettlement(
+  contractId: string,
+  onContractUpdate?: (contract: Record<string, unknown>) => void,
+): Promise<Settlement> {
   return new Promise((resolve, reject) => {
     let settled = false;
     let unsubscribe: (() => Promise<void>) | undefined;
+    const emptySettlement: Settlement = {
+      entrySpot: null,
+      exitSpot: null,
+      payout: 0,
+      profit: 0,
+      status: "open",
+      transactionIdSell: null,
+      entryTickTime: null,
+      exitTickTime: null,
+      barrierValue: null,
+    };
     const timeout = window.setTimeout(() => {
       if (settled) return;
       settled = true;
-      resolve({ entrySpot: null, exitSpot: null, payout: 0, profit: 0, status: "open" });
+      resolve(emptySettlement);
       void unsubscribe?.();
     }, 45000);
 
     subscribeOpenContract(contractId, (contract) => {
+      // Always relay contract updates so during_purchase can read sell availability
+      onContractUpdate?.(contract);
+
       const statusText = String(contract.status ?? "").toLowerCase();
+      // Deriv sends is_expired=1 BEFORE sell_price/profit are finalised — triggering
+      // on is_expired alone records winning contracts as losses (profit is still the
+      // live negative bid-based P/L at that point). Wait for is_sold=1 instead, which
+      // guarantees sell_price and profit fields are ready. This matches DDBOt exactly.
       const isSold =
         contract.is_sold === 1 ||
         contract.is_sold === true ||
-        contract.is_expired === 1 ||
-        contract.is_expired === true ||
         statusText === "won" ||
         statusText === "lost" ||
         statusText === "sold";
@@ -1212,27 +1352,52 @@ async function waitForSettlement(contractId: string): Promise<Settlement> {
         contract.current_tick,
         contract.current_spot_display_value,
       );
-      const profit = Number(contract.profit ?? 0);
       // For a settled contract Deriv leaves `payout` at the ORIGINAL potential
       // payout regardless of outcome. Real money received is `sell_price`
       // (zero for a lost binary). If the contract won we credit the actual
       // sell_price (falling back to payout); if it lost the payout is zero.
       const sell_price = Number(contract.sell_price ?? 0);
+      const contract_buy_price = Number(contract.buy_price ?? 0);
       const potential_payout = Number(contract.payout ?? 0);
-      const won = Number.isFinite(profit) && profit > 0;
+      // Compute profit from explicit price fields — more reliable than contract.profit
+      // which can lag on the settlement message. sell_price - buy_price matches how
+      // Deriv itself defines profit (confirmed from DDBOt helpers.js createDetails).
+      const computedProfit =
+        sell_price > 0 || contract_buy_price > 0 ? sell_price - contract_buy_price : null;
+      const rawProfit = Number(contract.profit);
+      const profit =
+        computedProfit !== null ? computedProfit : Number.isFinite(rawProfit) ? rawProfit : 0;
+      // Use contract.status for reliable win/loss; fall back to profit sign.
+      const won =
+        statusText === "won"
+          ? true
+          : statusText === "lost"
+            ? false
+            : Number.isFinite(profit) && profit > 0;
       const payout = won
-        ? Number.isFinite(sell_price) && sell_price > 0
+        ? sell_price > 0
           ? sell_price
-          : Number.isFinite(potential_payout)
+          : potential_payout > 0
             ? potential_payout
             : 0
         : 0;
+      // Extract extra readDetails fields from the settled contract
+      const entryTickTime = Number(contract.entry_tick_time ?? 0) || null;
+      const exitTickTime = Number(contract.exit_tick_time ?? 0) || null;
+      const barrierValue = contract.barrier ? String(contract.barrier) : null;
+      const transactionIdSell = contract.transaction_ids
+        ? String((contract.transaction_ids as Record<string, unknown>).sell ?? "") || null
+        : null;
       resolve({
         entrySpot,
         exitSpot,
         payout,
-        profit: Number.isFinite(profit) ? profit : 0,
+        profit,
         status: won ? "won" : "lost",
+        transactionIdSell,
+        entryTickTime,
+        exitTickTime,
+        barrierValue,
       });
       void unsubscribe?.();
     })
@@ -1248,6 +1413,22 @@ async function waitForSettlement(contractId: string): Promise<Settlement> {
 
 function sleep(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function drainNotifyQueue(
+  state: BotVarState,
+  addJournal: (msg: string, type?: BotMonitorJournalEntry["type"]) => void,
+) {
+  while (state.notifyQueue.length > 0) {
+    const item = state.notifyQueue.shift();
+    if (!item) break;
+    const jType: BotMonitorJournalEntry["type"] =
+      item.type === "error" ? "error" :
+      item.type === "success" ? "success" :
+      item.type === "warn" ? "warning" :
+      "info";
+    addJournal(`[Bot] ${item.message}`, jType);
+  }
 }
 
 function shouldRetryBotTrade(error: unknown) {

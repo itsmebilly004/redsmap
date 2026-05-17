@@ -1,5 +1,13 @@
 import type { TradeCategory } from "@/lib/deriv";
 
+export type OhlcCandle = {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  epoch: number;
+};
+
 type ProcDef = {
   params: string[];
   body: Element | null;
@@ -9,12 +17,18 @@ type ProcDef = {
 export type BotVarState = {
   vars: Record<string, number>;
   listVars: Record<string, number[]>;
+  /** Text variables set via text_join or variables_set with a string value */
+  textVars: Record<string, string>;
   procs: Record<string, ProcDef>;
   result: "win" | "loss" | null;
   totalProfit: number;
   lastProfit: number;
   purchaseType: string | null;
   tickDigits: number[];
+  /** Last 50 actual tick quote prices for checkDirection / tick block */
+  tickPrices: number[];
+  /** Most recent tick quote price (for `tick` block) */
+  lastTickPrice: number;
   entrySpot: number | null;
   exitSpot: number | null;
   buyPrice: number | null;
@@ -24,6 +38,35 @@ export type BotVarState = {
    *  whether to trade each tick. When true and purchaseType is null after
    *  runBeforePurchase, the tick should be skipped (entry condition not met). */
   hasConditionalPurchase: boolean;
+
+  // --- Full readDetails fields (matches DDBOt createDetails array) ---
+  /** readDetails(1): transaction_ids.buy from the buy response */
+  transactionId: string | null;
+  /** readDetails(5): contract_type string e.g. "DIGITUNDER" */
+  contractType: string | null;
+  /** readDetails(6): entry_tick_time as Unix epoch (seconds) */
+  entryTickTime: number | null;
+  /** readDetails(8): exit_tick_time as Unix epoch (seconds) */
+  exitTickTime: number | null;
+  /** readDetails(10): barrier value string from settled contract */
+  barrierValue: string | null;
+
+  // --- Sell at market (during_purchase) ---
+  /** True when the open contract reports is_valid_to_sell */
+  isSellAtMarketAvailable: boolean;
+  /** Set to true by sell_at_market block; cleared after the sell is executed */
+  sellAtMarketRequested: boolean;
+  /** Current sell price: bid_price - buy_price from open contract */
+  currentSellPrice: number;
+
+  // --- Misc interface ---
+  /** Total completed runs this session (matches DDBOt getTotalRuns) */
+  totalRuns: number;
+  /** Queue of notify/text_print messages to be displayed by the caller */
+  notifyQueue: Array<{ message: string; type: "success" | "warn" | "info" | "error" }>;
+
+  // --- OHLC candle history keyed by granularity in seconds ---
+  ohlcHistory: Record<number, OhlcCandle[]>;
 };
 
 class BreakSignal extends Error {
@@ -152,6 +195,15 @@ function callProcedure(
   return returnValue;
 }
 
+/** Format a Unix epoch (seconds) as HH:mm:ss — matches DDBOt's formatTime */
+function formatEpochTime(epoch: number): string {
+  return new Date(epoch * 1000).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function evalExpr(block: Element | null, state: BotVarState): number | boolean | string {
   if (!block) return 0;
   const type = block.getAttribute("type") ?? "";
@@ -164,6 +216,7 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
     case "variables_get": {
       const name = getField(block, "VAR").toLowerCase();
       if (state.listVars[name] !== undefined) return 0;
+      if (state.textVars[name] !== undefined) return state.textVars[name];
       return state.vars[name] ?? 0;
     }
 
@@ -309,19 +362,34 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
     case "contract_profit":
       return state.lastProfit;
 
+    case "total_runs":
+      return state.totalRuns;
+
+    // DDBOt createDetails(contract) array — readDetails(i) = createDetails[i-1]:
+    // [0] transaction_ids.buy  → readDetails(1)
+    // [1] buy_price            → readDetails(2)
+    // [2] sell_price           → readDetails(3)
+    // [3] profit               → readDetails(4)
+    // [4] contract_type        → readDetails(5)
+    // [5] entry_tick_time fmt  → readDetails(6)
+    // [6] entry_tick           → readDetails(7)
+    // [7] exit_tick_time fmt   → readDetails(8)
+    // [8] exit_tick            → readDetails(9)
+    // [9] barrier              → readDetails(10)
+    // [10] "win"/"loss"        → readDetails(11) — used by isResult
     case "read_details": {
-      // DDBOt createDetails(contract) array, accessed via readDetails(i) = createDetails[i-1]:
-      // idx 2 → buy_price (stake paid)
-      // idx 3 → sell_price (payout received)
-      // idx 4 → profit = sell_price - buy_price (signed)
-      // idx 7 → entry_tick spot value
-      // idx 9 → exit_tick spot value
       const idx = Number(getField(block, "DETAIL_INDEX"));
+      if (idx === 1) return state.transactionId ?? 0;
       if (idx === 2) return state.buyPrice ?? 0;
       if (idx === 3) return state.payout ?? 0;
       if (idx === 4) return state.lastProfit;
+      if (idx === 5) return state.contractType ?? "";
+      if (idx === 6) return state.entryTickTime ? formatEpochTime(state.entryTickTime) : "";
       if (idx === 7) return state.entrySpot ?? 0;
+      if (idx === 8) return state.exitTickTime ? formatEpochTime(state.exitTickTime) : "";
       if (idx === 9) return state.exitSpot ?? 0;
+      if (idx === 10) return state.barrierValue ? Number(state.barrierValue) || 0 : 0;
+      if (idx === 11) return state.result ?? "";
       return 0;
     }
 
@@ -336,6 +404,11 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
       const d = state.tickDigits;
       return d.length > 0 ? (d[d.length - 1] ?? 0) : 0;
     }
+
+    // Returns the actual last tick quote price (not just the digit)
+    case "tick":
+    case "tick_string":
+      return state.lastTickPrice;
 
     // lastDigitList used directly as a number expression → returns list length
     case "lastDigitList":
@@ -375,6 +448,7 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
       if (valBlock.getAttribute("type") === "variables_get") {
         const name = getField(valBlock, "VAR").toLowerCase();
         if (state.listVars[name] !== undefined) return state.listVars[name].length;
+        if (state.textVars[name] !== undefined) return state.textVars[name].length;
         return String(state.vars[name] ?? "").length;
       }
       return String(evalExpr(valBlock, state)).length;
@@ -382,6 +456,50 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
 
     case "text":
       return getField(block, "TEXT");
+
+    // text_statement in expression position — returns its TEXT value as a string
+    case "text_statement": {
+      const textBlock = getValueBlock(block, "TEXT");
+      return textBlock ? String(evalExpr(textBlock, state)) : "";
+    }
+
+    // --- Sell at market (during_purchase scope) ---
+    // isSellAvailable(): true when the open contract reports is_valid_to_sell
+    case "check_sell":
+      return state.isSellAtMarketAvailable;
+
+    // getSellPrice(): bid_price - buy_price of the open contract
+    case "get_sell_price":
+      return state.currentSellPrice;
+
+    // --- Tick direction ---
+    // checkDirection('rise') / checkDirection('fall') — compares last 2 tick prices
+    case "check_direction": {
+      const dir = getField(block, "CHECK_DIRECTION").toLowerCase();
+      const prices = state.tickPrices;
+      if (prices.length >= 2) {
+        const prev = prices[prices.length - 2] ?? 0;
+        const last = prices[prices.length - 1] ?? 0;
+        if (dir === "rise") return last > prev;
+        if (dir === "fall") return last < prev;
+      }
+      return false;
+    }
+
+    // --- OHLC candle access ---
+    // read_ohlc: reads a specific field from candle at index-from-end
+    // Block fields: OHLCFIELD_LIST (open/high/low/close), CANDLEINDEX value, CANDLEINTERVAL_LIST
+    case "read_ohlc": {
+      const granularityStr = getField(block, "CANDLEINTERVAL_LIST");
+      const granularity = !granularityStr || granularityStr === "default" ? 60 : Number(granularityStr) || 60;
+      const ohlcField = getField(block, "OHLCFIELD_LIST").toLowerCase() as keyof OhlcCandle;
+      const indexVal = Math.max(1, Math.round(Number(evalExpr(getValueBlock(block, "CANDLEINDEX"), state)) || 1));
+      const history = state.ohlcHistory[granularity] ?? [];
+      const candle = history[history.length - indexVal];
+      if (!candle) return 0;
+      const val = candle[ohlcField];
+      return typeof val === "number" ? val : 0;
+    }
 
     case "procedures_callreturn": {
       const mutation = getMutation(block);
@@ -415,7 +533,12 @@ function execBlock(block: Element, state: BotVarState): void {
       if (isListBlock(valueBlock)) {
         state.listVars[name] = evalListExpr(valueBlock, state);
       } else {
-        state.vars[name] = Number(evalExpr(valueBlock, state));
+        const value = evalExpr(valueBlock, state);
+        if (typeof value === "string") {
+          state.textVars[name] = value;
+        } else {
+          state.vars[name] = Number(value);
+        }
       }
       break;
     }
@@ -513,6 +636,11 @@ function execBlock(block: Element, state: BotVarState): void {
       state.purchaseType = getField(block, "PURCHASE_LIST") || null;
       break;
 
+    // Trigger early sell of the open contract — caller checks this flag
+    case "sell_at_market":
+      state.sellAtMarketRequested = true;
+      break;
+
     case "tick_analysis":
       try {
         execChain(getStatementBlock(block, "TICKANALYSIS_STACK"), state);
@@ -559,13 +687,60 @@ function execBlock(block: Element, state: BotVarState): void {
       break;
     }
 
+    // text_join: sets a variable to a space-joined concatenation of child text_statement values
+    // Matches DDBOt JS codegen: `${var_name} = [${elements}].join(" ")`
+    case "text_join": {
+      const varName = getField(block, "VARIABLE").toLowerCase();
+      const parts: string[] = [];
+      let stmt = getStatementBlock(block, "STACK");
+      while (stmt) {
+        if (stmt.getAttribute("type") === "text_statement") {
+          const textBlock = getValueBlock(stmt, "TEXT");
+          parts.push(textBlock ? String(evalExpr(textBlock, state)) : "");
+        }
+        stmt = nextBlock(stmt);
+      }
+      state.textVars[varName] = parts.join(" ");
+      break;
+    }
+
+    // notify: queues a notification message for the caller to display in the journal
+    // Matches DDBOt: globalObserver.emit('ui.log.notify', { className, message, sound })
+    case "notify": {
+      const msgBlock = getValueBlock(block, "MESSAGE");
+      const message = msgBlock ? String(evalExpr(msgBlock, state)) : "";
+      const notifType = getField(block, "NOTIFICATION_TYPE");
+      const entryType =
+        notifType === "danger" || notifType === "error"
+          ? "error"
+          : notifType === "success"
+            ? "success"
+            : notifType === "warn" || notifType === "warning"
+              ? "warn"
+              : "info";
+      if (message) state.notifyQueue.push({ message, type: entryType });
+      break;
+    }
+
+    // text_print: matches DDBOt's window.alert — we queue it as an info journal entry
+    case "text_print": {
+      const msgBlock = getValueBlock(block, "TEXT");
+      const message = msgBlock ? String(evalExpr(msgBlock, state)) : "";
+      if (message) state.notifyQueue.push({ message, type: "info" });
+      break;
+    }
+
+    // btnotify: Deriv's internal notify variant — treat same as notify
+    case "btnotify": {
+      const msgBlock = getValueBlock(block, "MESSAGE");
+      const message = msgBlock ? String(evalExpr(msgBlock, state)) : "";
+      if (message) state.notifyQueue.push({ message, type: "info" });
+      break;
+    }
+
     // Expression blocks that may appear in statement position — no side effects needed
-    case "text_join":
     case "text_append":
     case "trade_again":
-    case "notify":
-    case "btnotify":
-    case "text_print":
     case "text_statement":
     case "lists_statement":
     // Procedure definitions are processed at init time via buildProcRegistry
@@ -616,18 +791,35 @@ export function initBotState(xmlText: string): BotVarState | null {
   const state: BotVarState = {
     vars: {},
     listVars: {},
+    textVars: {},
     procs: buildProcRegistry(doc),
     result: null,
     totalProfit: 0,
     lastProfit: 0,
     purchaseType: null,
     tickDigits: [],
+    tickPrices: [],
+    lastTickPrice: 0,
     entrySpot: null,
     exitSpot: null,
     buyPrice: null,
     payout: null,
     balance: 0,
     hasConditionalPurchase,
+    // readDetails extra fields
+    transactionId: null,
+    contractType: null,
+    entryTickTime: null,
+    exitTickTime: null,
+    barrierValue: null,
+    // sell at market
+    isSellAtMarketAvailable: false,
+    sellAtMarketRequested: false,
+    currentSellPrice: 0,
+    // misc
+    totalRuns: 0,
+    notifyQueue: [],
+    ohlcHistory: {},
   };
 
   for (const variable of doc.querySelectorAll("variables > variable")) {
@@ -672,6 +864,21 @@ export function runBeforePurchase(xmlText: string, state: BotVarState): void {
   }
 }
 
+/** Executes during_purchase blocks. Called on each tick while a contract is live.
+ *  After calling, check state.sellAtMarketRequested — if true, execute an early sell. */
+export function runDuringPurchase(xmlText: string, state: BotVarState): void {
+  state.sellAtMarketRequested = false;
+  const doc = parseXmlDoc(xmlText);
+  if (!doc) return;
+  const duringPurchase = doc.querySelector('block[type="during_purchase"]');
+  if (!duringPurchase) return;
+  try {
+    execChain(getStatementBlock(duringPurchase, "DURING_PURCHASE_STACK"), state);
+  } catch {
+    // ignore runtime errors in during_purchase
+  }
+}
+
 export function runTickAnalysis(xmlText: string, state: BotVarState): void {
   const doc = parseXmlDoc(xmlText);
   if (!doc) return;
@@ -706,6 +913,18 @@ export function getBotStakeVar(state: BotVarState): number | null {
     if (val != null && Number.isFinite(val) && val > 0) return val;
   }
   return null;
+}
+
+/** Extract candle granularity (in seconds) from the XML's trade_definition_candleinterval block */
+export function getXmlOhlcGranularity(xmlText: string): number {
+  const doc = parseXmlDoc(xmlText);
+  if (!doc) return 60;
+  const candleIntervalEl = doc.querySelector('block[type="trade_definition_candleinterval"]');
+  if (!candleIntervalEl) return 60;
+  const raw = getField(candleIntervalEl as Element, "CANDLEINTERVAL_LIST");
+  if (!raw || raw === "default") return 60;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 60;
 }
 
 export function purchaseTypeToSide(

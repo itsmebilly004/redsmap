@@ -40,7 +40,11 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(gh api *)",
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); deps={**d.get\\('dependencies',{}\\), **d.get\\('devDependencies',{}\\)}; [print\\(k,v\\) for k,v in deps.items\\(\\) if 'blockly' in k.lower\\(\\)]\")",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "PowerShell(gh api *)",
+      "Bash(xargs grep -l \"check_sell\\\\|sell_at_market\\\\|get_sell_price\\\\|total_runs\\\\|check_direction\\\\|read_ohlc\\\\|get_ohlc\\\\|get_delay_tick\\\\|notify_telegram\\\\|btnotify\")",
+      "Bash(xargs grep -h 'block type=')",
+      "Bash(xargs grep -l \"check_sell\\\\|isSellAvailable\\\\|sell_at_market\\\\|sellAtMarket\")"
     ]
   }
 }
