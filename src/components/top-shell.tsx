@@ -52,6 +52,7 @@ import {
 } from "@/lib/bot-xml-runtime";
 import { DERIV_LEGACY_WEBSOCKET_URL, DERIV_LEGACY_APP_ID } from "@/lib/deriv-config";
 import dbot from "@/external/bot-skeleton/scratch/dbot";
+import DBotStore from "@/external/bot-skeleton/scratch/dbot-store";
 import { observer as globalObserver } from "@/external/bot-skeleton/utils/observer";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -502,6 +503,21 @@ export function TopShell({
       } catch {
         // ignore storage errors
       }
+    }
+
+    // Refresh the DBotStore client so trade_definition.js sees is_logged_in=true.
+    // DBotStore.setInstance() is called once at workspace init time — if auth
+    // hadn't resolved yet then, client.is_logged_in is frozen as false.
+    const dbotStoreInstance = DBotStore.instance;
+    if (dbotStoreInstance) {
+      dbotStoreInstance.client = {
+        loginid: activeLoginId,
+        currency: currency ?? account.currency ?? "USD",
+        balance: parseFloat(String(balance ?? account.balance ?? 0)),
+        landing_company_shortcode: "svg",
+        is_logged_in: true,
+        getToken: (_loginid?: string) => activeToken,
+      };
     }
 
     setBotMonitorStats(EMPTY_BOT_MONITOR_STATS);
