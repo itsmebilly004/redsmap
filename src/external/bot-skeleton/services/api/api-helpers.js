@@ -141,11 +141,11 @@ class ContractsForStub {
   // `getContractType` and `list` off the resolved value.
   getDurations() {
     return Promise.resolve([
-      ["Ticks", "t"],
-      ["Seconds", "s"],
-      ["Minutes", "m"],
-      ["Hours", "h"],
-      ["Days", "d"],
+      { display: "Ticks",   unit: "t", min: 1,  max: 10  },
+      { display: "Seconds", unit: "s", min: 15, max: 3600 },
+      { display: "Minutes", unit: "m", min: 1,  max: 1440 },
+      { display: "Hours",   unit: "h", min: 1,  max: 24  },
+      { display: "Days",    unit: "d", min: 1,  max: 365 },
     ]);
   }
   getAllowedCategories() {
