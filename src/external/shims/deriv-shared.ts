@@ -106,7 +106,9 @@ export const getAppId = (): string => {
     const stored = window.localStorage?.getItem("deriv_app_id");
     if (stored) return stored;
   }
-  return import.meta.env?.VITE_DERIV_APP_ID ?? "36300";
+  // 133647 is the registered WebSocket API app ID (numeric).
+  // VITE_DERIV_APP_ID is the OAuth client ID and must NOT be used here.
+  return "133647";
 };
 
 export const sequence = (n: number): number[] => Array.from(Array(n).keys());
@@ -116,5 +118,5 @@ export const getSocketURL = (): string => {
     const stored = window.localStorage?.getItem("deriv_socket_url");
     if (stored) return stored;
   }
-  return "frontend.derivws.com";
+  return "ws.derivws.com";
 };

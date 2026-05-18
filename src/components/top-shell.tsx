@@ -475,11 +475,8 @@ export function TopShell({
   async function handleDbotBotRun() {
     if (botMonitorStatus === "running") {
       footerBotRunningRef.current = false;
-      addFooterBotJournal(
-        "Stop requested. The bot will stop after the current contract settles.",
-        "warning",
-      );
-      await dbot.stopBot();
+      setBotRunConnecting(false);
+      await dbot.terminateBot();
       return;
     }
 
@@ -548,11 +545,9 @@ export function TopShell({
     footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
     footerBotRunningRef.current = true;
 
-    // Give immediate visual feedback — expand panel, switch to journal, show spinner.
     setBotRunConnecting(true);
     setBotMonitorCollapsed(false);
-    setBotMonitorTab("journal");
-    addFooterBotJournal("Starting bot trades...", "info");
+    setBotMonitorTab("summary");
 
     try {
       await dbot.runBot();
@@ -579,11 +574,8 @@ export function TopShell({
   async function handleFooterBotRun() {
     if (botMonitorStatus === "running") {
       footerBotRunningRef.current = false;
-      setBotMonitorStatus("stopped");
-      addFooterBotJournal(
-        "Stop requested. The bot will stop after the current contract settles.",
-        "warning",
-      );
+      setBotRunConnecting(false);
+      await dbot.terminateBot();
       return;
     }
 
