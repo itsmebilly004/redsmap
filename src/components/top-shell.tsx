@@ -174,6 +174,7 @@ export function TopShell({
   const [botMonitorCollapsed, setBotMonitorCollapsed] = useState(true);
   const [botMonitorTab, setBotMonitorTab] = useState("summary");
   const [botMonitorStatus, setBotMonitorStatus] = useState<BotMonitorStatus>("stopped");
+  const [botRunConnecting, setBotRunConnecting] = useState(false);
   const [botMonitorStats, setBotMonitorStats] = useState<BotMonitorStats>(EMPTY_BOT_MONITOR_STATS);
   const [botMonitorTransactions, setBotMonitorTransactions] = useState<BotMonitorTransaction[]>([]);
   const [botMonitorJournal, setBotMonitorJournal] = useState<BotMonitorJournalEntry[]>(
@@ -242,6 +243,7 @@ export function TopShell({
   // These fire whenever dbot.runBot() is active and the interpreter emits events.
   useEffect(() => {
     const onBotRunning = () => {
+      setBotRunConnecting(false);
       setBotMonitorStatus("running");
       setBotMonitorTab("summary");
       setBotMonitorCollapsed(false);
@@ -464,8 +466,10 @@ export function TopShell({
     }
 
     if (!account) {
-      toast.error("Connect and select a Deriv account before running the bot.");
+      setBotMonitorCollapsed(false);
+      setBotMonitorTab("journal");
       addFooterBotJournal("Run blocked: no Deriv account selected.", "error");
+      toast.error("Connect and select a Deriv account before running the bot.");
       return;
     }
 
@@ -526,6 +530,12 @@ export function TopShell({
     footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
     footerBotRunningRef.current = true;
 
+    // Give immediate visual feedback — expand panel, switch to journal, show spinner.
+    setBotRunConnecting(true);
+    setBotMonitorCollapsed(false);
+    setBotMonitorTab("journal");
+    addFooterBotJournal("Connecting to Deriv and initializing bot engine...", "info");
+
     try {
       await dbot.runBot();
     } catch (error) {
@@ -534,6 +544,8 @@ export function TopShell({
       setBotMonitorStatus("stopped");
       addFooterBotJournal(message, "error");
       toast.error(message);
+    } finally {
+      setBotRunConnecting(false);
     }
   }
 
@@ -1378,6 +1390,7 @@ export function TopShell({
         <BotRunMonitorPanel
           activeTab={botMonitorTab}
           collapsed={botMonitorCollapsed}
+          connecting={botRunConnecting}
           currency={currency || account?.currency || "USD"}
           journal={botMonitorJournal}
           mode="footer"
@@ -1388,6 +1401,9 @@ export function TopShell({
             if (hasBlocks) {
               void handleDbotBotRun();
             } else {
+              // Expand the panel immediately so the user sees activity
+              setBotMonitorCollapsed(false);
+              setBotMonitorTab("journal");
               void handleFooterBotRun();
             }
           }}
