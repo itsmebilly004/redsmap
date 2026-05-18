@@ -28,7 +28,7 @@ const DERIV_OAUTH_TRACE_LIMIT = 40;
 const DERIV_OAUTH_PKCE_BACKUP_KEY = "deriv_oauth_pkce_backups";
 const DERIV_OAUTH_PKCE_BACKUP_LIMIT = 5;
 const DERIV_OAUTH_PKCE_BACKUP_TTL_MS = 15 * 60 * 1000;
-const PUBLIC_WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public";
+const PUBLIC_WS_URL = `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${DERIV_LEGACY_APP_ID}`;
 const FORBIDDEN_OAUTH_ROUTE_MARKERS = ["redirect=home", "brand=deriv"];
 export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
   "Deriv completed login on its dashboard instead of returning an OAuth code to ArkTrader. The OAuth callback was never reached; verify the exact redirect_uri registration and ask Deriv to enable this OAuth client for legacy-account routing.";
@@ -1998,7 +1998,6 @@ export async function subscribeTicks(
 ) {
   if (!isBrowser) return () => {};
   const ws = await connectPublic();
-  const sub = { send: { ticks: symbol, subscribe: 1 } };
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
@@ -2009,7 +2008,13 @@ export async function subscribeTicks(
       /* ignore */
     }
   };
-  ws.send(JSON.stringify(sub.send));
+  ws.onclose = () => {
+    if (status === "connected") setStatus("reconnecting");
+  };
+  ws.onerror = () => {
+    if (status === "connected") setStatus("reconnecting");
+  };
+  ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
   return () => {
     try {
       if (ws.readyState === 1) ws.send(JSON.stringify({ forget_all: "ticks" }));
@@ -2966,9 +2971,19 @@ export async function getAuthenticatedWsUrl(
 function connectPublic(): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     try {
+      if (status === "disconnected") setStatus("connecting");
       const ws = new WebSocket(PUBLIC_WS_URL);
-      ws.onopen = () => resolve(ws);
-      ws.onerror = () => reject(new Error("Could not connect to Deriv public WebSocket"));
+      ws.onopen = () => {
+        if (status !== "connected") setStatus("connected");
+        resolve(ws);
+      };
+      ws.onerror = () => {
+        if (status !== "connected") setStatus("disconnected");
+        reject(new Error("Could not connect to Deriv public WebSocket"));
+      };
+      ws.onclose = () => {
+        if (status === "connecting") setStatus("disconnected");
+      };
     } catch (e) {
       reject(e);
     }
