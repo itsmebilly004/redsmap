@@ -44,7 +44,25 @@
       "PowerShell(gh api *)",
       "Bash(xargs grep -l \"check_sell\\\\|sell_at_market\\\\|get_sell_price\\\\|total_runs\\\\|check_direction\\\\|read_ohlc\\\\|get_ohlc\\\\|get_delay_tick\\\\|notify_telegram\\\\|btnotify\")",
       "Bash(xargs grep -h 'block type=')",
-      "Bash(xargs grep -l \"check_sell\\\\|isSellAvailable\\\\|sell_at_market\\\\|sellAtMarket\")"
+      "Bash(xargs grep -l \"check_sell\\\\|isSellAvailable\\\\|sell_at_market\\\\|sellAtMarket\")",
+      "Bash(Select-Object -First 50)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(xargs grep -l \"run_panel\\\\|RunPanel\\\\|onRunButtonClick\\\\|runBot\\\\|stopBot\")",
+      "Bash(xargs grep -l \"api_base\\\\|Interpreter\\\\|createInterpreter\")",
+      "Bash(xargs grep -l \"TradePanel\\\\|TradingPanel\\\\|RunPanel\\\\|run-panel\\\\|BotRunPanel\")",
+      "Bash(xargs grep -l \"useStore\\\\|StoreProvider\\\\|RootStore\")",
+      "Bash(xargs grep -l \"useStore\")",
+      "Bash(xargs grep -l \"journal\\\\|JournalStore\\\\|TransactionsStore\\\\|SummaryCardStore\")",
+      "Bash(xargs grep -l \"redux\\\\|redux-thunk\")",
+      "Bash(xargs grep -l \"DBotStore\\\\|dbot-store\")",
+      "Bash(xargs grep -l \"import.*redux\\\\|from.*redux\\\\|from.*js-interpreter\")",
+      "Bash(xargs grep -rn \"from 'redux'\\\\|from 'redux-thunk'\\\\|@deriv/js-interpreter\")",
+      "Bash(xargs grep -l \"runBot\\\\|interpreter\\\\|api_base\\\\|Interpreter\")",
+      "Bash(xargs grep -l \"BotRunMonitorPanel\\\\|bot-run-monitor\")",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\\\\src\\\\utils\")",
+      "Bash(Out-Null)",
+      "Bash(Write-Host \"done\")",
+      "Bash(awk -F\"'\" '{print $2}')"
     ]
   }
 }

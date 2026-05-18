@@ -51,6 +51,8 @@ import {
   type OhlcCandle,
 } from "@/lib/bot-xml-runtime";
 import { DERIV_LEGACY_WEBSOCKET_URL, DERIV_LEGACY_APP_ID } from "@/lib/deriv-config";
+import dbot from "@/external/bot-skeleton/scratch/dbot";
+import { observer as globalObserver } from "@/external/bot-skeleton/utils/observer";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -235,6 +237,121 @@ export function TopShell({
     user?.id,
   ]);
 
+  // Register DDBOt engine observer events and map them to BotRunMonitorPanel state.
+  // These fire whenever dbot.runBot() is active and the interpreter emits events.
+  useEffect(() => {
+    const onBotRunning = () => {
+      setBotMonitorStatus("running");
+      setBotMonitorTab("summary");
+      setBotMonitorCollapsed(false);
+    };
+    const onBotStop = () => {
+      setBotMonitorStatus("stopped");
+      footerBotRunningRef.current = false;
+    };
+    const onBotInfo = (info: Record<string, unknown>) => {
+      setBotMonitorStats({
+        contractsWon: Number(info.totalWins ?? 0),
+        contractsLost: Number(info.totalLosses ?? 0),
+        runs: Number(info.totalRuns ?? 0),
+        totalPayout: Number(info.totalPayout ?? 0),
+        totalProfitLoss: Number(info.totalProfit ?? 0),
+        totalStake: Number(info.totalStake ?? 0),
+      });
+    };
+    const onBotContract = (data: Record<string, unknown>) => {
+      const contractId = String(data.contract_id ?? "");
+      if (!contractId) return;
+      const status = String(data.status ?? "open").toLowerCase();
+      const mappedStatus: BotMonitorTransaction["status"] =
+        status === "won" ? "won" : status === "lost" ? "lost" : "open";
+      setBotMonitorTransactions((items) => {
+        const existing = items.find((t) => t.contractId === contractId);
+        if (existing) {
+          return items.map((t) =>
+            t.contractId === contractId
+              ? {
+                  ...t,
+                  profit: Number(data.profit ?? t.profit),
+                  payout: Number(data.payout ?? t.payout),
+                  status: mappedStatus === "open" ? t.status : mappedStatus,
+                }
+              : t,
+          );
+        }
+        return [
+          {
+            contractId,
+            entrySpot: data.entry_spot ? Number(data.entry_spot) : null,
+            exitSpot: data.exit_spot ? Number(data.exit_spot) : null,
+            id: crypto.randomUUID(),
+            payout: Number(data.payout ?? 0),
+            profit: Number(data.profit ?? 0),
+            stake: Number(data.buy_price ?? 0),
+            status: mappedStatus,
+            time: formatTime(),
+          },
+          ...items,
+        ];
+      });
+    };
+    const onLogSuccess = (data: { message?: string } | string) => {
+      const message = typeof data === "string" ? data : (data?.message ?? "");
+      setBotMonitorJournal((items) => [
+        { id: crypto.randomUUID(), message, time: formatTime(), type: "success" },
+        ...items,
+      ]);
+    };
+    const onLogError = (data: { message?: string } | string) => {
+      const message = typeof data === "string" ? data : (data?.message ?? "");
+      setBotMonitorJournal((items) => [
+        { id: crypto.randomUUID(), message, time: formatTime(), type: "error" },
+        ...items,
+      ]);
+    };
+    const onLogNotify = (data: { message?: string; type?: string } | string) => {
+      const message = typeof data === "string" ? data : (data?.message ?? "");
+      const rawType = typeof data === "object" ? (data?.type ?? "info") : "info";
+      const type: BotMonitorJournalEntry["type"] =
+        rawType === "error" ? "error" :
+        rawType === "success" ? "success" :
+        rawType === "warn" ? "warning" :
+        "info";
+      setBotMonitorJournal((items) => [
+        { id: crypto.randomUUID(), message, time: formatTime(), type },
+        ...items,
+      ]);
+    };
+    const onLogWarn = (data: { message?: string } | string) => {
+      const message = typeof data === "string" ? data : (data?.message ?? "");
+      setBotMonitorJournal((items) => [
+        { id: crypto.randomUUID(), message, time: formatTime(), type: "warning" },
+        ...items,
+      ]);
+    };
+
+    globalObserver.register("bot.running", onBotRunning);
+    globalObserver.register("bot.stop", onBotStop);
+    globalObserver.register("bot.info", onBotInfo);
+    globalObserver.register("bot.contract", onBotContract);
+    globalObserver.register("ui.log.success", onLogSuccess);
+    globalObserver.register("ui.log.error", onLogError);
+    globalObserver.register("ui.log.notify", onLogNotify);
+    globalObserver.register("ui.log.warn", onLogWarn);
+
+    return () => {
+      globalObserver.unregister("bot.running", onBotRunning);
+      globalObserver.unregister("bot.stop", onBotStop);
+      globalObserver.unregister("bot.info", onBotInfo);
+      globalObserver.unregister("bot.contract", onBotContract);
+      globalObserver.unregister("ui.log.success", onLogSuccess);
+      globalObserver.unregister("ui.log.error", onLogError);
+      globalObserver.unregister("ui.log.notify", onLogNotify);
+      globalObserver.unregister("ui.log.warn", onLogWarn);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     console.info(
       "[Deriv Accounts] dropdown normalized account placement",
@@ -332,6 +449,76 @@ export function TopShell({
       { id: crypto.randomUUID(), message, time: formatTime(), type },
       ...current,
     ]);
+  }
+
+  async function handleDbotBotRun() {
+    if (botMonitorStatus === "running") {
+      footerBotRunningRef.current = false;
+      addFooterBotJournal(
+        "Stop requested. The bot will stop after the current contract settles.",
+        "warning",
+      );
+      await dbot.stopBot();
+      return;
+    }
+
+    if (!account) {
+      toast.error("Connect and select a Deriv account before running the bot.");
+      addFooterBotJournal("Run blocked: no Deriv account selected.", "error");
+      return;
+    }
+
+    const accountIsReal = account.normalizedType === "real" || account.is_demo === false;
+    if (accountIsReal) {
+      const SESSION_WARNED_KEY = "arktrader:bot:real-account-session-warned";
+      const alreadyWarned = (() => {
+        try { return sessionStorage.getItem(SESSION_WARNED_KEY) === "1"; } catch { return false; }
+      })();
+      if (!alreadyWarned) {
+        const accountLabel = account.loginid || account.account_id;
+        const confirmed = window.confirm(
+          `You are about to run a bot on a REAL Deriv account (${accountLabel}). This will use real funds. Continue?`,
+        );
+        if (!confirmed) {
+          addFooterBotJournal("Run cancelled — confirmation declined on real account.", "warning");
+          toast.info("Bot run cancelled.");
+          return;
+        }
+        try { sessionStorage.setItem(SESSION_WARNED_KEY, "1"); } catch { /* noop */ }
+      }
+    }
+
+    // Bridge the active account token into the localStorage keys api_base reads.
+    // api_base.init() → authorizeAndSubscribe() calls V2GetActiveToken() which
+    // reads localStorage.getItem('authToken'). The main app stores tokens in
+    // Supabase with user-specific keys, so we write them here before handing off.
+    const activeToken = account.deriv_token ?? "";
+    const activeLoginId = account.loginid ?? account.account_id ?? "";
+    if (activeToken) {
+      try {
+        localStorage.setItem("authToken", activeToken);
+        localStorage.setItem("active_loginid", activeLoginId);
+        localStorage.setItem("accountsList", JSON.stringify({ [activeLoginId]: activeToken }));
+      } catch {
+        // ignore storage errors
+      }
+    }
+
+    setBotMonitorStats(EMPTY_BOT_MONITOR_STATS);
+    setBotMonitorTransactions([]);
+    setBotMonitorJournal(DEFAULT_BOT_MONITOR_JOURNAL);
+    footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
+    footerBotRunningRef.current = true;
+
+    try {
+      await dbot.runBot();
+    } catch (error) {
+      const message = getDerivTradingErrorMessage(error);
+      footerBotRunningRef.current = false;
+      setBotMonitorStatus("stopped");
+      addFooterBotJournal(message, "error");
+      toast.error(message);
+    }
   }
 
   function resetFooterBotMonitor() {
@@ -1179,7 +1366,15 @@ export function TopShell({
           journal={botMonitorJournal}
           mode="footer"
           onReset={resetFooterBotMonitor}
-          onRun={handleFooterBotRun}
+          onRun={() => {
+            const workspace = getDerivWorkspace();
+            const hasBlocks = (workspace?.getAllBlocks?.()?.length ?? 0) > 0;
+            if (hasBlocks) {
+              void handleDbotBotRun();
+            } else {
+              void handleFooterBotRun();
+            }
+          }}
           onToggleCollapse={() => setBotMonitorCollapsed((value) => !value)}
           setActiveTab={setBotMonitorTab}
           stats={botMonitorStats}

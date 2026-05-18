@@ -109,6 +109,8 @@ export const getAppId = (): string => {
   return import.meta.env?.VITE_DERIV_APP_ID ?? "36300";
 };
 
+export const sequence = (n: number): number[] => Array.from(Array(n).keys());
+
 export const getSocketURL = (): string => {
   if (typeof window !== "undefined") {
     const stored = window.localStorage?.getItem("deriv_socket_url");

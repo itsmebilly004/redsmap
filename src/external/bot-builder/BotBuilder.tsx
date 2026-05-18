@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { StoreProvider, useStore } from "@/external/stores/useStore";
 import dbot from "@/external/bot-skeleton/scratch/dbot";
 import { useAuth } from "@/hooks/use-auth";
+import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
   clearCurrentBotPresetId,
   deleteSavedBotPreset,
@@ -88,6 +89,7 @@ const BotBuilderInner = observer(() => {
   const { is_loading } = blockly_store;
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const { account, balance, currency } = useDerivBalanceContext();
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -177,11 +179,12 @@ const BotBuilderInner = observer(() => {
           is_mobile: false,
           is_dark_mode_on: document.documentElement.classList.contains("dark"),
           client: {
-            loginid: null,
-            currency: "USD",
+            loginid: account?.loginid ?? account?.account_id ?? null,
+            currency: currency ?? account?.currency ?? "USD",
+            balance: parseFloat(String(balance ?? account?.balance ?? 0)),
             landing_company_shortcode: "svg",
-            is_logged_in: false,
-            getToken: () => "",
+            is_logged_in: !!user,
+            getToken: () => account?.deriv_token ?? "",
           },
           dashboard,
           toolbar,

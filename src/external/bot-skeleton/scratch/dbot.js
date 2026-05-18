@@ -1,21 +1,14 @@
-// Visual-only DBot. The reference module also wires Interpreter (the
-// @deriv/js-interpreter-backed trade engine) and api_base (a Deriv websocket
-// helper). For the visual-only port both are dropped — bot execution lives
-// in arktrader's existing runtime — and the surface here is reduced to:
-//   * initWorkspace: inject Blockly + load main.xml / most recent strategy
-//   * generateCode / saveRecentWorkspace: still useful, no trade-engine state
-//   * shouldRunBot, valueInputLimitationsListener, checkForRequiredBlocks: workspace validation
-//   * runBot / stopBot / terminateBot / terminateConnection: no-op bridges
-
 import { save_types } from "../constants";
 import { config } from "../constants/config";
 import ApiHelpers from "../services/api/api-helpers";
+import { api_base } from "../services/api/api-base";
 import { compareXml, observer as globalObserver } from "../utils";
 import { getSavedWorkspaces, saveWorkspaceToRecent } from "../utils/local-storage";
 import { isDbotRTL } from "../utils/workspace";
 import main_xml from "./xml/main.xml?raw";
 import { loadBlockly } from "./blockly";
 import DBotStore from "./dbot-store";
+import { createInterpreter } from "../services/tradeEngine/utils/interpreter";
 import { isAllRequiredBlocksEnabled, updateDisabledBlocks, validateErrorOnBlockDelete } from "./utils";
 
 class DBot {
@@ -223,18 +216,53 @@ class DBot {
     return this.before_run_funcs.every((func) => !!func());
   }
 
-  // --- Visual-only stubs: arktrader's runtime owns trade execution ---
-  async initializeInterpreter() {}
-  runBot() {
-    globalObserver.emit("ui.log.warn", "Bot execution from Blockly is handled by arktrader runtime.");
+  initializeInterpreter() {
+    this.interpreter = createInterpreter();
   }
+
+  async runBot() {
+    if (!this.shouldRunBot()) return;
+    await this.saveRecentWorkspace();
+    const code = this.generateCode();
+    if (!this.interpreter) {
+      this.initializeInterpreter();
+    }
+    this.is_bot_running = true;
+    try {
+      await api_base.init();
+      await this.interpreter.run(code);
+    } finally {
+      this.is_bot_running = false;
+      globalObserver.emit("bot.stop");
+    }
+  }
+
   async stopBot() {
     this.is_bot_running = false;
+    if (this.interpreter) {
+      try {
+        await this.interpreter.stop();
+      } catch {
+        // ignore stop errors
+      }
+    }
   }
+
   async terminateBot() {
     this.is_bot_running = false;
+    if (this.interpreter) {
+      try {
+        await this.interpreter.terminateSession();
+      } catch {
+        // ignore termination errors
+      }
+      this.interpreter = null;
+    }
   }
-  terminateConnection = () => {};
+
+  terminateConnection = () => {
+    api_base.terminate?.();
+  };
 
   /**
    * Generates the JS code body the trade engine WOULD have run. Useful for
