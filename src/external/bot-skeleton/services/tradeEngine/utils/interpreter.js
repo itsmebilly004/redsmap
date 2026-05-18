@@ -281,4 +281,4 @@ const Interpreter = () => {
 };
 export default Interpreter;
 
-export const createInterpreter = () => new Interpreter();
+export const createInterpreter = () => Interpreter();
