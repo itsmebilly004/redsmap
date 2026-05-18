@@ -216,20 +216,20 @@ class DBot {
     return this.before_run_funcs.every((func) => !!func());
   }
 
-  initializeInterpreter() {
-    this.interpreter = createInterpreter();
-  }
-
   async runBot() {
     if (!this.shouldRunBot()) return;
     await this.saveRecentWorkspace();
     const code = this.generateCode();
-    if (!this.interpreter) {
-      this.initializeInterpreter();
-    }
     this.is_bot_running = true;
     try {
+      // api_base.init() must come before createInterpreter() so that
+      // TicksService.observe() (called in the TicksService constructor) can
+      // subscribe to api_base.api.onMessage(). Without a live API at
+      // construction time, live tick messages are never processed and
+      // watch('before') never resolves. Creating a fresh interpreter every
+      // run also resets $scope.stopped which terminateSession() sets to true.
       await api_base.init();
+      this.interpreter = createInterpreter();
       await this.interpreter.run(code);
     } finally {
       this.is_bot_running = false;
