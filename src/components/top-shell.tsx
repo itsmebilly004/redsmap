@@ -564,7 +564,7 @@ export function TopShell({
     footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
     footerBotRunningRef.current = true;
 
-    setBotRunConnecting(true);
+    setBotMonitorStatus("running");
     setBotMonitorCollapsed(false);
     setBotMonitorTab("summary");
 
@@ -576,8 +576,6 @@ export function TopShell({
       setBotMonitorStatus("stopped");
       addFooterBotJournal(message, "error");
       toast.error(message);
-    } finally {
-      setBotRunConnecting(false);
     }
   }
 

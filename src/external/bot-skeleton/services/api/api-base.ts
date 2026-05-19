@@ -68,7 +68,7 @@ class APIBase {
                         forget: subscription.id,
                     });
                 }
-            });
+            }).catch(() => {});
         });
         this.current_auth_subscriptions = [];
     };
@@ -116,12 +116,10 @@ class APIBase {
             setIsAuthorizing(true);
             await this.authorizeAndSubscribe();
         } else if (this.api) {
-            // Pre-authorized socket (OAuth OTP path). Mark as authorized and set up
-            // streams. DerivAPIBasic queues send() until the socket opens, so calling
-            // subscribe() here is safe — messages are flushed once the WS handshakes.
+            // Pre-authorized socket (OAuth OTP path). Mark as authorized.
+            // Do NOT call subscribe() here — account: 'all' is rejected on OTP sockets.
             this.is_authorized = true;
             setIsAuthorized(true);
-            this.subscribe().catch(() => {});
         }
 
         chart_api.init(force_create_connection);
