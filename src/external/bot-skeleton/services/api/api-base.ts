@@ -115,6 +115,13 @@ class APIBase {
         if (V2GetActiveToken()) {
             setIsAuthorizing(true);
             await this.authorizeAndSubscribe();
+        } else if (this.api) {
+            // Pre-authorized socket (OAuth OTP path). Mark as authorized and set up
+            // streams. DerivAPIBasic queues send() until the socket opens, so calling
+            // subscribe() here is safe — messages are flushed once the WS handshakes.
+            this.is_authorized = true;
+            setIsAuthorized(true);
+            this.subscribe().catch(() => {});
         }
 
         chart_api.init(force_create_connection);

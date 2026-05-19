@@ -254,7 +254,10 @@ const Interpreter = () => {
 
                 $scope.is_error_triggered = true;
                 if (!shouldRestartOnError(bot, e.code) || !botStarted(bot)) {
-                    reject(e);
+                    const err = e instanceof Error
+                        ? e
+                        : Object.assign(new Error(e?.message || String(e?.code || 'Trade error')), { code: e?.code });
+                    reject(err);
                     return;
                 }
 
