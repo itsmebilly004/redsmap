@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,8 @@ interface TradePanelProps {
   onMarketChange?: (market: string) => void;
   onTradeTypeChange?: (tradeType: TradeCategory) => void;
   showMarketSelector?: boolean;
+  /** When true, the buy/sell action buttons render in a fixed bar at the bottom of the viewport. */
+  stickyActions?: boolean;
 }
 
 const EMPTY_QUOTE: ProposalQuote = {
@@ -148,6 +151,7 @@ export function TradePanel({
   onMarketChange,
   onTradeTypeChange,
   showMarketSelector = true,
+  stickyActions = false,
 }: TradePanelProps) {
   const { user } = useAuth();
   const { account, balance: accountBalance, currency, refreshBalances } = useDerivBalanceContext();
@@ -1028,8 +1032,8 @@ export function TradePanel({
         />
       </div>
 
-      <div className="order-5 space-y-2 max-sm:grid max-sm:grid-cols-2 max-sm:gap-1.5 max-sm:space-y-0 sm:order-none">
-        {config.sides.map((side) => {
+      {(() => {
+        const buttons = config.sides.map((side) => {
           const quote = quotes[side.value] ?? EMPTY_QUOTE;
           return (
             <ProposalButton
@@ -1045,8 +1049,25 @@ export function TradePanel({
               tone={side.tone}
             />
           );
-        })}
-      </div>
+        });
+        if (stickyActions) {
+          return typeof document !== "undefined"
+            ? createPortal(
+                <div className="fixed inset-x-0 bottom-16 z-30 grid gap-2 border-t border-[#e5e5e5] bg-white px-3 py-2 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] dark:border-[#242424] dark:bg-[#151515]"
+                  style={{ gridTemplateColumns: `repeat(${config.sides.length}, minmax(0, 1fr))` }}
+                >
+                  {buttons}
+                </div>,
+                document.body,
+              )
+            : null;
+        }
+        return (
+          <div className="order-5 space-y-2 max-sm:grid max-sm:grid-cols-2 max-sm:gap-1.5 max-sm:space-y-0 sm:order-none">
+            {buttons}
+          </div>
+        );
+      })()}
 
       {(activeContract.contractId || activeContract.status === "error") && (
         <div className="order-7 sm:order-none">

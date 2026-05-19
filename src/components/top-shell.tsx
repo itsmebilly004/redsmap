@@ -34,7 +34,7 @@ import {
 } from "@/lib/deriv";
 import { resolveRunnableBotSettings, type BotBuilderSettings } from "@/lib/bot-builder-state";
 import { getDerivWorkspace } from "@/external/bot-builder/blockly-runtime";
-import { readSavedWorkspaceXml } from "@/external/bot-builder/workspace-persistence";
+import { extractSettingsFromXmlText, readSavedWorkspaceXml } from "@/external/bot-builder/workspace-persistence";
 import { buyProposal, requestProposal, sellContract, subscribeOpenContract } from "@/lib/deriv-trading-service";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import {
@@ -699,7 +699,16 @@ export function TopShell({
       persistWorkspaceSnapshot(user?.id, workspace);
     }
 
-    const settings = resolveRunnableBotSettings(user?.id);
+    let settings = resolveRunnableBotSettings(user?.id);
+    // Re-extract settings from the saved XML to pick up workspace edits that may not
+    // have been flushed to current-settings yet (fast navigation after editing blocks).
+    const _rawWorkspaceXml = readSavedWorkspaceXml(user?.id);
+    if (_rawWorkspaceXml) {
+      try {
+        const freshSettings = extractSettingsFromXmlText(_rawWorkspaceXml, settings ?? undefined);
+        if (freshSettings) settings = freshSettings;
+      } catch { /* ignore extraction errors */ }
+    }
     if (!settings) {
       navigate({ to: "/bot-builder" });
       return;
@@ -810,12 +819,21 @@ export function TopShell({
       // Uses the legacy public WebSocket (wss://ws.derivws.com) which supports
       // unauthenticated tick subscriptions — the trading WS does not.
       let pendingTickResolve: ((data: { quote: number; epoch: number }) => void) | null = null;
+      // Cache the latest tick so nextTick() resolves immediately if a tick arrived
+      // while the previous trade was being processed (avoids a full tick-interval wait).
+      let latestTickCache: { quote: number; epoch: number } | null = null;
       let tickSubId: string | null = null;
       const tickWs = new WebSocket(
         `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${DERIV_LEGACY_APP_ID}`,
       );
       const nextTick = (): Promise<{ quote: number; epoch: number }> =>
         new Promise((resolve) => {
+          if (latestTickCache) {
+            const data = latestTickCache;
+            latestTickCache = null;
+            resolve(data);
+            return;
+          }
           pendingTickResolve = resolve;
         });
       const resolvePendingTick = (quote: number, epoch: number) => {
@@ -823,6 +841,9 @@ export function TopShell({
           const resolve = pendingTickResolve;
           pendingTickResolve = null;
           resolve({ quote, epoch });
+        } else {
+          // No one is waiting — cache for the next nextTick() call
+          latestTickCache = { quote, epoch };
         }
       };
       tickWs.onopen = () => {

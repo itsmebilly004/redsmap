@@ -215,77 +215,132 @@ function Index() {
 
   return (
     <TopShell>
-      <div
-        className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px] lg:overflow-hidden"
-        style={{
-          gridTemplateRows: isMobile ? "minmax(0, 224px) minmax(0, 1fr)" : undefined,
-          height: isMobile ? "calc(100dvh - 11rem)" : "calc(100dvh - 12rem)",
-        }}
-      >
-        <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-[oklch(0.92_0.005_240)] bg-white p-1 sm:p-3 lg:border-b-0 lg:border-r dark:border-[#242424] dark:bg-[#151515]">
-          <div className="mb-1 hidden items-center justify-between sm:mb-2 md:flex">
+      {/* ── Desktop layout: chart left, trade panel right ──────────────────── */}
+      {!isMobile && (
+        <>
+          <div
+            className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]"
+            style={{ height: "calc(100dvh - 12rem)" }}
+          >
+            <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-[oklch(0.92_0.005_240)] bg-white p-3 dark:border-[#242424] dark:bg-[#151515]">
+              <div className="mb-2 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold">Manual Trader</div>
+                  <div className="font-mono text-[11px] text-[oklch(0.55_0.02_260)] dark:text-[#999999]">
+                    {price !== null ? price.toFixed(4) : "-"}
+                  </div>
+                </div>
+              </div>
+              <div className="relative min-h-0 flex-1">
+                <DerivChart
+                  symbol={symbol}
+                  onSymbolChange={handleMarketChange}
+                  onPrice={setPrice}
+                  height={chartHeight}
+                  entryPrice={barriers.entry}
+                  highBarrier={barriers.high}
+                  lowBarrier={barriers.low}
+                  barrierBreached={barriers.breached}
+                  accumulatorProfit={barriers.profit}
+                  accumulatorProfitCurrency={barriers.profitCurrency}
+                  accumulatorProfitStatus={barriers.profitStatus}
+                  showDigitStats={isDigitTrade(tradeType)}
+                  showSymbolSelector
+                />
+              </div>
+              <p className="mt-2 text-xs text-[oklch(0.5_0.02_260)] dark:text-[#999999]">
+                Live data streamed from the Deriv WebSocket API. Sign in to place real trades.
+              </p>
+            </section>
+            <aside className="flex min-h-0 min-w-0 flex-col gap-1.5 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-3 pb-3 dark:bg-[#0e0e0e]">
+              <TradePanel
+                market={symbol}
+                lastPrice={price}
+                onAccumulatorBarriers={handleAccumulatorBarriers}
+                onMarketChange={handleMarketChange}
+                onTradeTypeChange={setTradeType}
+                showMarketSelector={false}
+              />
+            </aside>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-4 py-2 dark:border-[#242424] dark:bg-[#151515]">
+            <Link
+              to="/bot-builder"
+              aria-label="Open bot builder"
+              title="Bot Builder"
+              className="rounded-md p-1.5 font-mono text-xs text-[oklch(0.45_0.02_260)] transition-colors hover:bg-[#f2f3f4] hover:text-[#333333] dark:text-[#999999] dark:hover:bg-[#1f1f1f] dark:hover:text-white"
+            >
+              <Bot className="size-4" />
+            </Link>
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              aria-label={isFullscreen ? "Exit full screen" : "Enter full screen"}
+              title={isFullscreen ? "Exit full screen" : "Enter full screen"}
+              className="rounded-md p-1.5 font-mono text-xs text-[oklch(0.45_0.02_260)] transition-colors hover:bg-[#f2f3f4] hover:text-[#333333] dark:text-[#999999] dark:hover:bg-[#1f1f1f] dark:hover:text-white"
+            >
+              {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── Mobile layout: Deriv-style, price header + scrollable params + sticky buy/sell ── */}
+      {isMobile && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden" style={{ height: "calc(100dvh - 11rem)" }}>
+          {/* Sticky price header */}
+          <div className="flex shrink-0 items-center justify-between border-b border-[#e5e5e5] bg-white px-3 py-2 dark:border-[#242424] dark:bg-[#151515]">
             <div>
-              <div className="text-sm font-semibold">Manual Trader</div>
-              <div className="font-mono text-[11px] text-[oklch(0.55_0.02_260)] dark:text-[#999999]">
-                {price !== null ? price.toFixed(4) : "-"}
+              <div className="text-xs font-medium text-[#646464] dark:text-[#999999]">Manual Trader</div>
+              <div className="font-mono text-xl font-bold tabular-nums text-[#1f2328] dark:text-[#f2f2f2]">
+                {price !== null ? price.toFixed(2) : "—"}
               </div>
             </div>
+            <Link
+              to="/bot-builder"
+              className="flex items-center gap-1 rounded-md border border-[#d6d6d6] bg-white px-2 py-1.5 text-[10px] font-medium text-[#646464] dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:text-[#b7b7b7]"
+            >
+              <Bot className="size-3" /> Bots
+            </Link>
           </div>
-          <div className="relative min-h-0 flex-1">
-            <DerivChart
-              symbol={symbol}
-              onSymbolChange={handleMarketChange}
-              onPrice={setPrice}
-              height={chartHeight}
-              entryPrice={barriers.entry}
-              highBarrier={barriers.high}
-              lowBarrier={barriers.low}
-              barrierBreached={barriers.breached}
-              accumulatorProfit={barriers.profit}
-              accumulatorProfitCurrency={barriers.profitCurrency}
-              accumulatorProfitStatus={barriers.profitStatus}
-              showDigitStats={isDigitTrade(tradeType)}
-              showSymbolSelector
-              compact={isMobile}
-            />
-          </div>
-          <p className="mt-2 hidden text-xs text-[oklch(0.5_0.02_260)] sm:block dark:text-[#999999]">
-            Live data streamed from the Deriv WebSocket API. Sign in to place real trades.
-          </p>
-        </section>
-        <aside className="flex min-h-0 min-w-0 flex-col gap-1.5 overflow-hidden bg-[oklch(0.97_0.003_240)] p-1.5 pb-1.5 sm:p-3 lg:overflow-y-auto lg:pb-3 dark:bg-[#0e0e0e]">
-          <TradePanel
-            market={symbol}
-            lastPrice={price}
-            onAccumulatorBarriers={handleAccumulatorBarriers}
-            onMarketChange={handleMarketChange}
 
-            onTradeTypeChange={setTradeType}
-            showMarketSelector={false}
-          />
-        </aside>
-      </div>
-      <div className="hidden flex-wrap items-center justify-between gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 md:flex dark:border-[#242424] dark:bg-[#151515]">
-        <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-[oklch(0.45_0.02_260)] sm:gap-3 dark:text-[#999999]">
-          <Link
-            to="/bot-builder"
-            aria-label="Open bot builder"
-            title="Bot Builder"
-            className="rounded-md p-1.5 transition-colors hover:bg-[#f2f3f4] hover:text-[#333333] dark:hover:bg-[#1f1f1f] dark:hover:text-white"
-          >
-            <Bot className="size-4" />
-          </Link>
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            aria-label={isFullscreen ? "Exit full screen" : "Enter full screen"}
-            title={isFullscreen ? "Exit full screen" : "Enter full screen"}
-            className="rounded-md p-1.5 transition-colors hover:bg-[#f2f3f4] hover:text-[#333333] dark:hover:bg-[#1f1f1f] dark:hover:text-white"
-          >
-            {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-          </button>
+          {/* Scrollable content: trade params → chart */}
+          <div className="min-h-0 flex-1 overflow-y-auto pb-20 bg-[oklch(0.97_0.003_240)] dark:bg-[#0e0e0e]">
+            <div className="p-2 pb-0">
+              <TradePanel
+                market={symbol}
+                lastPrice={price}
+                onAccumulatorBarriers={handleAccumulatorBarriers}
+                onMarketChange={handleMarketChange}
+                onTradeTypeChange={setTradeType}
+                showMarketSelector
+                stickyActions
+              />
+            </div>
+            {/* Chart below trade params — scroll down to see it */}
+            <div className="mt-2 border-t border-[#e5e5e5] bg-white px-1 pt-1 dark:border-[#242424] dark:bg-[#151515]">
+              <div className="mb-1 px-2 pt-1 text-xs font-medium text-[#646464] dark:text-[#999999]">
+                Live Chart
+              </div>
+              <DerivChart
+                symbol={symbol}
+                onSymbolChange={handleMarketChange}
+                onPrice={setPrice}
+                height={220}
+                entryPrice={barriers.entry}
+                highBarrier={barriers.high}
+                lowBarrier={barriers.low}
+                barrierBreached={barriers.breached}
+                accumulatorProfit={barriers.profit}
+                accumulatorProfitCurrency={barriers.profitCurrency}
+                accumulatorProfitStatus={barriers.profitStatus}
+                showDigitStats={isDigitTrade(tradeType)}
+                compact
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </TopShell>
   );
 }

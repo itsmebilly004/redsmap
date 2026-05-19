@@ -60,7 +60,7 @@ import { BlocksMenuSidebar, closeBlocklyFlyout } from "./blocks-menu-sidebar";
 import { getBlocklyRuntime, getDerivWorkspace, type BlocklyEventLike } from "./blockly-runtime";
 import "./bot-builder.css";
 
-const PERSIST_DEBOUNCE_MS = 500;
+const PERSIST_DEBOUNCE_MS = 200;
 const SIDEBAR_PREF_KEY = "arktrader:bot-builder:sidebar-collapsed";
 
 const generatePresetId = (): string => {

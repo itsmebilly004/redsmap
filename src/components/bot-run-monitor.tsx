@@ -356,7 +356,7 @@ export function BotRunMonitorPanel({
       <div className="border-t border-[#e5e5e5] bg-white p-3 dark:border-[#2b2b2b] dark:bg-[#151515]">
         <button
           className="h-10 w-full rounded-[3px] border border-[#999] bg-white text-sm font-bold text-[#333] hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#101010] dark:text-[#eeeeee] dark:hover:bg-[#202020]"
-          disabled={!onReset}
+          disabled={!onReset || status === "running"}
           type="button"
           onClick={onReset}
         >
@@ -430,7 +430,7 @@ function CollapsedBuilderMonitor({
         <button
           aria-label="Reset bot monitor"
           className="flex h-10 shrink-0 items-center justify-center rounded-md border border-[#d6d6d6] bg-white px-3 text-sm font-bold transition hover:bg-[#f1f2f3] disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#333] dark:bg-[#101010] dark:hover:bg-[#202020]"
-          disabled={!onReset}
+          disabled={!onReset || status === "running"}
           type="button"
           onClick={onReset}
         >
@@ -489,8 +489,11 @@ function CollapsedFooterMonitor({
 }) {
   const summaryClassName = summaryProfitLossClassName(stats.totalProfitLoss);
   return (
-    <div className="fixed inset-x-2 bottom-2 z-40 mx-auto flex h-11 max-w-6xl items-center gap-2 rounded-lg border border-[#d8d8d8] bg-white pl-1 pr-3 text-left text-[#333333] shadow-lg dark:border-[#2c2c2c] dark:bg-[#151515] dark:text-[#eeeeee]">
-      <RunButton connecting={connecting} onRun={onRun} status={status} />
+    <div className="fixed inset-x-2 bottom-2 z-40 mx-auto flex h-11 max-w-6xl items-center gap-2 rounded-lg border border-[#d8d8d8] bg-white pl-2 pr-3 text-left text-[#333333] shadow-lg dark:border-[#2c2c2c] dark:bg-[#151515] dark:text-[#eeeeee]">
+      {/* When running, hide the Stop button to prevent accidental taps — user must expand panel to stop */}
+      {status !== "running" && (
+        <RunButton connecting={connecting} onRun={onRun} status={status} />
+      )}
       <button
         aria-label="Expand bot monitor"
         className="flex min-w-0 flex-1 items-center gap-3 self-stretch transition hover:opacity-80"
@@ -500,8 +503,12 @@ function CollapsedFooterMonitor({
         <StatusDot status={connecting ? "running" : status} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-bold uppercase tracking-wide">{title}</div>
-          <div className={cn("truncate font-mono text-[11px]", connecting ? "text-[#4bb4b3]" : summaryClassName)}>
-            {connecting ? "Connecting to Deriv..." : `Runs ${stats.runs} / P/L ${formatMoney(stats.totalProfitLoss, currency)}`}
+          <div className={cn("truncate font-mono text-[11px]", connecting ? "text-[#4bb4b3]" : status === "running" ? "text-[#4bb4b3]" : summaryClassName)}>
+            {connecting
+              ? "Connecting to Deriv..."
+              : status === "running"
+                ? `Running — Runs ${stats.runs} / P/L ${formatMoney(stats.totalProfitLoss, currency)}`
+                : `Runs ${stats.runs} / P/L ${formatMoney(stats.totalProfitLoss, currency)}`}
           </div>
         </div>
         <ChevronUp className="size-4 shrink-0" />
