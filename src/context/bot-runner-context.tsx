@@ -464,7 +464,13 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
   }, [stopBot]);
 
-  // ── DBot engine run path ──────────────────────────────────────────────────
+  // ── DBot engine run path → always delegates to footer runner ────────────────
+  // The DBot engine (dbot.runBot) is tied to the BotBuilder page lifecycle and
+  // uses an api_base WebSocket that can be stale at run time. Routing every run
+  // through handleFooterBotRun gives us:
+  //  • a persistent root-context loop that survives page navigation
+  //  • a fresh, authenticated WebSocket via ensureDerivTradingConnection
+  //  • unified execution for both built-in and uploaded XML bots
   async function handleDbotBotRun() {
     const currentAccount = accountRef.current;
     if (!currentAccount) {
@@ -475,34 +481,12 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const accountIsReal = currentAccount.normalizedType === "real" || currentAccount.is_demo === false;
-    if (accountIsReal) {
-      const SESSION_WARNED_KEY = "arktrader:bot:real-account-session-warned";
-      const alreadyWarned = (() => {
-        try { return sessionStorage.getItem(SESSION_WARNED_KEY) === "1"; } catch { return false; }
-      })();
-      if (!alreadyWarned) {
-        const accountLabel = currentAccount.loginid || currentAccount.account_id;
-        const confirmed = window.confirm(
-          `You are about to run a bot on a REAL Deriv account (${accountLabel}). This will use real funds. Continue?`,
-        );
-        if (!confirmed) {
-          addJournal("Run cancelled — confirmation declined on real account.", "warning");
-          toast.info("Bot run cancelled.");
-          return;
-        }
-        try { sessionStorage.setItem(SESSION_WARNED_KEY, "1"); } catch { /* noop */ }
-      }
-    }
-
+    // For legacy-token accounts, prime localStorage so BotBuilder workspace
+    // display / block highlighting still resolves to the correct account.
     const activeToken = currentAccount.deriv_token ?? "";
     const activeLoginId = currentAccount.loginid ?? currentAccount.account_id ?? "";
     const isOAuthAccount = (currentAccount as { token_source?: string }).token_source === "oauth_access_token";
-
-    if (isOAuthAccount) {
-      await handleFooterBotRun();
-      return;
-    } else if (activeToken) {
+    if (!isOAuthAccount && activeToken) {
       try {
         localStorage.setItem("authToken", activeToken);
         localStorage.setItem("active_loginid", activeLoginId);
@@ -510,46 +494,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       } catch { /* ignore */ }
     }
 
-    const dbotStoreInstance = _DBotStore?.instance;
-    if (dbotStoreInstance) {
-      dbotStoreInstance.client = {
-        loginid: activeLoginId,
-        currency: currencyRef.current ?? currentAccount.currency ?? "USD",
-        balance: parseFloat(String(balanceRef.current ?? currentAccount.balance ?? 0)),
-        landing_company_shortcode: "svg",
-        is_logged_in: true,
-        getToken: (_loginid?: string) => activeToken,
-      };
-    }
-
-    // Capture the DBot engine's current cumulative totals BEFORE the run starts so
-    // the first trade's P&L is never swallowed by the baseline calculation.
-    dBotBaselineRef.current = { ...lastDbotInfoRef.current };
-    setStats(EMPTY_BOT_MONITOR_STATS);
-    setTransactions([]);
-    setJournal(DEFAULT_BOT_MONITOR_JOURNAL);
-    footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
-    footerBotRunningRef.current = true;
-    botRunModeRef.current = "dbot";
-    setStatus("running");
-    setCollapsed(false);
-    setActiveTab("summary");
-
-    try {
-      // Force a fresh api_base WebSocket so stale/closed connections don't silently
-      // drop buy requests (the most common cause of "Placing trade..." hangs).
-      await _api_base?.init(true);
-      await _dbot?.runBot?.();
-    } catch (error) {
-      const message = getDerivTradingErrorMessage(error);
-      footerBotRunningRef.current = false;
-      botRunModeRef.current = null;
-      setStatus("stopped");
-      addJournal(message, "error");
-      toast.error(message);
-    } finally {
-      if (botRunModeRef.current === "dbot") botRunModeRef.current = null;
-    }
+    await handleFooterBotRun();
   }
 
   // ── Footer (XML-driven) run path ──────────────────────────────────────────
@@ -579,26 +524,6 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       toast.error("Connect and select a Deriv account before running the bot.");
       addJournal("Run blocked: no Deriv account selected.", "error");
       return;
-    }
-
-    const accountIsReal = currentAccount.normalizedType === "real" || currentAccount.is_demo === false;
-    if (accountIsReal) {
-      const SESSION_WARNED_KEY = "arktrader:bot:real-account-session-warned";
-      const alreadyWarned = (() => {
-        try { return sessionStorage.getItem(SESSION_WARNED_KEY) === "1"; } catch { return false; }
-      })();
-      if (!alreadyWarned) {
-        const accountLabel = currentAccount.loginid || currentAccount.account_id;
-        const confirmed = window.confirm(
-          `You are about to run a bot on a REAL Deriv account (${accountLabel}). This will use real funds. Continue?`,
-        );
-        if (!confirmed) {
-          addJournal("Run cancelled — confirmation declined on real account.", "warning");
-          toast.info("Bot run cancelled.");
-          return;
-        }
-        try { sessionStorage.setItem(SESSION_WARNED_KEY, "1"); } catch { /* noop */ }
-      }
     }
 
     setStats(EMPTY_BOT_MONITOR_STATS);
@@ -930,6 +855,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
               contractId, entrySpot: null, exitSpot: null,
               id: crypto.randomUUID(), payout: 0, profit: 0, stake, status: "open", time: formatTime(),
             };
+            // Show "open" trade immediately — don't wait for DB before displaying it
             setTransactions((items) => [record, ...items]);
             upsertTrackedTrade(userRef.current?.id, {
               contractId, contractType, currency: snapshot.currency, id: record.id,
@@ -937,23 +863,25 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
               profitLoss: 0, source: "bot-footer", stake, status: "open",
             });
 
-            let dbTradeId: string | null = null;
-            if (userRef.current?.id) {
-              try {
-                const { data: insertedTrade, error: insertError } = await supabase
-                  .from("trades")
-                  .insert({
-                    user_id: userRef.current.id, deriv_contract_id: contractId,
-                    symbol: snapshot.symbol, trade_type: contractType,
-                    stake, payout: Number(buy.buy?.payout ?? 0), status: "open",
-                  })
-                  .select().single();
-                if (!insertError) dbTradeId = insertedTrade?.id ?? null;
-              } catch { /* ignore */ }
-            }
+            // Fire the DB insert in parallel with trade execution — supabase latency
+            // (~100-300 ms) is hidden behind the settlement wait (seconds).
+            const dbTradeIdPromise: Promise<string | null> = userRef.current?.id
+              ? supabase.from("trades").insert({
+                  user_id: userRef.current.id, deriv_contract_id: contractId,
+                  symbol: snapshot.symbol, trade_type: contractType,
+                  stake, payout: Number(buy.buy?.payout ?? 0), status: "open",
+                })
+                .select("id").single()
+                .then(({ data, error }) => (!error && data) ? String(data.id) : null)
+                .catch(() => null)
+              : Promise.resolve(null);
+
             addJournal(`Bought contract ${contractId}. Waiting for settlement.`, "success");
             settlement = await waitForSettlement(contractId, onContractUpdate);
 
+            // Settlement detected — update UI synchronously and kick off balance
+            // refresh in parallel so the balance and transaction list update together.
+            void refreshBalances("footer-bot-trade-complete", currentAccount.account_id).catch(() => {});
             setTransactions((items) =>
               items.map((item) =>
                 item.id === record.id
@@ -966,15 +894,15 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
               profitLoss: settlement?.profit ?? 0,
               status: settlement?.status === "won" ? "won" : settlement?.status === "lost" ? "lost" : "open",
             });
+            // Non-blocking DB update — resolve insert ID (almost certainly done by now)
+            const dbTradeId = await dbTradeIdPromise;
             if (userRef.current?.id && dbTradeId) {
-              try {
-                await supabase.from("trades").update({
-                  profit_loss: Number(settlement?.profit ?? 0),
-                  payout: Number(settlement?.payout ?? 0),
-                  status: settlement?.status === "won" ? "won" : settlement?.status === "lost" ? "lost" : "open",
-                  closed_at: new Date().toISOString(),
-                }).eq("id", dbTradeId);
-              } catch { /* ignore */ }
+              void supabase.from("trades").update({
+                profit_loss: Number(settlement?.profit ?? 0),
+                payout: Number(settlement?.payout ?? 0),
+                status: settlement?.status === "won" ? "won" : settlement?.status === "lost" ? "lost" : "open",
+                closed_at: new Date().toISOString(),
+              }).eq("id", dbTradeId).catch(() => {});
             }
             duringPurchaseCallback = null;
             tradeError = null;
@@ -984,7 +912,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             tradeError = error;
             if (!contractWasBought && attempt < BOT_TRADE_MAX_ATTEMPTS && shouldRetryBotTrade(error)) {
               addJournal("Deriv returned a temporary processing error. Retrying once.", "warning");
-              await sleep(750);
+              await sleep(200);
               continue;
             }
             break;
@@ -1014,7 +942,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
           `Contract settled ${settlement.status}. Run ${completedRuns}/${runCap}. P/L ${runningProfit.toFixed(2)} ${snapshot.currency}.`,
           settlement.status === "won" ? "success" : settlement.status === "lost" ? "warning" : "info",
         );
-        await refreshBalances("footer-bot-trade-complete", currentAccount.account_id).catch(() => {});
+        // Balance refresh was already fired at settlement — no await here.
 
         if (tpThreshold > 0 && runningProfit >= tpThreshold) {
           addJournal(`Take-profit reached (+${runningProfit.toFixed(2)} ${snapshot.currency} ≥ ${tpThreshold.toFixed(2)}). Bot stopped.`, "success");
@@ -1064,7 +992,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
 
       stopTickWs();
       stopTickWsFnRef.current = null;
-      await refreshBalances("footer-bot-run-complete", currentAccount.account_id).catch(() => {});
+      void refreshBalances("footer-bot-run-complete", currentAccount.account_id).catch(() => {});
       setStatus("stopped");
       footerBotRunningRef.current = false;
       botRunModeRef.current = null;
