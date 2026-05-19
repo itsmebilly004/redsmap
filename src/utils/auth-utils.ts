@@ -1,5 +1,6 @@
 // Clears the bridge localStorage keys written before dbot.runBot() authorizes api_base.
-export const clearAuthData = (is_reload = true): void => {
+// Never reloads — our app manages auth via React/Supabase, not page reloads.
+export const clearAuthData = (): void => {
   try {
     localStorage.removeItem("authToken");
     localStorage.removeItem("active_loginid");
@@ -7,12 +8,9 @@ export const clearAuthData = (is_reload = true): void => {
   } catch {
     // ignore
   }
-  if (is_reload) {
-    location.reload();
-  }
 };
 
 export const handleOidcAuthFailure = (error: unknown): void => {
   console.error("OIDC auth failed:", error);
-  clearAuthData(false);
+  clearAuthData();
 };

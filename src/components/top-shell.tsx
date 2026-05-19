@@ -53,7 +53,6 @@ import {
 import { DERIV_LEGACY_WEBSOCKET_URL, DERIV_LEGACY_APP_ID } from "@/lib/deriv-config";
 import dbot from "@/external/bot-skeleton/scratch/dbot";
 import DBotStore from "@/external/bot-skeleton/scratch/dbot-store";
-import { api_base } from "@/external/bot-skeleton/services/api/api-base";
 import { observer as globalObserver } from "@/external/bot-skeleton/utils/observer";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -239,23 +238,6 @@ export function TopShell({
     botMonitorTransactions,
     user?.id,
   ]);
-
-  // Pre-initialize the DBot engine WebSocket as soon as the user's Deriv
-  // account is available so it is already connected when they click Run.
-  useEffect(() => {
-    if (!account?.deriv_token) return;
-    const activeToken = account.deriv_token;
-    const activeLoginId = account.loginid ?? account.account_id ?? "";
-    try {
-      localStorage.setItem("authToken", activeToken);
-      localStorage.setItem("active_loginid", activeLoginId);
-      localStorage.setItem("accountsList", JSON.stringify({ [activeLoginId]: activeToken }));
-    } catch { /* ignore storage errors */ }
-    api_base.init().catch((err) => {
-      console.warn("[Top Shell] DBot api_base pre-init failed", err);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account?.deriv_token]);
 
   // Register DDBOt engine observer events and map them to BotRunMonitorPanel state.
   // These fire whenever dbot.runBot() is active and the interpreter emits events.
@@ -508,10 +490,7 @@ export function TopShell({
       }
     }
 
-    // Bridge the active account token into the localStorage keys api_base reads.
-    // api_base.init() → authorizeAndSubscribe() calls V2GetActiveToken() which
-    // reads localStorage.getItem('authToken'). The main app stores tokens in
-    // Supabase with user-specific keys, so we write them here before handing off.
+    // Bridge token into the localStorage keys that api_base reads via V2GetActiveToken().
     const activeToken = account.deriv_token ?? "";
     const activeLoginId = account.loginid ?? account.account_id ?? "";
     if (activeToken) {
