@@ -46,9 +46,6 @@ import {
   type OhlcCandle,
 } from "@/lib/bot-xml-runtime";
 import { DERIV_LEGACY_WEBSOCKET_URL, DERIV_LEGACY_APP_ID } from "@/lib/deriv-config";
-import dbot from "@/external/bot-skeleton/scratch/dbot";
-import DBotStore from "@/external/bot-skeleton/scratch/dbot-store";
-import { observer as globalObserver } from "@/external/bot-skeleton/utils/observer";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -60,6 +57,32 @@ import {
   type BotMonitorTransaction,
 } from "@/components/bot-run-monitor";
 import { numberFrom } from "@/lib/contract-state";
+
+// dbot/DBotStore/globalObserver access window at module-evaluation time (blockly.js line 6 does
+// `window.goog = goog`). Importing them statically in __root.tsx's SSR path crashes the server.
+// Load them lazily on the client only.
+type _DbotDefault = (typeof import("@/external/bot-skeleton/scratch/dbot"))["default"];
+type _DbotStoreDefault = (typeof import("@/external/bot-skeleton/scratch/dbot-store"))["default"];
+type _GlobalObserver = (typeof import("@/external/bot-skeleton/utils/observer"))["observer"];
+
+let _dbot: _DbotDefault | null = null;
+let _DBotStore: _DbotStoreDefault | null = null;
+let _globalObserver: _GlobalObserver | null = null;
+let _dbotLoadPromise: Promise<void> | null = null;
+
+function loadDbotModules(): Promise<void> {
+  if (_dbotLoadPromise) return _dbotLoadPromise;
+  _dbotLoadPromise = Promise.all([
+    import("@/external/bot-skeleton/scratch/dbot"),
+    import("@/external/bot-skeleton/scratch/dbot-store"),
+    import("@/external/bot-skeleton/utils/observer"),
+  ]).then(([dbotMod, storeMod, obsMod]) => {
+    _dbot = dbotMod.default;
+    _DBotStore = storeMod.default;
+    _globalObserver = obsMod.observer;
+  });
+  return _dbotLoadPromise;
+}
 
 const BOT_TRADE_MAX_ATTEMPTS = 2;
 const DERIV_TEMPORARY_PROCESSING_MESSAGE =
@@ -184,7 +207,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  // Register DBot engine observer events once at mount
+  // Register DBot engine observer events once at mount (client-side only)
   useEffect(() => {
     const onBotRunning = () => {
       setConnecting(false);
@@ -351,41 +374,46 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       footerBotRunningRef.current = false;
       setConnecting(false);
       setStatus("stopped");
-      void dbot.terminateBot?.();
+      void _dbot?.terminateBot?.();
     };
     const onClientInvalidToken = () => {
       footerBotRunningRef.current = false;
       setConnecting(false);
       setStatus("stopped");
       addJournal("Deriv authorization failed. Please reconnect your account.", "error");
-      void dbot.terminateBot?.();
+      void _dbot?.terminateBot?.();
     };
 
-    globalObserver.register("bot.running", onBotRunning);
-    globalObserver.register("bot.stop", onBotStop);
-    globalObserver.register("bot.info", onBotInfo);
-    globalObserver.register("bot.contract", onBotContract);
-    globalObserver.register("contract.status", onContractStatus);
-    globalObserver.register("ui.log.success", onLogSuccess);
-    globalObserver.register("ui.log.error", onLogError);
-    globalObserver.register("ui.log.notify", onLogNotify);
-    globalObserver.register("ui.log.warn", onLogWarn);
-    globalObserver.register("bot.click_stop", onBotClickStop);
-    globalObserver.register("client.invalid_token", onClientInvalidToken);
+    let unregister: (() => void) | null = null;
+    loadDbotModules().then(() => {
+      const obs = _globalObserver!;
+      obs.register("bot.running", onBotRunning);
+      obs.register("bot.stop", onBotStop);
+      obs.register("bot.info", onBotInfo);
+      obs.register("bot.contract", onBotContract);
+      obs.register("contract.status", onContractStatus);
+      obs.register("ui.log.success", onLogSuccess);
+      obs.register("ui.log.error", onLogError);
+      obs.register("ui.log.notify", onLogNotify);
+      obs.register("ui.log.warn", onLogWarn);
+      obs.register("bot.click_stop", onBotClickStop);
+      obs.register("client.invalid_token", onClientInvalidToken);
+      unregister = () => {
+        obs.unregister("bot.running", onBotRunning);
+        obs.unregister("bot.stop", onBotStop);
+        obs.unregister("bot.info", onBotInfo);
+        obs.unregister("bot.contract", onBotContract);
+        obs.unregister("contract.status", onContractStatus);
+        obs.unregister("ui.log.success", onLogSuccess);
+        obs.unregister("ui.log.error", onLogError);
+        obs.unregister("ui.log.notify", onLogNotify);
+        obs.unregister("ui.log.warn", onLogWarn);
+        obs.unregister("bot.click_stop", onBotClickStop);
+        obs.unregister("client.invalid_token", onClientInvalidToken);
+      };
+    });
 
-    return () => {
-      globalObserver.unregister("bot.running", onBotRunning);
-      globalObserver.unregister("bot.stop", onBotStop);
-      globalObserver.unregister("bot.info", onBotInfo);
-      globalObserver.unregister("bot.contract", onBotContract);
-      globalObserver.unregister("contract.status", onContractStatus);
-      globalObserver.unregister("ui.log.success", onLogSuccess);
-      globalObserver.unregister("ui.log.error", onLogError);
-      globalObserver.unregister("ui.log.notify", onLogNotify);
-      globalObserver.unregister("ui.log.warn", onLogWarn);
-      globalObserver.unregister("bot.click_stop", onBotClickStop);
-      globalObserver.unregister("client.invalid_token", onClientInvalidToken);
-    };
+    return () => unregister?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -402,7 +430,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     // Close the tick WebSocket
     stopTickWsFnRef.current?.();
     stopTickWsFnRef.current = null;
-    void dbot.terminateBot?.();
+    void _dbot?.terminateBot?.();
   }, []);
 
   const resetMonitor = useCallback(() => {
@@ -461,7 +489,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       } catch { /* ignore */ }
     }
 
-    const dbotStoreInstance = DBotStore.instance;
+    const dbotStoreInstance = _DBotStore?.instance;
     if (dbotStoreInstance) {
       dbotStoreInstance.client = {
         loginid: activeLoginId,
@@ -485,7 +513,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     setActiveTab("summary");
 
     try {
-      await dbot.runBot?.();
+      await _dbot?.runBot?.();
     } catch (error) {
       const message = getDerivTradingErrorMessage(error);
       footerBotRunningRef.current = false;
