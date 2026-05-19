@@ -2,29 +2,12 @@ import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import { AiAssistant } from "@/components/ai-assistant";
-import {
-  BotRunMonitorPanel,
-  DEFAULT_BOT_MONITOR_JOURNAL,
-  EMPTY_BOT_MONITOR_STATS,
-  type BotMonitorJournalEntry,
-  type BotMonitorStats,
-  type BotMonitorStatus,
-  type BotMonitorTransaction,
-} from "@/components/bot-run-monitor";
+import { BotRunMonitorPanel } from "@/components/bot-run-monitor";
 import { useAuth } from "@/hooks/use-auth";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { useTheme } from "@/hooks/use-theme";
+import { useBotRunner } from "@/context/bot-runner-context";
 import {
-  persistBotMonitorSnapshot,
-  readBotMonitorSnapshot,
-  updateTrackedTrade,
-  upsertTrackedTrade,
-} from "@/lib/activity-memory";
-import {
-  ensureDerivTradingConnection,
-  getDerivTradingErrorMessage,
-  type TradeCategory,
-  type TradingAdapter,
   buildLegacyOAuthUrl,
   buildOAuthUrl,
   disconnectAll,
@@ -32,28 +15,6 @@ import {
   redirectToDerivOAuth,
   sanitizeDerivOAuthUrl,
 } from "@/lib/deriv";
-import { resolveRunnableBotSettings, type BotBuilderSettings } from "@/lib/bot-builder-state";
-import { getDerivWorkspace } from "@/external/bot-builder/blockly-runtime";
-import { extractSettingsFromXmlText, readSavedWorkspaceXml } from "@/external/bot-builder/workspace-persistence";
-import { buyProposal, requestProposal, sellContract, subscribeOpenContract } from "@/lib/deriv-trading-service";
-import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
-import {
-  initBotState,
-  runAfterPurchase,
-  runBeforePurchase,
-  runDuringPurchase,
-  runTickAnalysis,
-  evalBotPrediction,
-  getBotStakeVar,
-  getXmlOhlcGranularity,
-  purchaseTypeToSide,
-  type BotVarState,
-  type OhlcCandle,
-} from "@/lib/bot-xml-runtime";
-import { DERIV_LEGACY_WEBSOCKET_URL, DERIV_LEGACY_APP_ID } from "@/lib/deriv-config";
-import dbot from "@/external/bot-skeleton/scratch/dbot";
-import DBotStore from "@/external/bot-skeleton/scratch/dbot-store";
-import { observer as globalObserver } from "@/external/bot-skeleton/utils/observer";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -79,10 +40,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { type DerivAccount } from "@/hooks/use-deriv-balance";
-import { numberFrom } from "@/lib/contract-state";
 import { hasDerivAccountPrefix, isDemoAccount } from "@/lib/deriv-account";
 
 const CURRENCY_META: Record<string, { country?: string; name: string; symbol?: string }> = {
@@ -120,11 +80,7 @@ function totalAssetsLabel(accounts: DerivAccount[]) {
   return entries.map(([assetCurrency, amount]) => formatBalance(amount, assetCurrency)).join(" + ");
 }
 
-type TabDef = {
-  to: string;
-  label: string;
-  icon: typeof LayoutGrid;
-};
+type TabDef = { to: string; label: string; icon: typeof LayoutGrid };
 
 export const TOP_TABS: TabDef[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutGrid },
@@ -136,23 +92,6 @@ export const TOP_TABS: TabDef[] = [
   { to: "/strategies", label: "Strategies", icon: Target },
   { to: "/copy-trading", label: "Copy Trading", icon: Users },
 ];
-
-const BOT_TRADE_MAX_ATTEMPTS = 2;
-const DERIV_TEMPORARY_PROCESSING_MESSAGE =
-  "Sorry, an error occurred while processing your request.";
-
-type Settlement = {
-  entrySpot: number | null;
-  exitSpot: number | null;
-  payout: number;
-  profit: number;
-  status: "lost" | "open" | "won";
-  // Extra readDetails fields populated from the settled contract
-  transactionIdSell: string | null;
-  entryTickTime: number | null;
-  exitTickTime: number | null;
-  barrierValue: string | null;
-};
 
 export function TopShell({
   children,
@@ -171,25 +110,28 @@ export function TopShell({
   const { theme, toggleTheme } = useTheme();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeAccountTab, setActiveAccountTab] = useState<"real" | "demo">("real");
-  const [botMonitorCollapsed, setBotMonitorCollapsed] = useState(true);
-  const [botMonitorTab, setBotMonitorTab] = useState("summary");
-  const [botMonitorStatus, setBotMonitorStatus] = useState<BotMonitorStatus>("stopped");
-  const [botRunConnecting, setBotRunConnecting] = useState(false);
-  const [botMonitorStats, setBotMonitorStats] = useState<BotMonitorStats>(EMPTY_BOT_MONITOR_STATS);
-  const [botMonitorTransactions, setBotMonitorTransactions] = useState<BotMonitorTransaction[]>([]);
-  const [botMonitorJournal, setBotMonitorJournal] = useState<BotMonitorJournalEntry[]>(
-    DEFAULT_BOT_MONITOR_JOURNAL,
-  );
-  const [botMonitorMemoryReady, setBotMonitorMemoryReady] = useState(false);
-  const footerBotRunningRef = useRef(false);
-  const footerBotStatsRef = useRef(EMPTY_BOT_MONITOR_STATS);
+
+  // All bot runner state lives in the persistent BotRunnerProvider context
+  const {
+    activeTab: botMonitorTab,
+    collapsed: botMonitorCollapsed,
+    connecting: botRunConnecting,
+    journal: botMonitorJournal,
+    stats: botMonitorStats,
+    status: botMonitorStatus,
+    transactions: botMonitorTransactions,
+    resetMonitor,
+    setActiveTab: setBotMonitorTab,
+    setCollapsed: setBotMonitorCollapsed,
+    toggleRun,
+  } = useBotRunner();
 
   const realAccounts = useMemo(
-    () => accounts.filter((account) => account.normalizedType === "real"),
+    () => accounts.filter((a) => a.normalizedType === "real"),
     [accounts],
   );
   const demoAccounts = useMemo(
-    () => accounts.filter((account) => account.normalizedType === "demo"),
+    () => accounts.filter((a) => a.normalizedType === "demo"),
     [accounts],
   );
   const visibleAccounts = activeAccountTab === "real" ? realAccounts : demoAccounts;
@@ -199,287 +141,6 @@ export function TopShell({
     if (account.normalizedType !== "real" && account.normalizedType !== "demo") return;
     setActiveAccountTab(account.normalizedType);
   }, [account, dropdownOpen]);
-
-  useEffect(() => {
-    footerBotStatsRef.current = botMonitorStats;
-  }, [botMonitorStats]);
-
-  useEffect(() => {
-    const snapshot = readBotMonitorSnapshot(user?.id);
-    if (!snapshot) {
-      setBotMonitorStatus("stopped");
-      setBotMonitorStats(EMPTY_BOT_MONITOR_STATS);
-      setBotMonitorTransactions([]);
-      setBotMonitorJournal(DEFAULT_BOT_MONITOR_JOURNAL);
-      setBotMonitorMemoryReady(true);
-      return;
-    }
-    setBotMonitorStatus(snapshot.status === "running" ? "stopped" : snapshot.status);
-    setBotMonitorStats(snapshot.stats);
-    setBotMonitorTransactions(snapshot.transactions);
-    setBotMonitorJournal(snapshot.journal.length ? snapshot.journal : DEFAULT_BOT_MONITOR_JOURNAL);
-    setBotMonitorMemoryReady(true);
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!botMonitorMemoryReady) return;
-    persistBotMonitorSnapshot(user?.id, {
-      journal: botMonitorJournal,
-      stats: botMonitorStats,
-      status: botMonitorStatus,
-      transactions: botMonitorTransactions,
-      updatedAt: new Date().toISOString(),
-    });
-  }, [
-    botMonitorJournal,
-    botMonitorMemoryReady,
-    botMonitorStats,
-    botMonitorStatus,
-    botMonitorTransactions,
-    user?.id,
-  ]);
-
-  // Register DDBOt engine observer events and map them to BotRunMonitorPanel state.
-  // These fire whenever dbot.runBot() is active and the interpreter emits events.
-  useEffect(() => {
-    const onBotRunning = () => {
-      setBotRunConnecting(false);
-      setBotMonitorStatus("running");
-      setBotMonitorCollapsed(false);
-    };
-    const onBotStop = () => {
-      setBotMonitorStatus("stopped");
-      footerBotRunningRef.current = false;
-    };
-
-    // bot.info fires from three sources with different payloads:
-    //   Purchase.js  → { accountID, totalRuns, transaction_ids, contract_type, buy_price }
-    //   Balance.js   → { accountID, balance: "1,234.56 USD" }
-    //   Total.js     → { profit, contract, totalProfit, totalWins, totalLosses, totalStake, totalPayout }
-    // Use functional update to MERGE — never overwrite existing totals with zeros.
-    const onBotInfo = (info: Record<string, unknown>) => {
-      const hasFullStats =
-        "totalWins" in info || "totalLosses" in info || "totalProfit" in info;
-
-      if (hasFullStats) {
-        setBotMonitorStats((prev) => ({
-          contractsWon: "totalWins" in info ? Number(info.totalWins) : prev.contractsWon,
-          contractsLost: "totalLosses" in info ? Number(info.totalLosses) : prev.contractsLost,
-          runs: "totalRuns" in info ? Number(info.totalRuns) : prev.runs,
-          totalPayout: "totalPayout" in info ? Number(info.totalPayout) : prev.totalPayout,
-          totalProfitLoss: "totalProfit" in info ? Number(info.totalProfit) : prev.totalProfitLoss,
-          totalStake: "totalStake" in info ? Number(info.totalStake) : prev.totalStake,
-        }));
-        footerBotStatsRef.current = {
-          contractsWon: "totalWins" in info ? Number(info.totalWins) : footerBotStatsRef.current.contractsWon,
-          contractsLost: "totalLosses" in info ? Number(info.totalLosses) : footerBotStatsRef.current.contractsLost,
-          runs: "totalRuns" in info ? Number(info.totalRuns) : footerBotStatsRef.current.runs,
-          totalPayout: "totalPayout" in info ? Number(info.totalPayout) : footerBotStatsRef.current.totalPayout,
-          totalProfitLoss: "totalProfit" in info ? Number(info.totalProfit) : footerBotStatsRef.current.totalProfitLoss,
-          totalStake: "totalStake" in info ? Number(info.totalStake) : footerBotStatsRef.current.totalStake,
-        };
-      } else if ("totalRuns" in info) {
-        // Purchase event — only bump run count, leave other stats intact
-        setBotMonitorStats((prev) => ({ ...prev, runs: Number(info.totalRuns) }));
-        footerBotStatsRef.current = { ...footerBotStatsRef.current, runs: Number(info.totalRuns) };
-      }
-
-      // Balance.js sends a formatted string e.g. "1,234.56 USD" — push to header balance
-      if ("balance" in info && info.balance != null) {
-        const raw = String(info.balance).replace(/,/g, "").match(/([\d.]+)/);
-        if (raw) {
-          const parsed = parseFloat(raw[1]);
-          if (Number.isFinite(parsed)) {
-            window.dispatchEvent(
-              new CustomEvent("deriv:dbot-balance", { detail: { balance: parsed } }),
-            );
-          }
-        }
-      }
-    };
-
-    // bot.contract fires on every tick update of the open contract.
-    // Only finalise profit/status/exitSpot when is_sold=true.
-    const onBotContract = (data: Record<string, unknown>) => {
-      const contractId = String(data.contract_id ?? "");
-      if (!contractId) return;
-      const isSold = Boolean(data.is_sold);
-      const rawStatus = String(data.status ?? "").toLowerCase();
-      const mappedStatus: BotMonitorTransaction["status"] =
-        rawStatus === "won" ? "won" : rawStatus === "lost" ? "lost" : "open";
-
-      setBotMonitorTransactions((items) => {
-        const existing = items.find((t) => t.contractId === contractId);
-        if (existing) {
-          // Live tick updates: ignore — only update on settlement to avoid flickering
-          if (!isSold) return items;
-          return items.map((t) =>
-            t.contractId === contractId
-              ? {
-                  ...t,
-                  status: mappedStatus !== "open" ? mappedStatus : t.status,
-                  profit: Number(data.profit ?? t.profit),
-                  payout: Number(data.sell_price ?? data.payout ?? t.payout),
-                  exitSpot:
-                    data.exit_tick != null
-                      ? Number(data.exit_tick)
-                      : data.exit_spot != null
-                        ? Number(data.exit_spot)
-                        : t.exitSpot,
-                }
-              : t,
-          );
-        }
-        return [
-          {
-            contractId,
-            entrySpot:
-              data.entry_tick != null
-                ? Number(data.entry_tick)
-                : data.entry_spot != null
-                  ? Number(data.entry_spot)
-                  : null,
-            exitSpot: isSold
-              ? data.exit_tick != null
-                ? Number(data.exit_tick)
-                : data.exit_spot != null
-                  ? Number(data.exit_spot)
-                  : null
-              : null,
-            id: crypto.randomUUID(),
-            payout: Number(isSold ? (data.sell_price ?? data.payout ?? 0) : (data.payout ?? 0)),
-            profit: isSold ? Number(data.profit ?? 0) : 0,
-            stake: Number(data.buy_price ?? 0),
-            status: mappedStatus,
-            time: formatTime(),
-          },
-          ...items,
-        ];
-      });
-    };
-
-    // contract.status carries the trade lifecycle: purchase_sent → purchase_received → sold
-    type ContractStatusPayload =
-      | { id: string; data?: unknown; contract?: Record<string, unknown>; buy?: Record<string, unknown> }
-      | string;
-    const onContractStatus = (payload: ContractStatusPayload) => {
-      if (typeof payload === "string") return; // 'purchase.sold' from Sell.js market-sell path
-      const { id, data, contract } = payload;
-      if (id === "contract.purchase_sent") {
-        const price = Number(data ?? 0).toFixed(2);
-        setBotMonitorJournal((items) => [
-          { id: crypto.randomUUID(), message: `Placing trade for ${price}...`, time: formatTime(), type: "info" as const },
-          ...items,
-        ]);
-      } else if (id === "contract.purchase_received") {
-        setBotMonitorJournal((items) => [
-          { id: crypto.randomUUID(), message: `Contract bought (tx: ${String(data ?? "")})`, time: formatTime(), type: "info" as const },
-          ...items,
-        ]);
-      } else if (id === "contract.sold" && contract) {
-        const buyPrice = Number(contract.buy_price ?? 0);
-        const sellPrice = Number(contract.sell_price ?? 0);
-        const profit = sellPrice - buyPrice;
-        const won = profit > 0;
-        const currency = String(contract.currency ?? "");
-        const profitLabel = `${profit >= 0 ? "+" : ""}${profit.toFixed(2)}${currency ? " " + currency : ""}`;
-        const msg = `Contract settled: ${won ? "WON" : "LOST"} — Buy: ${buyPrice.toFixed(2)} | Sell: ${sellPrice.toFixed(2)} | P/L: ${profitLabel}`;
-        setBotMonitorJournal((items) => [
-          { id: crypto.randomUUID(), message: msg, time: formatTime(), type: (won ? "success" : "error") as BotMonitorJournalEntry["type"] },
-          ...items,
-        ]);
-      }
-    };
-
-    // ui.log.success carries { log_type, extra } from broadcast.log() — convert to readable strings
-    const onLogSuccess = (data: { message?: string; log_type?: string; extra?: Record<string, unknown> } | string) => {
-      let message: string;
-      if (typeof data === "string") {
-        message = data;
-      } else if (data?.message) {
-        message = data.message;
-      } else if (data?.log_type) {
-        message = formatBotLogMessage(data.log_type, data.extra);
-      } else {
-        return;
-      }
-      if (!message) return;
-      setBotMonitorJournal((items) => [
-        { id: crypto.randomUUID(), message, time: formatTime(), type: "success" },
-        ...items,
-      ]);
-    };
-    const onLogError = (data: { message?: string } | string) => {
-      const message = typeof data === "string" ? data : (data?.message ?? "");
-      if (!message) return;
-      setBotMonitorJournal((items) => [
-        { id: crypto.randomUUID(), message, time: formatTime(), type: "error" },
-        ...items,
-      ]);
-    };
-    const onLogNotify = (data: { message?: string; type?: string } | string) => {
-      const message = typeof data === "string" ? data : (data?.message ?? "");
-      if (!message) return;
-      const rawType = typeof data === "object" ? (data?.type ?? "info") : "info";
-      const type: BotMonitorJournalEntry["type"] =
-        rawType === "error" ? "error" :
-        rawType === "success" ? "success" :
-        rawType === "warn" ? "warning" :
-        "info";
-      setBotMonitorJournal((items) => [
-        { id: crypto.randomUUID(), message, time: formatTime(), type },
-        ...items,
-      ]);
-    };
-    const onLogWarn = (data: { message?: string } | string) => {
-      const message = typeof data === "string" ? data : (data?.message ?? "");
-      if (!message) return;
-      setBotMonitorJournal((items) => [
-        { id: crypto.randomUUID(), message, time: formatTime(), type: "warning" },
-        ...items,
-      ]);
-    };
-    const onBotClickStop = () => {
-      footerBotRunningRef.current = false;
-      setBotRunConnecting(false);
-      setBotMonitorStatus("stopped");
-      void dbot.terminateBot?.();
-    };
-    const onClientInvalidToken = () => {
-      footerBotRunningRef.current = false;
-      setBotRunConnecting(false);
-      setBotMonitorStatus("stopped");
-      addFooterBotJournal("Deriv authorization failed. Please reconnect your account.", "error");
-      void dbot.terminateBot?.();
-    };
-
-    globalObserver.register("bot.running", onBotRunning);
-    globalObserver.register("bot.stop", onBotStop);
-    globalObserver.register("bot.info", onBotInfo);
-    globalObserver.register("bot.contract", onBotContract);
-    globalObserver.register("contract.status", onContractStatus);
-    globalObserver.register("ui.log.success", onLogSuccess);
-    globalObserver.register("ui.log.error", onLogError);
-    globalObserver.register("ui.log.notify", onLogNotify);
-    globalObserver.register("ui.log.warn", onLogWarn);
-    globalObserver.register("bot.click_stop", onBotClickStop);
-    globalObserver.register("client.invalid_token", onClientInvalidToken);
-
-    return () => {
-      globalObserver.unregister("bot.running", onBotRunning);
-      globalObserver.unregister("bot.stop", onBotStop);
-      globalObserver.unregister("bot.info", onBotInfo);
-      globalObserver.unregister("bot.contract", onBotContract);
-      globalObserver.unregister("contract.status", onContractStatus);
-      globalObserver.unregister("ui.log.success", onLogSuccess);
-      globalObserver.unregister("ui.log.error", onLogError);
-      globalObserver.unregister("ui.log.notify", onLogNotify);
-      globalObserver.unregister("ui.log.warn", onLogWarn);
-      globalObserver.unregister("bot.click_stop", onBotClickStop);
-      globalObserver.unregister("client.invalid_token", onClientInvalidToken);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     console.info(
@@ -495,33 +156,12 @@ export function TopShell({
     console.info("[Deriv Accounts] dropdown realAccounts", realAccounts);
     console.info("[Deriv Accounts] dropdown demoAccounts", demoAccounts);
     console.info("[Deriv Accounts] dropdown selectedAccount", account);
-    console.assert(
-      realAccounts.every((item) => item.normalizedType === "real"),
-      "[Deriv Accounts] Real tab contains a non-real account",
-      realAccounts,
-    );
-    console.assert(
-      demoAccounts.every((item) => item.normalizedType === "demo"),
-      "[Deriv Accounts] Demo tab contains a non-demo account",
-      demoAccounts,
-    );
-    console.assert(
-      realAccounts.every((item) => !hasDerivAccountPrefix(item, "DOT")),
-      "[Deriv Accounts] Real tab contains a DOT demo account",
-      realAccounts,
-    );
-    console.assert(
-      demoAccounts.every((item) => !hasDerivAccountPrefix(item, "ROT")),
-      "[Deriv Accounts] Demo tab contains a ROT real account",
-      demoAccounts,
-    );
+    console.assert(realAccounts.every((item) => item.normalizedType === "real"), "[Deriv Accounts] Real tab contains a non-real account", realAccounts);
+    console.assert(demoAccounts.every((item) => item.normalizedType === "demo"), "[Deriv Accounts] Demo tab contains a non-demo account", demoAccounts);
+    console.assert(realAccounts.every((item) => !hasDerivAccountPrefix(item, "DOT")), "[Deriv Accounts] Real tab contains a DOT demo account", realAccounts);
+    console.assert(demoAccounts.every((item) => !hasDerivAccountPrefix(item, "ROT")), "[Deriv Accounts] Demo tab contains a ROT real account", demoAccounts);
     const unknownAccounts = accounts.filter((item) => item.normalizedType === "unknown");
-    if (unknownAccounts.length) {
-      console.warn(
-        "[Deriv Accounts] unknown accounts not rendered in account tabs",
-        unknownAccounts,
-      );
-    }
+    if (unknownAccounts.length) console.warn("[Deriv Accounts] unknown accounts not rendered in account tabs", unknownAccounts);
   }, [account, accounts, demoAccounts, realAccounts]);
 
   async function handleLogout() {
@@ -551,8 +191,7 @@ export function TopShell({
       console.log("Deriv Legacy OAuth URL:", url);
       redirectToDerivLegacyOAuth(url);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Could not start Deriv legacy OAuth.";
+      const message = error instanceof Error ? error.message : "Could not start Deriv legacy OAuth.";
       console.error("[Deriv Legacy OAuth] Shell connect failed", error);
       toast.error(message);
     }
@@ -571,739 +210,6 @@ export function TopShell({
 
   function handleDeposit() {
     window.open("https://app.deriv.com/cashier/deposit", "_blank", "noopener,noreferrer");
-  }
-
-  function addFooterBotJournal(message: string, type: BotMonitorJournalEntry["type"] = "info") {
-    setBotMonitorJournal((current) => [
-      { id: crypto.randomUUID(), message, time: formatTime(), type },
-      ...current,
-    ]);
-  }
-
-  async function handleDbotBotRun() {
-    if (botMonitorStatus === "running") {
-      footerBotRunningRef.current = false;
-      setBotRunConnecting(false);
-      await dbot.terminateBot?.();
-      return;
-    }
-
-    if (!account) {
-      setBotMonitorCollapsed(false);
-      setBotMonitorTab("journal");
-      addFooterBotJournal("Run blocked: no Deriv account selected.", "error");
-      toast.error("Connect and select a Deriv account before running the bot.");
-      return;
-    }
-
-    const accountIsReal = account.normalizedType === "real" || account.is_demo === false;
-    if (accountIsReal) {
-      const SESSION_WARNED_KEY = "arktrader:bot:real-account-session-warned";
-      const alreadyWarned = (() => {
-        try { return sessionStorage.getItem(SESSION_WARNED_KEY) === "1"; } catch { return false; }
-      })();
-      if (!alreadyWarned) {
-        const accountLabel = account.loginid || account.account_id;
-        const confirmed = window.confirm(
-          `You are about to run a bot on a REAL Deriv account (${accountLabel}). This will use real funds. Continue?`,
-        );
-        if (!confirmed) {
-          addFooterBotJournal("Run cancelled — confirmation declined on real account.", "warning");
-          toast.info("Bot run cancelled.");
-          return;
-        }
-        try { sessionStorage.setItem(SESSION_WARNED_KEY, "1"); } catch { /* noop */ }
-      }
-    }
-
-    // Bridge token into the localStorage keys that api_base reads via V2GetActiveToken().
-    const activeToken = account.deriv_token ?? "";
-    const activeLoginId = account.loginid ?? account.account_id ?? "";
-    const isOAuthAccount =
-      (account as { token_source?: string }).token_source === "oauth_access_token";
-
-    if (isOAuthAccount) {
-      // DerivAPIBasic (DBot engine) uses the Deriv V3 WS protocol which only accepts legacy
-      // API tokens. PKCE OAuth2 JWTs work only with the Deriv V2 API — different protocol.
-      // Route PKCE users through the footer bot runner which handles OAuth2 via OTP endpoint.
-      await handleFooterBotRun();
-      return;
-    } else if (activeToken) {
-      // Legacy Deriv API token — authorize directly via WebSocket.
-      try {
-        localStorage.setItem("authToken", activeToken);
-        localStorage.setItem("active_loginid", activeLoginId);
-        localStorage.setItem("accountsList", JSON.stringify({ [activeLoginId]: activeToken }));
-      } catch {
-        // ignore storage errors
-      }
-    }
-
-    // Refresh the DBotStore client so trade_definition.js sees is_logged_in=true.
-    // DBotStore.setInstance() is called once at workspace init time — if auth
-    // hadn't resolved yet then, client.is_logged_in is frozen as false.
-    const dbotStoreInstance = DBotStore.instance;
-    if (dbotStoreInstance) {
-      dbotStoreInstance.client = {
-        loginid: activeLoginId,
-        currency: currency ?? account.currency ?? "USD",
-        balance: parseFloat(String(balance ?? account.balance ?? 0)),
-        landing_company_shortcode: "svg",
-        is_logged_in: true,
-        getToken: (_loginid?: string) => activeToken,
-      };
-    }
-
-    setBotMonitorStats(EMPTY_BOT_MONITOR_STATS);
-    setBotMonitorTransactions([]);
-    setBotMonitorJournal(DEFAULT_BOT_MONITOR_JOURNAL);
-    footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
-    footerBotRunningRef.current = true;
-
-    setBotMonitorStatus("running");
-    setBotMonitorCollapsed(false);
-    setBotMonitorTab("summary");
-
-    try {
-      await dbot.runBot?.();
-    } catch (error) {
-      const message = getDerivTradingErrorMessage(error);
-      footerBotRunningRef.current = false;
-      setBotMonitorStatus("stopped");
-      addFooterBotJournal(message, "error");
-      toast.error(message);
-    }
-  }
-
-  function resetFooterBotMonitor() {
-    footerBotRunningRef.current = false;
-    setBotMonitorStatus("stopped");
-    setBotMonitorStats(EMPTY_BOT_MONITOR_STATS);
-    setBotMonitorTransactions([]);
-    setBotMonitorJournal(DEFAULT_BOT_MONITOR_JOURNAL);
-    setBotMonitorTab("summary");
-  }
-
-  async function handleFooterBotRun() {
-    if (botMonitorStatus === "running") {
-      footerBotRunningRef.current = false;
-      setBotRunConnecting(false);
-      await dbot.terminateBot?.();
-      return;
-    }
-
-    const workspace = getDerivWorkspace();
-    if (workspace?.getAllBlocks?.()?.length) {
-      const { persistWorkspaceSnapshot } =
-        await import("@/external/bot-builder/workspace-persistence");
-      persistWorkspaceSnapshot(user?.id, workspace);
-    }
-
-    let settings = resolveRunnableBotSettings(user?.id);
-    // Re-extract settings from the saved XML to pick up workspace edits that may not
-    // have been flushed to current-settings yet (fast navigation after editing blocks).
-    const _rawWorkspaceXml = readSavedWorkspaceXml(user?.id);
-    if (_rawWorkspaceXml) {
-      try {
-        const freshSettings = extractSettingsFromXmlText(_rawWorkspaceXml, settings ?? undefined);
-        if (freshSettings) settings = freshSettings;
-      } catch { /* ignore extraction errors */ }
-    }
-    if (!settings) {
-      navigate({ to: "/bot-builder" });
-      return;
-    }
-
-    if (!account) {
-      toast.error("Connect and select a Deriv account before running the bot.");
-      addFooterBotJournal("Run blocked: no Deriv account selected.", "error");
-      return;
-    }
-
-    // Safety guard: confirm before placing real-money trades — only once per browser session.
-    const accountIsReal = account.normalizedType === "real" || account.is_demo === false;
-    if (accountIsReal) {
-      const SESSION_WARNED_KEY = "arktrader:bot:real-account-session-warned";
-      const alreadyWarned = (() => {
-        try { return sessionStorage.getItem(SESSION_WARNED_KEY) === "1"; } catch { return false; }
-      })();
-      if (!alreadyWarned) {
-        const accountLabel = account.loginid || account.account_id;
-        const confirmed = window.confirm(
-          `You are about to run a bot on a REAL Deriv account (${accountLabel}). This will use real funds. Continue?`,
-        );
-        if (!confirmed) {
-          addFooterBotJournal("Run cancelled — confirmation declined on real account.", "warning");
-          toast.info("Bot run cancelled.");
-          return;
-        }
-        try { sessionStorage.setItem(SESSION_WARNED_KEY, "1"); } catch { /* noop */ }
-      }
-    }
-
-    // Reset the running totals for this new run so the Summary card shows the
-    // profit/loss from THIS run only — not a stale accumulation from previous
-    // sessions. The journal/transactions get the run-start marker fresh too.
-    setBotMonitorStats(EMPTY_BOT_MONITOR_STATS);
-    setBotMonitorTransactions([]);
-    setBotMonitorJournal(DEFAULT_BOT_MONITOR_JOURNAL);
-    footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
-
-    footerBotRunningRef.current = true;
-    setBotMonitorStatus("running");
-    setBotMonitorTab("summary");
-    setBotMonitorCollapsed(false);
-    addFooterBotJournal(
-      `Bot run started on ${account.normalizedType === "demo" ? "DEMO" : "REAL"} account (${account.loginid || account.account_id}).`,
-      "success",
-    );
-
-    let stopTickWs: () => void = () => {};
-    try {
-      const session = await ensureDerivTradingConnection(account, { context: "footer-bot-run" });
-      const sessionAccountUpper = String(session.account_id ?? "")
-        .trim()
-        .toUpperCase();
-      const selectedAccountUpper = String(account.account_id ?? "")
-        .trim()
-        .toUpperCase();
-      if (!sessionAccountUpper || sessionAccountUpper !== selectedAccountUpper) {
-        footerBotRunningRef.current = false;
-        setBotMonitorStatus("stopped");
-        const message = `Run aborted: trading session resolved to ${session.account_id} but the selected account is ${account.account_id}. Switch accounts deliberately from the header and try again.`;
-        addFooterBotJournal(message, "error");
-        toast.error(
-          "Bot run aborted because the trading account did not match the selected account.",
-        );
-        return;
-      }
-      const runCurrency = currency || account.currency || settings.currency;
-      const context = {
-        adapter: session.adapter,
-        contractType: contractTypeLabel(settings),
-        selectedAccountId: session.account_id,
-        selectedAccountType: session.normalizedType,
-      };
-      let currentStake = settings.stake;
-      let runningProfit = 0; // this-run-only tally; matches the reset stats above
-      const tpThreshold = Math.abs(Number(settings.takeProfit) || 0);
-      const slThreshold = Math.abs(Number(settings.stopLoss) || 0);
-      const runCap = Math.max(1, Math.round(Number(settings.maxRuns) || 10000));
-
-      // Read the deployed bot XML once and initialise the block interpreter.
-      // This drives stake updates, prediction digit, and contract type per-trade
-      // based on the actual XML logic rather than the static settings snapshot.
-      const workspaceXml = readSavedWorkspaceXml(user?.id);
-      let botState: BotVarState | null = workspaceXml ? initBotState(workspaceXml) : null;
-      if (botState) {
-        botState.totalProfit = 0;
-        const xmlInitStake = getBotStakeVar(botState);
-        if (xmlInitStake != null) currentStake = xmlInitStake;
-      }
-
-      // Paused while a trade is in-flight so tick_analysis blocks don't mutate
-      // bot state during async proposal/buy/settlement, which would advance
-      // internal counters beyond where they should be at after_purchase time.
-      let botAnalysisPaused = false;
-
-      // Called on every tick while a contract is open — runs during_purchase blocks.
-      // Set before waitForSettlement, cleared immediately after it resolves.
-      let duringPurchaseCallback: (() => void) | null = null;
-
-      // OHLC candle granularity derived from the XML (e.g. 60 = 1-minute candles)
-      const ohlcGranularity = workspaceXml ? getXmlOhlcGranularity(workspaceXml) : 60;
-      let ohlcSubId: string | null = null;
-
-      // Tick-driven loop: subscribe to the symbol's public tick stream and
-      // drive each trade cycle from a real market tick instead of a timer.
-      // Uses the legacy public WebSocket (wss://ws.derivws.com) which supports
-      // unauthenticated tick subscriptions — the trading WS does not.
-      let pendingTickResolve: ((data: { quote: number; epoch: number }) => void) | null = null;
-      // Cache the latest tick so nextTick() resolves immediately if a tick arrived
-      // while the previous trade was being processed (avoids a full tick-interval wait).
-      let latestTickCache: { quote: number; epoch: number } | null = null;
-      let tickSubId: string | null = null;
-      const tickWs = new WebSocket(
-        `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${DERIV_LEGACY_APP_ID}`,
-      );
-      const nextTick = (): Promise<{ quote: number; epoch: number }> =>
-        new Promise((resolve) => {
-          if (latestTickCache) {
-            const data = latestTickCache;
-            latestTickCache = null;
-            resolve(data);
-            return;
-          }
-          pendingTickResolve = resolve;
-        });
-      const resolvePendingTick = (quote: number, epoch: number) => {
-        if (pendingTickResolve) {
-          const resolve = pendingTickResolve;
-          pendingTickResolve = null;
-          resolve({ quote, epoch });
-        } else {
-          // No one is waiting — cache for the next nextTick() call
-          latestTickCache = { quote, epoch };
-        }
-      };
-      tickWs.onopen = () => {
-        tickWs.send(JSON.stringify({ ticks: settings.symbol, subscribe: 1 }));
-        // Subscribe to OHLC candle stream alongside the tick stream
-        tickWs.send(JSON.stringify({
-          ticks_history: settings.symbol,
-          adjust_start_time: 1,
-          count: 100,
-          end: "latest",
-          granularity: ohlcGranularity,
-          style: "candles",
-          subscribe: 1,
-        }));
-      };
-      tickWs.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data as string) as Record<string, unknown>;
-          const sub = msg.subscription as Record<string, unknown> | undefined;
-
-          // Initial candle history batch
-          if (msg.msg_type === "candles" && Array.isArray(msg.candles)) {
-            if (sub?.id && !ohlcSubId) ohlcSubId = String(sub.id);
-            if (botState) {
-              const candles: OhlcCandle[] = (msg.candles as Record<string, unknown>[]).map((c) => ({
-                open: Number(c.open ?? 0),
-                high: Number(c.high ?? 0),
-                low: Number(c.low ?? 0),
-                close: Number(c.close ?? 0),
-                epoch: Number(c.epoch ?? 0),
-              }));
-              botState.ohlcHistory[ohlcGranularity] = candles;
-            }
-            return;
-          }
-
-          // Incremental candle update
-          if (msg.msg_type === "ohlc" && msg.ohlc && typeof msg.ohlc === "object") {
-            const o = msg.ohlc as Record<string, unknown>;
-            if (sub?.id && !ohlcSubId) ohlcSubId = String(sub.id);
-            const gran = Number(o.granularity ?? ohlcGranularity);
-            if (botState) {
-              const candle: OhlcCandle = {
-                open: Number(o.open ?? 0),
-                high: Number(o.high ?? 0),
-                low: Number(o.low ?? 0),
-                close: Number(o.close ?? 0),
-                epoch: Number(o.epoch ?? 0),
-              };
-              const hist = botState.ohlcHistory[gran] ?? [];
-              const last = hist[hist.length - 1];
-              if (last && last.epoch === candle.epoch) {
-                hist[hist.length - 1] = candle;
-              } else {
-                hist.push(candle);
-                if (hist.length > 200) hist.splice(0, hist.length - 200);
-              }
-              botState.ohlcHistory[gran] = hist;
-            }
-            return;
-          }
-
-          if (sub?.id && !tickSubId) tickSubId = String(sub.id);
-          if (msg.msg_type === "tick" && msg.tick && typeof msg.tick === "object") {
-            const tick = msg.tick as Record<string, unknown>;
-            const quote = Number(tick.quote ?? 0);
-            const epoch = Number(tick.epoch ?? 0);
-            const pipSize = Number(tick.pip_size ?? 0);
-            const qStr = pipSize > 0 ? Number(Math.abs(quote)).toFixed(pipSize) : String(Math.abs(quote));
-            const lastDigit = Number(qStr.slice(-1));
-            if (botState) {
-              botState.tickDigits = [...botState.tickDigits.slice(-49), lastDigit];
-              botState.tickPrices = [...(botState.tickPrices ?? []).slice(-49), quote];
-              botState.lastTickPrice = quote;
-              if (workspaceXml && !botAnalysisPaused) runTickAnalysis(workspaceXml, botState);
-              // Run during_purchase blocks on each tick while a contract is live
-              duringPurchaseCallback?.();
-            }
-            console.log("[TICK]", { symbol: String(tick.symbol ?? settings.symbol), quote, epoch });
-            resolvePendingTick(quote, epoch);
-          }
-        } catch {
-          // ignore malformed messages
-        }
-      };
-      tickWs.onerror = () => resolvePendingTick(0, 0);
-      tickWs.onclose = () => resolvePendingTick(0, 0);
-      stopTickWs = () => {
-        try {
-          if (tickWs.readyState === WebSocket.OPEN) {
-            if (tickSubId) tickWs.send(JSON.stringify({ forget: tickSubId }));
-            if (ohlcSubId) tickWs.send(JSON.stringify({ forget: ohlcSubId }));
-          }
-          tickWs.close();
-        } catch {
-          // ignore cleanup errors
-        }
-      };
-
-      // Run loop is primarily bounded by take-profit / stop-loss thresholds —
-      // maxRuns is a safety cap so a misconfigured bot can't trade forever.
-      // Each contract that actually settles increments completedRuns; trades
-      // that error out don't count.
-      let completedRuns = 0;
-      while (footerBotRunningRef.current && completedRuns < runCap) {
-        const snapshot = { ...settings, currency: runCurrency };
-        await nextTick();
-        if (!footerBotRunningRef.current) break;
-        if (workspaceXml && botState) {
-          // Inject live values before_purchase runs so blocks read accurate data
-          botState.balance = Number(balance ?? account.balance ?? 0);
-          botState.totalRuns = completedRuns;
-          runBeforePurchase(workspaceXml, botState);
-          drainNotifyQueue(botState, addFooterBotJournal);
-          // If before_purchase contains purchase blocks (conditional entry logic)
-          // but didn't set one this tick, the entry condition wasn't met.
-          // Skip this trade and wait for the next tick — tick analysis keeps running.
-          if (botState.hasConditionalPurchase && botState.purchaseType === null) {
-            continue;
-          }
-        }
-        // Read stake AFTER before_purchase has run — in DDBOt, before_purchase
-        // sets the stake for the current trade, not the next one.
-        const xmlBeforeStake = botState ? getBotStakeVar(botState) : null;
-        const stake = clampNumber(xmlBeforeStake ?? currentStake, 0.35, snapshot.maxStake);
-        const botPrediction =
-          workspaceXml && botState ? evalBotPrediction(workspaceXml, botState) : null;
-        const baseInput = proposalInput(snapshot, stake);
-        const xmlPurchaseOverride =
-          botState?.purchaseType ? purchaseTypeToSide(botState.purchaseType) : null;
-        const input: ProposalInput = xmlPurchaseOverride
-          ? {
-              ...baseInput,
-              tradeType: xmlPurchaseOverride.tradeType,
-              side: xmlPurchaseOverride.side,
-              selectedDigit:
-                botPrediction != null
-                  ? Math.max(0, Math.min(9, Math.round(botPrediction)))
-                  : baseInput.selectedDigit,
-            }
-          : {
-              ...baseInput,
-              selectedDigit:
-                botPrediction != null
-                  ? Math.max(0, Math.min(9, Math.round(botPrediction)))
-                  : baseInput.selectedDigit,
-            };
-        let settlement: Settlement | null = null;
-        let capturedBuyPrice: number | null = null;
-        let tradeError: unknown = null;
-        botAnalysisPaused = true;
-        for (let attempt = 1; attempt <= BOT_TRADE_MAX_ATTEMPTS; attempt += 1) {
-          let contractWasBought = false;
-          try {
-            const payload = buildStandardProposalPayload(input, session.adapter as TradingAdapter);
-            console.log("[PROPOSAL]", JSON.stringify(payload));
-            addFooterBotJournal(
-              `Requesting proposal for ${contractTypeLabel(snapshot)} with ${stake.toFixed(2)} ${snapshot.currency}.`,
-            );
-            const proposal = await requestProposal(payload, {
-              ...context,
-              contractType: String(payload.contract_type ?? context.contractType),
-            });
-            const proposalId = String(proposal.proposal?.id ?? "");
-            const askPrice = positiveNumberFrom(proposal.proposal?.ask_price, stake) ?? stake;
-            const buy = await buyProposal(proposalId, askPrice, {
-              ...context,
-              contractType: String(payload.contract_type ?? context.contractType),
-            });
-            const contractId = String(buy.buy?.contract_id ?? "");
-            capturedBuyPrice = Number(buy.buy?.buy_price ?? 0) || null;
-            const contractType = String(payload.contract_type ?? context.contractType);
-            const capturedTransactionId = String(buy.buy?.transaction_id ?? "") || null;
-            contractWasBought = true;
-
-            // Populate readDetails fields available immediately after buy
-            if (botState) {
-              botState.transactionId = capturedTransactionId;
-              botState.contractType = contractType;
-              botState.isSellAtMarketAvailable = false;
-              botState.currentSellPrice = 0;
-            }
-
-            // Wire up during_purchase execution on each tick while contract is live.
-            // Also updates isSellAtMarketAvailable / currentSellPrice from contract messages.
-            let sellExecuted = false;
-            const onContractUpdate = (contract: Record<string, unknown>) => {
-              if (!botState) return;
-              botState.isSellAtMarketAvailable =
-                !contract.is_sold && Boolean(contract.is_valid_to_sell);
-              const bid = Number(contract.bid_price ?? 0);
-              const bought = capturedBuyPrice ?? 0;
-              botState.currentSellPrice = Math.max(0, bid - bought);
-            };
-            duringPurchaseCallback = () => {
-              if (!workspaceXml || !botState) return;
-              runDuringPurchase(workspaceXml, botState);
-              drainNotifyQueue(botState, addFooterBotJournal);
-              if (botState.sellAtMarketRequested && !sellExecuted) {
-                sellExecuted = true;
-                const sellPrice = botState.currentSellPrice;
-                sellContract(contractId, sellPrice).catch((err) => {
-                  console.warn("[Bot] sell_at_market failed", err);
-                });
-              }
-            };
-
-            const record: BotMonitorTransaction = {
-              contractId,
-              entrySpot: null,
-              exitSpot: null,
-              id: crypto.randomUUID(),
-              payout: 0,
-              profit: 0,
-              stake,
-              status: "open",
-              time: formatTime(),
-            };
-            setBotMonitorTransactions((items) => [record, ...items]);
-            upsertTrackedTrade(user?.id, {
-              contractId,
-              contractType,
-              currency: snapshot.currency,
-              id: record.id,
-              market: snapshot.symbol,
-              openedAt: new Date().toISOString(),
-              payout: 0,
-              profitLoss: 0,
-              source: "bot-footer",
-              stake,
-              status: "open",
-            });
-            // Mirror the trade to Supabase so it shows up on the dashboard +
-            // analytics pages alongside manual trades. We use `upsert` keyed
-            // on (user_id, deriv_contract_id) so a re-run with the same
-            // contract id won't duplicate rows, and we keep a handle on the
-            // returned row id so the settlement update below targets it.
-            let dbTradeId: string | null = null;
-            if (user?.id) {
-              try {
-                const { data: insertedTrade, error: insertError } = await supabase
-                  .from("trades")
-                  .insert({
-                    user_id: user.id,
-                    deriv_contract_id: contractId,
-                    symbol: snapshot.symbol,
-                    trade_type: contractType,
-                    stake,
-                    payout: Number(buy.buy?.payout ?? 0),
-                    status: "open",
-                  })
-                  .select()
-                  .single();
-                if (insertError) {
-                  console.warn("[Bot Footer] Could not insert trade row", insertError);
-                } else {
-                  dbTradeId = insertedTrade?.id ?? null;
-                }
-              } catch (err) {
-                console.warn("[Bot Footer] insert trade row threw", err);
-              }
-            }
-            addFooterBotJournal(
-              `Bought contract ${contractId}. Waiting for settlement.`,
-              "success",
-            );
-            settlement = await waitForSettlement(contractId, onContractUpdate);
-
-            setBotMonitorTransactions((items) =>
-              items.map((item) =>
-                item.id === record.id
-                  ? {
-                      ...item,
-                      entrySpot: settlement?.entrySpot ?? null,
-                      exitSpot: settlement?.exitSpot ?? null,
-                      payout: settlement?.payout ?? 0,
-                      profit: settlement?.profit ?? 0,
-                      status: settlement?.status ?? "open",
-                    }
-                  : item,
-              ),
-            );
-            updateTrackedTrade(user?.id, contractId, {
-              closedAt: new Date().toISOString(),
-              payout: settlement?.payout ?? 0,
-              profitLoss: settlement?.profit ?? 0,
-              status:
-                settlement?.status === "won"
-                  ? "won"
-                  : settlement?.status === "lost"
-                    ? "lost"
-                    : "open",
-            });
-            // Close out the Supabase row with the settled result so dashboard
-            // / analytics show the right P/L and won/lost status in realtime.
-            if (user?.id && dbTradeId) {
-              const settledProfit = Number(settlement?.profit ?? 0);
-              const settledStatus =
-                settlement?.status === "won"
-                  ? "won"
-                  : settlement?.status === "lost"
-                    ? "lost"
-                    : "open";
-              try {
-                const { error: updateError } = await supabase
-                  .from("trades")
-                  .update({
-                    profit_loss: settledProfit,
-                    payout: Number(settlement?.payout ?? 0),
-                    status: settledStatus,
-                    closed_at: new Date().toISOString(),
-                  })
-                  .eq("id", dbTradeId);
-                if (updateError) {
-                  console.warn("[Bot Footer] Could not update settled trade", updateError);
-                }
-              } catch (err) {
-                console.warn("[Bot Footer] update settled trade threw", err);
-              }
-            }
-            duringPurchaseCallback = null;
-            tradeError = null;
-            break;
-          } catch (error) {
-            duringPurchaseCallback = null;
-            tradeError = error;
-            if (
-              !contractWasBought &&
-              attempt < BOT_TRADE_MAX_ATTEMPTS &&
-              shouldRetryBotTrade(error)
-            ) {
-              addFooterBotJournal(
-                "Deriv returned a temporary processing error. Retrying once.",
-                "warning",
-              );
-              await sleep(750);
-              continue;
-            }
-            break;
-          }
-        }
-
-        if (!settlement) {
-          const message = getDerivTradingErrorMessage(tradeError);
-          if (snapshot.restartBuySellOnError || snapshot.restartLastTradeOnError) {
-            addFooterBotJournal(
-              `Skipped one bot run after Deriv rejected the trade: ${message}`,
-              "warning",
-            );
-            continue;
-          }
-          throw tradeError;
-        }
-
-        runningProfit += settlement.profit;
-        completedRuns += 1;
-        setBotMonitorStats((current) => ({
-          contractsLost: current.contractsLost + (settlement.status === "lost" ? 1 : 0),
-          contractsWon: current.contractsWon + (settlement.status === "won" ? 1 : 0),
-          runs: current.runs + 1,
-          totalPayout: current.totalPayout + settlement.payout,
-          totalProfitLoss: current.totalProfitLoss + settlement.profit,
-          totalStake: current.totalStake + stake,
-        }));
-        addFooterBotJournal(
-          `Contract settled ${settlement.status}. Run ${completedRuns}/${runCap}. P/L ${runningProfit.toFixed(2)} ${snapshot.currency}.`,
-          settlement.status === "won"
-            ? "success"
-            : settlement.status === "lost"
-              ? "warning"
-              : "info",
-        );
-        await refreshBalances("footer-bot-trade-complete", account.account_id).catch((error) => {
-          console.warn("[Top Shell] balance refresh after settled trade failed", error);
-        });
-
-        if (tpThreshold > 0 && runningProfit >= tpThreshold) {
-          addFooterBotJournal(
-            `Take-profit reached (+${runningProfit.toFixed(2)} ${snapshot.currency} ≥ ${tpThreshold.toFixed(2)}). Bot stopped.`,
-            "success",
-          );
-          break;
-        }
-        if (slThreshold > 0 && runningProfit <= -slThreshold) {
-          addFooterBotJournal(
-            `Stop-loss reached (${runningProfit.toFixed(2)} ${snapshot.currency} ≤ -${slThreshold.toFixed(2)}). Bot stopped.`,
-            "warning",
-          );
-          break;
-        }
-        if (workspaceXml && botState) {
-          botState.result = settlement.status === "won" ? "win" : "loss";
-          botState.totalProfit = runningProfit;
-          botState.lastProfit = settlement.profit;
-          botState.entrySpot = settlement.entrySpot ?? null;
-          botState.exitSpot = settlement.exitSpot ?? null;
-          botState.buyPrice = capturedBuyPrice;
-          botState.payout = settlement.payout ?? null;
-          // Populate full readDetails contract fields from the settled contract
-          botState.entryTickTime = settlement.entryTickTime;
-          botState.exitTickTime = settlement.exitTickTime;
-          botState.barrierValue = settlement.barrierValue;
-          // Reset sell-at-market flags for next cycle
-          botState.isSellAtMarketAvailable = false;
-          botState.sellAtMarketRequested = false;
-          botState.currentSellPrice = 0;
-          console.log("[SETTLEMENT]", {
-            result: settlement.status,
-            entrySpot: settlement.entrySpot,
-            exitSpot: settlement.exitSpot,
-            buyPrice: capturedBuyPrice,
-            payout: settlement.payout,
-            lastProfit: settlement.profit,
-          });
-          runAfterPurchase(workspaceXml, botState);
-          drainNotifyQueue(botState, addFooterBotJournal);
-          console.log("[STATE AFTER PURCHASE]", {
-            stake: botState.vars["stake"],
-            loss: botState.vars["loss"],
-            totalProfit: botState.totalProfit,
-          });
-          const xmlStake = getBotStakeVar(botState);
-          currentStake =
-            xmlStake != null
-              ? clampNumber(xmlStake, 0.35, snapshot.maxStake)
-              : settlement.status === "lost"
-                ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
-                : snapshot.stake;
-        } else {
-          currentStake =
-            settlement.status === "lost"
-              ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
-              : snapshot.stake;
-        }
-        botAnalysisPaused = false;
-        console.log("[NEXT STAKE]", currentStake);
-      }
-
-      if (footerBotRunningRef.current && completedRuns >= runCap) {
-        addFooterBotJournal(
-          `Reached the maximum number of runs (${runCap}) before take-profit or stop-loss was hit.`,
-          "info",
-        );
-      }
-
-      stopTickWs();
-      await refreshBalances("footer-bot-run-complete", account.account_id).catch((error) => {
-        console.warn("[Top Shell] final balance refresh after run failed", error);
-      });
-      setBotMonitorStatus("stopped");
-      footerBotRunningRef.current = false;
-      addFooterBotJournal("Bot run completed.", "success");
-    } catch (error) {
-      stopTickWs();
-      const message = getDerivTradingErrorMessage(error);
-      footerBotRunningRef.current = false;
-      setBotMonitorStatus("stopped");
-      addFooterBotJournal(message, "error");
-      toast.error(message);
-    }
   }
 
   return (
@@ -1429,10 +335,7 @@ export function TopShell({
                   <div className="border-t border-[#eeeeee] bg-[#f9f9f9] px-4 py-3 text-center dark:border-[#2b2b2b] dark:bg-[#101010]">
                     <p className="text-[13px] text-[#333333] dark:text-[#d8d8d8]">
                       Looking for CFD accounts?{" "}
-                      <a
-                        href="#"
-                        className="font-bold text-[#333333] hover:underline dark:text-[#f2f2f2]"
-                      >
+                      <a href="#" className="font-bold text-[#333333] hover:underline dark:text-[#f2f2f2]">
                         Go to Trader&apos;s Hub
                       </a>
                     </p>
@@ -1482,17 +385,10 @@ export function TopShell({
           {!user && (
             <div className="flex gap-1 sm:gap-2">
               <Button variant="ghost" asChild className="h-9 px-3 text-sm font-medium sm:px-4">
-                <Link to="/auth" search={{ mode: "signin" }}>
-                  Log in
-                </Link>
+                <Link to="/auth" search={{ mode: "signin" }}>Log in</Link>
               </Button>
-              <Button
-                asChild
-                className="h-9 bg-[#3e3e3e] px-3 text-sm font-medium text-white shadow-sm sm:px-4"
-              >
-                <Link to="/auth" search={{ mode: "signup" }}>
-                  Sign up
-                </Link>
+              <Button asChild className="h-9 bg-[#3e3e3e] px-3 text-sm font-medium text-white shadow-sm sm:px-4">
+                <Link to="/auth" search={{ mode: "signup" }}>Sign up</Link>
               </Button>
             </div>
           )}
@@ -1538,20 +434,9 @@ export function TopShell({
           currency={currency || account?.currency || "USD"}
           journal={botMonitorJournal}
           mode="footer"
-          onReset={resetFooterBotMonitor}
-          onRun={() => {
-            const workspace = getDerivWorkspace();
-            const hasBlocks = (workspace?.getAllBlocks?.()?.length ?? 0) > 0;
-            if (hasBlocks) {
-              void handleDbotBotRun();
-            } else {
-              // Expand the panel immediately so the user sees activity
-              setBotMonitorCollapsed(false);
-              setBotMonitorTab("journal");
-              void handleFooterBotRun();
-            }
-          }}
-          onToggleCollapse={() => setBotMonitorCollapsed((value) => !value)}
+          onReset={resetMonitor}
+          onRun={toggleRun}
+          onToggleCollapse={() => setBotMonitorCollapsed(!botMonitorCollapsed)}
           setActiveTab={setBotMonitorTab}
           stats={botMonitorStats}
           status={botMonitorStatus}
@@ -1567,305 +452,6 @@ export function TopShell({
   );
 }
 
-function tradeCategory(settings: BotBuilderSettings): TradeCategory {
-  if (settings.tradeType === "digits") return settings.digitContract;
-  return settings.tradeType;
-}
-
-function contractTypeLabel(settings: BotBuilderSettings) {
-  const familyLabel =
-    settings.tradeType === "digits"
-      ? settings.digitContract === "even_odd"
-        ? "Even/Odd"
-        : settings.digitContract === "matches_differs"
-          ? "Matches/Differs"
-          : "Over/Under"
-      : settings.tradeType === "higher_lower"
-        ? "Higher/Lower"
-        : settings.tradeType === "rise_fall"
-          ? "Rise/Fall"
-          : settings.tradeType === "touch_no_touch"
-            ? "Touch/No Touch"
-            : "Multiplier";
-  const directionLabel =
-    settings.purchaseDirection === "odd"
-      ? "Odd"
-      : settings.purchaseDirection === "even"
-        ? "Even"
-        : settings.purchaseDirection === "matches"
-          ? "Matches"
-          : settings.purchaseDirection === "differs"
-            ? "Differs"
-            : settings.purchaseDirection === "under"
-              ? "Under"
-              : settings.purchaseDirection === "over"
-                ? "Over"
-                : settings.purchaseDirection === "higher"
-                  ? "Higher"
-                  : settings.purchaseDirection === "lower"
-                    ? "Lower"
-                    : settings.purchaseDirection === "touch"
-                      ? "Touch"
-                      : settings.purchaseDirection === "no_touch"
-                        ? "No Touch"
-                        : settings.purchaseDirection === "up"
-                          ? "Rise"
-                          : settings.purchaseDirection === "down"
-                            ? "Fall"
-                            : settings.purchaseDirection;
-  return `${familyLabel} / ${directionLabel}`;
-}
-
-function proposalInput(settings: BotBuilderSettings, stake: number): ProposalInput {
-  return {
-    barrier:
-      tradeCategory(settings) === "higher_lower" || tradeCategory(settings) === "touch_no_touch"
-        ? "+0.10"
-        : String(settings.selectedDigit),
-    currency: settings.currency,
-    duration: settings.duration,
-    durationUnit: settings.durationUnit,
-    market: settings.symbol,
-    multiplier: 100,
-    payoutMode: "stake",
-    selectedDigit: settings.selectedDigit,
-    side: settings.purchaseDirection,
-    stake,
-    stopLoss: settings.stopLoss,
-    takeProfit: settings.takeProfit,
-    tradeType: tradeCategory(settings),
-  };
-}
-
-function conditionAllowsTrade(
-  settings: BotBuilderSettings,
-  stake: number,
-  runNumber: number,
-  totalProfit: number,
-) {
-  const leftValue =
-    settings.conditionLeft === "Total Profit"
-      ? totalProfit
-      : settings.conditionLeft === "Stake"
-        ? stake
-        : settings.conditionLeft === "Run Count"
-          ? runNumber
-          : null; // "Last Digit" and anything else → bypass the condition gate
-  if (leftValue === null) return true;
-  const rightValue = Number(settings.conditionRight);
-  if (settings.conditionOperator === "contains") {
-    if (!settings.conditionRight) return true;
-    return settings.conditionRight
-      .split(",")
-      .map((item) => item.trim())
-      .includes(String(leftValue));
-  }
-  if (!Number.isFinite(rightValue)) return true;
-  if (settings.conditionOperator === ">") return leftValue > rightValue;
-  if (settings.conditionOperator === "<") return leftValue < rightValue;
-  return leftValue === rightValue;
-}
-
-async function waitForSettlement(
-  contractId: string,
-  onContractUpdate?: (contract: Record<string, unknown>) => void,
-): Promise<Settlement> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let unsubscribe: (() => Promise<void>) | undefined;
-    const emptySettlement: Settlement = {
-      entrySpot: null,
-      exitSpot: null,
-      payout: 0,
-      profit: 0,
-      status: "open",
-      transactionIdSell: null,
-      entryTickTime: null,
-      exitTickTime: null,
-      barrierValue: null,
-    };
-    const timeout = window.setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      resolve(emptySettlement);
-      void unsubscribe?.();
-    }, 45000);
-
-    subscribeOpenContract(contractId, (contract) => {
-      // Always relay contract updates so during_purchase can read sell availability
-      onContractUpdate?.(contract);
-
-      const statusText = String(contract.status ?? "").toLowerCase();
-      // Deriv sends is_expired=1 BEFORE sell_price/profit are finalised — triggering
-      // on is_expired alone records winning contracts as losses (profit is still the
-      // live negative bid-based P/L at that point). Wait for is_sold=1 instead, which
-      // guarantees sell_price and profit fields are ready. This matches DDBOt exactly.
-      const isSold =
-        contract.is_sold === 1 ||
-        contract.is_sold === true ||
-        statusText === "won" ||
-        statusText === "lost" ||
-        statusText === "sold";
-      if (!isSold || settled) return;
-      settled = true;
-      window.clearTimeout(timeout);
-      const entrySpot = numberFrom(
-        contract.entry_spot,
-        contract.entry_tick,
-        contract.entry_tick_display_value,
-      );
-      const exitSpot = numberFrom(
-        contract.exit_spot,
-        contract.exit_tick,
-        contract.exit_tick_display_value,
-        contract.sell_spot,
-        contract.current_spot,
-        contract.current_tick,
-        contract.current_spot_display_value,
-      );
-      // For a settled contract Deriv leaves `payout` at the ORIGINAL potential
-      // payout regardless of outcome. Real money received is `sell_price`
-      // (zero for a lost binary). If the contract won we credit the actual
-      // sell_price (falling back to payout); if it lost the payout is zero.
-      const sell_price = Number(contract.sell_price ?? 0);
-      const contract_buy_price = Number(contract.buy_price ?? 0);
-      const potential_payout = Number(contract.payout ?? 0);
-      // Compute profit from explicit price fields — more reliable than contract.profit
-      // which can lag on the settlement message. sell_price - buy_price matches how
-      // Deriv itself defines profit (confirmed from DDBOt helpers.js createDetails).
-      const computedProfit =
-        sell_price > 0 || contract_buy_price > 0 ? sell_price - contract_buy_price : null;
-      const rawProfit = Number(contract.profit);
-      const profit =
-        computedProfit !== null ? computedProfit : Number.isFinite(rawProfit) ? rawProfit : 0;
-      // Use contract.status for reliable win/loss; fall back to profit sign.
-      const won =
-        statusText === "won"
-          ? true
-          : statusText === "lost"
-            ? false
-            : Number.isFinite(profit) && profit > 0;
-      const payout = won
-        ? sell_price > 0
-          ? sell_price
-          : potential_payout > 0
-            ? potential_payout
-            : 0
-        : 0;
-      // Extract extra readDetails fields from the settled contract
-      const entryTickTime = Number(contract.entry_tick_time ?? 0) || null;
-      const exitTickTime = Number(contract.exit_tick_time ?? 0) || null;
-      const barrierValue = contract.barrier ? String(contract.barrier) : null;
-      const transactionIdSell = contract.transaction_ids
-        ? String((contract.transaction_ids as Record<string, unknown>).sell ?? "") || null
-        : null;
-      resolve({
-        entrySpot,
-        exitSpot,
-        payout,
-        profit,
-        status: won ? "won" : "lost",
-        transactionIdSell,
-        entryTickTime,
-        exitTickTime,
-        barrierValue,
-      });
-      void unsubscribe?.();
-    })
-      .then((off) => {
-        unsubscribe = off;
-      })
-      .catch((error) => {
-        window.clearTimeout(timeout);
-        reject(error);
-      });
-  });
-}
-
-function sleep(milliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-function drainNotifyQueue(
-  state: BotVarState,
-  addJournal: (msg: string, type?: BotMonitorJournalEntry["type"]) => void,
-) {
-  while (state.notifyQueue.length > 0) {
-    const item = state.notifyQueue.shift();
-    if (!item) break;
-    const jType: BotMonitorJournalEntry["type"] =
-      item.type === "error" ? "error" :
-      item.type === "success" ? "success" :
-      item.type === "warn" ? "warning" :
-      "info";
-    addJournal(`[Bot] ${item.message}`, jType);
-  }
-}
-
-function shouldRetryBotTrade(error: unknown) {
-  const message = getDerivTradingErrorMessage(error).toLowerCase();
-  const code = String((error as { code?: unknown })?.code ?? "").toLowerCase();
-  return (
-    message.includes(DERIV_TEMPORARY_PROCESSING_MESSAGE.toLowerCase()) ||
-    message.includes("timed out") ||
-    code.includes("internal") ||
-    code.includes("rate") ||
-    code.includes("timeout")
-  );
-}
-
-function positiveNumberFrom(...values: unknown[]) {
-  for (const value of values) {
-    if (value == null || value === "") continue;
-    const number = Number(value);
-    if (Number.isFinite(number) && number > 0) return number;
-  }
-  return null;
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return min;
-  return Math.min(max, Math.max(min, number));
-}
-
-function formatTime() {
-  return new Date().toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function formatBotLogMessage(logType: string, extra?: Record<string, unknown>): string {
-  const currency = String(extra?.currency ?? "");
-  const profit = Number(extra?.profit ?? 0);
-  const sign = profit >= 0 ? "+" : "";
-  const profitStr = `${sign}${Math.abs(profit).toFixed(2)}${currency ? " " + currency : ""}`;
-  switch (logType) {
-    case "purchase":
-      return extra?.longcode
-        ? `Purchased: ${extra.longcode}`
-        : `Contract purchased (tx: ${extra?.transaction_id ?? ""})`;
-    case "profit":
-      return `Trade won: ${profitStr}`;
-    case "lost":
-      return `Trade lost: ${profitStr}`;
-    case "sell":
-      return `Contract sold at market for ${Number(extra?.sold_for ?? 0).toFixed(2)}${currency ? " " + currency : ""}`;
-    case "not_offered":
-      return "Sell at market not currently available";
-    case "welcome":
-      return "Bot started";
-    case "welcome_back":
-      return "Bot restarted after error";
-    case "load_block":
-      return "Bot blocks loaded";
-    default:
-      return logType;
-  }
-}
-
 function AccountList({
   accounts,
   activeAccountId,
@@ -1878,11 +464,8 @@ function AccountList({
   onSelect: (accountId: string) => void;
 }) {
   if (!accounts.length) {
-    return (
-      <div className="py-8 text-center text-xs text-[#999999] dark:text-[#b7b7b7]">{emptyText}</div>
-    );
+    return <div className="py-8 text-center text-xs text-[#999999] dark:text-[#b7b7b7]">{emptyText}</div>;
   }
-
   return (
     <>
       {accounts.map((account) => (
@@ -1908,15 +491,12 @@ function AccountItem({
 }) {
   const demo = isDemoAccount(account);
   const meta = currencyMeta(account.currency);
-
   return (
     <button
       onClick={onSelect}
       className={cn(
         "flex w-full items-center justify-between rounded-lg p-3 transition-colors",
-        isActive
-          ? "bg-[#e6e9e9] dark:bg-[#242424]"
-          : "bg-transparent hover:bg-[#f2f3f4] dark:hover:bg-[#202020]",
+        isActive ? "bg-[#e6e9e9] dark:bg-[#242424]" : "bg-transparent hover:bg-[#f2f3f4] dark:hover:bg-[#202020]",
       )}
     >
       <div className="flex min-w-0 items-center gap-3">
@@ -1957,10 +537,7 @@ function AccountIcon({
   if (demo) {
     return (
       <div
-        className={cn(
-          "relative flex shrink-0 items-center justify-center rounded-full bg-[#ff444f] text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)]",
-          box,
-        )}
+        className={cn("relative flex shrink-0 items-center justify-center rounded-full bg-[#ff444f] text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)]", box)}
         title="Demo account"
       >
         <span className={cn("font-black leading-none", text)}>D</span>
@@ -1972,10 +549,7 @@ function AccountIcon({
   if (meta.country) {
     return (
       <div
-        className={cn(
-          "flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f2f3f4] bg-white dark:border-[#333] dark:bg-[#101010]",
-          box,
-        )}
+        className={cn("flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f2f3f4] bg-white dark:border-[#333] dark:bg-[#101010]", box)}
         title={meta.name}
       >
         <img
@@ -1990,10 +564,7 @@ function AccountIcon({
 
   return (
     <div
-      className={cn(
-        "flex shrink-0 items-center justify-center rounded-full border border-[#d6d6d6] bg-white text-[#333333] dark:border-[#333] dark:bg-[#101010] dark:text-[#f2f2f2]",
-        box,
-      )}
+      className={cn("flex shrink-0 items-center justify-center rounded-full border border-[#d6d6d6] bg-white text-[#333333] dark:border-[#333] dark:bg-[#101010] dark:text-[#f2f2f2]", box)}
       title={meta.name}
     >
       <span className={cn("font-bold leading-none", text)}>
