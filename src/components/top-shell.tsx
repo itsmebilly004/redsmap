@@ -245,7 +245,6 @@ export function TopShell({
     const onBotRunning = () => {
       setBotRunConnecting(false);
       setBotMonitorStatus("running");
-      setBotMonitorTab("summary");
       setBotMonitorCollapsed(false);
     };
     const onBotStop = () => {
@@ -624,17 +623,10 @@ export function TopShell({
       (account as { token_source?: string }).token_source === "oauth_access_token";
 
     if (isOAuthAccount) {
-      // DerivAPIBasic speaks the Deriv WS v3 protocol and requires a legacy Deriv API token.
-      // OAuth2 JWTs only work with the Deriv v2 REST/WS API — completely different protocol.
-      // Redirect through the legacy OAuth flow (/redirect callback) which issues real API
-      // tokens. After returning, token_source becomes "deriv_legacy_token" and the user
-      // clicks Run again — the else-if branch below handles it correctly.
-      toast.info(
-        "The bot engine requires a Deriv API token. Redirecting to Deriv for authorization...",
-        { duration: 4000 },
-      );
-      const returnTo = window.location.pathname + window.location.search;
-      redirectToDerivLegacyOAuth(buildLegacyOAuthUrl({ returnTo }));
+      // DerivAPIBasic (DBot engine) uses the Deriv V3 WS protocol which only accepts legacy
+      // API tokens. PKCE OAuth2 JWTs work only with the Deriv V2 API — different protocol.
+      // Route PKCE users through the footer bot runner which handles OAuth2 via OTP endpoint.
+      await handleFooterBotRun();
       return;
     } else if (activeToken) {
       // Legacy Deriv API token — authorize directly via WebSocket.
