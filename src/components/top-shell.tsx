@@ -333,6 +333,19 @@ export function TopShell({
         ...items,
       ]);
     };
+    const onBotClickStop = () => {
+      footerBotRunningRef.current = false;
+      setBotRunConnecting(false);
+      setBotMonitorStatus("stopped");
+      void dbot.terminateBot?.();
+    };
+    const onClientInvalidToken = () => {
+      footerBotRunningRef.current = false;
+      setBotRunConnecting(false);
+      setBotMonitorStatus("stopped");
+      addFooterBotJournal("Deriv authorization failed. Please reconnect your account.", "error");
+      void dbot.terminateBot?.();
+    };
 
     globalObserver.register("bot.running", onBotRunning);
     globalObserver.register("bot.stop", onBotStop);
@@ -342,6 +355,8 @@ export function TopShell({
     globalObserver.register("ui.log.error", onLogError);
     globalObserver.register("ui.log.notify", onLogNotify);
     globalObserver.register("ui.log.warn", onLogWarn);
+    globalObserver.register("bot.click_stop", onBotClickStop);
+    globalObserver.register("client.invalid_token", onClientInvalidToken);
 
     return () => {
       globalObserver.unregister("bot.running", onBotRunning);
@@ -352,6 +367,8 @@ export function TopShell({
       globalObserver.unregister("ui.log.error", onLogError);
       globalObserver.unregister("ui.log.notify", onLogNotify);
       globalObserver.unregister("ui.log.warn", onLogWarn);
+      globalObserver.unregister("bot.click_stop", onBotClickStop);
+      globalObserver.unregister("client.invalid_token", onClientInvalidToken);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -459,7 +476,7 @@ export function TopShell({
     if (botMonitorStatus === "running") {
       footerBotRunningRef.current = false;
       setBotRunConnecting(false);
-      await dbot.terminateBot();
+      await dbot.terminateBot?.();
       return;
     }
 
@@ -552,7 +569,7 @@ export function TopShell({
     setBotMonitorTab("summary");
 
     try {
-      await dbot.runBot();
+      await dbot.runBot?.();
     } catch (error) {
       const message = getDerivTradingErrorMessage(error);
       footerBotRunningRef.current = false;
@@ -577,7 +594,7 @@ export function TopShell({
     if (botMonitorStatus === "running") {
       footerBotRunningRef.current = false;
       setBotRunConnecting(false);
-      await dbot.terminateBot();
+      await dbot.terminateBot?.();
       return;
     }
 

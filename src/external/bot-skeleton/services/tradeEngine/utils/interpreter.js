@@ -236,16 +236,19 @@ const Interpreter = () => {
         return new Promise((resolve, reject) => {
             const onError = e => {
                 if ($scope.stopped) {
+                    resolve();
                     return;
                 }
                 // DBot handles 'InvalidToken' internally
                 if (e.code === 'InvalidToken') {
                     globalObserver.emit('client.invalid_token');
+                    resolve();
                     return;
                 }
                 if (shouldStopOnError(bot, e?.code)) {
                     globalObserver.emit('ui.log.error', e.message);
                     globalObserver.emit('bot.click_stop');
+                    resolve();
                     return;
                 }
 

@@ -104,7 +104,7 @@ class APIBase {
         }
 
         if (!this.has_active_symbols && !V2GetActiveToken()) {
-            this.active_symbols_promise = this.getActiveSymbols();
+            this.active_symbols_promise = this.getActiveSymbols().catch(() => {});
         }
 
         this.initEventListeners();
@@ -152,7 +152,7 @@ class APIBase {
         if (this.api?.connection?.readyState && this.api?.connection?.readyState > 1) {
             // eslint-disable-next-line no-console
             console.log('Info: Connection to the server was closed, trying to reconnect.');
-            this.init(true);
+            this.init(true).catch(() => {});
         }
     };
 
@@ -178,7 +178,7 @@ class APIBase {
                     console.error('Authorization error:', error);
                 }
                 setIsAuthorizing(false);
-                return error;
+                throw new Error(error.message || 'Authorization failed');
             }
 
             this.account_info = authorize;
@@ -202,6 +202,7 @@ class APIBase {
             clearAuthData();
             setIsAuthorized(false);
             globalObserver.emit('Error', e);
+            throw e;
         } finally {
             setIsAuthorizing(false);
         }

@@ -217,7 +217,7 @@ class DBot {
   }
 
   async runBot() {
-    if (!this.shouldRunBot()) return;
+    if (!this.shouldRunBot()) throw new Error('Bot validation failed. Check for errors or missing required blocks.');
     await this.saveRecentWorkspace();
     const code = this.generateCode();
     this.is_bot_running = true;
