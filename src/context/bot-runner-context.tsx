@@ -58,16 +58,18 @@ import {
 } from "@/components/bot-run-monitor";
 import { numberFrom } from "@/lib/contract-state";
 
-// dbot/DBotStore/globalObserver access window at module-evaluation time (blockly.js line 6 does
-// `window.goog = goog`). Importing them statically in __root.tsx's SSR path crashes the server.
-// Load them lazily on the client only.
+// dbot/DBotStore/globalObserver/api_base access window at module-evaluation time (blockly.js
+// line 6 does `window.goog = goog`). Importing them statically in __root.tsx's SSR path crashes
+// the server. Load them lazily on the client only.
 type _DbotDefault = (typeof import("@/external/bot-skeleton/scratch/dbot"))["default"];
 type _DbotStoreDefault = (typeof import("@/external/bot-skeleton/scratch/dbot-store"))["default"];
 type _GlobalObserver = (typeof import("@/external/bot-skeleton/utils/observer"))["observer"];
+type _ApiBase = (typeof import("@/external/bot-skeleton/services/api/api-base"))["api_base"];
 
 let _dbot: _DbotDefault | null = null;
 let _DBotStore: _DbotStoreDefault | null = null;
 let _globalObserver: _GlobalObserver | null = null;
+let _api_base: _ApiBase | null = null;
 let _dbotLoadPromise: Promise<void> | null = null;
 
 function loadDbotModules(): Promise<void> {
@@ -76,10 +78,12 @@ function loadDbotModules(): Promise<void> {
     import("@/external/bot-skeleton/scratch/dbot"),
     import("@/external/bot-skeleton/scratch/dbot-store"),
     import("@/external/bot-skeleton/utils/observer"),
-  ]).then(([dbotMod, storeMod, obsMod]) => {
+    import("@/external/bot-skeleton/services/api/api-base"),
+  ]).then(([dbotMod, storeMod, obsMod, apiBaseMod]) => {
     _dbot = dbotMod.default;
     _DBotStore = storeMod.default;
     _globalObserver = obsMod.observer;
+    _api_base = apiBaseMod.api_base;
   });
   return _dbotLoadPromise;
 }
@@ -143,8 +147,16 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
   const footerBotStatsRef = useRef(EMPTY_BOT_MONITOR_STATS);
   const statusRef = useRef<BotMonitorStatus>("stopped");
 
-  // DBot engine stats baseline: captures the engine's cumulative totals at run-start
-  // so we can report INCREMENTAL stats (this run only) instead of session totals.
+  // Tracks which run path is active: "dbot" = DBot engine, "footer" = XML loop, null = idle.
+  // onBotStop fires when BotBuilder unmounts (navigation) — we must ignore it in "footer" mode.
+  const botRunModeRef = useRef<"dbot" | "footer" | null>(null);
+
+  // Always tracks the latest cumulative totals from the DBot engine's bot.info events.
+  // Used as the pre-run baseline so the FIRST trade of each run is always captured.
+  const lastDbotInfoRef = useRef({ wins: 0, losses: 0, profit: 0, stake: 0, payout: 0, runs: 0 });
+
+  // DBot engine stats baseline: set to lastDbotInfoRef snapshot when run starts so all
+  // subsequent bot.info deltas (including the very first trade) display correctly.
   const dBotBaselineRef = useRef<{
     wins: number; losses: number; profit: number; stake: number; payout: number; runs: number;
   } | null>(null);
@@ -215,8 +227,14 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       setCollapsed(false);
     };
     const onBotStop = () => {
-      setStatus("stopped");
-      footerBotRunningRef.current = false;
+      // Only stop the loop for DBot engine runs. When the user navigates away from
+      // /bot-builder, BotBuilder.tsx calls dbot.terminateBot() on unmount, which
+      // emits "bot.stop". If a footer-runner loop is active we must ignore this event.
+      if (botRunModeRef.current !== "footer") {
+        setStatus("stopped");
+        footerBotRunningRef.current = false;
+        botRunModeRef.current = null;
+      }
     };
 
     const onBotInfo = (info: Record<string, unknown>) => {
@@ -224,19 +242,21 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
         "totalWins" in info || "totalLosses" in info || "totalProfit" in info;
 
       if (hasFullStats) {
-        // First onBotInfo of this run: capture the engine's running baseline
-        if (!dBotBaselineRef.current) {
-          dBotBaselineRef.current = {
-            wins: Number(info.totalWins ?? 0),
-            losses: Number(info.totalLosses ?? 0),
-            profit: Number(info.totalProfit ?? 0),
-            stake: Number(info.totalStake ?? 0),
-            payout: Number(info.totalPayout ?? 0),
-            runs: Number(info.totalRuns ?? 0),
-          };
-          return; // Nothing to display yet — first event IS the baseline
-        }
-        const b = dBotBaselineRef.current;
+        // Always keep lastDbotInfoRef current so the next run can use it as baseline.
+        lastDbotInfoRef.current = {
+          wins: Number(info.totalWins ?? lastDbotInfoRef.current.wins),
+          losses: Number(info.totalLosses ?? lastDbotInfoRef.current.losses),
+          profit: Number(info.totalProfit ?? lastDbotInfoRef.current.profit),
+          stake: Number(info.totalStake ?? lastDbotInfoRef.current.stake),
+          payout: Number(info.totalPayout ?? lastDbotInfoRef.current.payout),
+          runs: Number(info.totalRuns ?? lastDbotInfoRef.current.runs),
+        };
+
+        // Baseline is set at run-start to the values captured before the run began.
+        // If somehow not set yet (race), initialise it to zeros so nothing is lost.
+        const b = dBotBaselineRef.current ?? { wins: 0, losses: 0, profit: 0, stake: 0, payout: 0, runs: 0 };
+        if (!dBotBaselineRef.current) dBotBaselineRef.current = b;
+
         const next: BotMonitorStats = {
           contractsWon: "totalWins" in info ? Math.max(0, Number(info.totalWins) - b.wins) : footerBotStatsRef.current.contractsWon,
           contractsLost: "totalLosses" in info ? Math.max(0, Number(info.totalLosses) - b.losses) : footerBotStatsRef.current.contractsLost,
@@ -420,6 +440,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
   // ── Stop (works from any page, unblocks any pending async op) ──────────────
   const stopBot = useCallback(() => {
     footerBotRunningRef.current = false;
+    botRunModeRef.current = null;
     setConnecting(false);
     setStatus("stopped");
     // Unblock any awaited nextTick() immediately
@@ -501,25 +522,33 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       };
     }
 
-    // Reset stats + baseline before new run
-    dBotBaselineRef.current = null;
+    // Capture the DBot engine's current cumulative totals BEFORE the run starts so
+    // the first trade's P&L is never swallowed by the baseline calculation.
+    dBotBaselineRef.current = { ...lastDbotInfoRef.current };
     setStats(EMPTY_BOT_MONITOR_STATS);
     setTransactions([]);
     setJournal(DEFAULT_BOT_MONITOR_JOURNAL);
     footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
     footerBotRunningRef.current = true;
+    botRunModeRef.current = "dbot";
     setStatus("running");
     setCollapsed(false);
     setActiveTab("summary");
 
     try {
+      // Force a fresh api_base WebSocket so stale/closed connections don't silently
+      // drop buy requests (the most common cause of "Placing trade..." hangs).
+      await _api_base?.init(true);
       await _dbot?.runBot?.();
     } catch (error) {
       const message = getDerivTradingErrorMessage(error);
       footerBotRunningRef.current = false;
+      botRunModeRef.current = null;
       setStatus("stopped");
       addJournal(message, "error");
       toast.error(message);
+    } finally {
+      if (botRunModeRef.current === "dbot") botRunModeRef.current = null;
     }
   }
 
@@ -577,6 +606,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     setJournal(DEFAULT_BOT_MONITOR_JOURNAL);
     footerBotStatsRef.current = EMPTY_BOT_MONITOR_STATS;
     footerBotRunningRef.current = true;
+    botRunModeRef.current = "footer";
     setStatus("running");
     setActiveTab("summary");
     setCollapsed(false);
@@ -1037,12 +1067,14 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       await refreshBalances("footer-bot-run-complete", currentAccount.account_id).catch(() => {});
       setStatus("stopped");
       footerBotRunningRef.current = false;
+      botRunModeRef.current = null;
       addJournal("Bot run completed.", "success");
     } catch (error) {
       stopTickWs();
       stopTickWsFnRef.current = null;
       const message = getDerivTradingErrorMessage(error);
       footerBotRunningRef.current = false;
+      botRunModeRef.current = null;
       setStatus("stopped");
       addJournal(message, "error");
       toast.error(message);
