@@ -23,7 +23,6 @@ import {
 import {
   ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
-  getAuthenticatedWsUrl,
   type TradeCategory,
   type TradingAdapter,
   buildLegacyOAuthUrl,
@@ -515,23 +514,18 @@ export function TopShell({
       (account as { token_source?: string }).token_source === "oauth_access_token";
 
     if (isOAuthAccount) {
-      // OAuth2 access tokens are rejected by the Deriv WS `{ authorize: token }` message.
-      // Use the existing OTP mechanism to get a pre-authorized WebSocket URL instead.
-      // api_base.generateDerivApiInstance() will use this URL and api_base.init() will
-      // skip authorizeAndSubscribe() because V2GetActiveToken() returns null.
-      try {
-        const wsUrl = await getAuthenticatedWsUrl(activeToken, activeLoginId, "oauth_access_token");
-        localStorage.setItem("deriv_bot_ws_url", wsUrl);
-        localStorage.removeItem("authToken");
-      } catch (err) {
-        setBotRunConnecting(false);
-        const msg = err instanceof Error ? err.message : "Could not prepare bot connection. Please reconnect your Deriv account.";
-        addFooterBotJournal(msg, "error");
-        setBotMonitorCollapsed(false);
-        setBotMonitorTab("journal");
-        toast.error(msg);
-        return;
-      }
+      // DerivAPIBasic speaks the Deriv WS v3 protocol and requires a legacy Deriv API token.
+      // OAuth2 JWTs only work with the Deriv v2 REST/WS API — completely different protocol.
+      // Redirect through the legacy OAuth flow (/redirect callback) which issues real API
+      // tokens. After returning, token_source becomes "deriv_legacy_token" and the user
+      // clicks Run again — the else-if branch below handles it correctly.
+      toast.info(
+        "The bot engine requires a Deriv API token. Redirecting to Deriv for authorization...",
+        { duration: 4000 },
+      );
+      const returnTo = window.location.pathname + window.location.search;
+      redirectToDerivLegacyOAuth(buildLegacyOAuthUrl({ returnTo }));
+      return;
     } else if (activeToken) {
       // Legacy Deriv API token — authorize directly via WebSocket.
       try {

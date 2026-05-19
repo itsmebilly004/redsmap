@@ -115,11 +115,6 @@ class APIBase {
         if (V2GetActiveToken()) {
             setIsAuthorizing(true);
             await this.authorizeAndSubscribe();
-        } else if (this.api) {
-            // Pre-authorized socket (OAuth OTP path). Mark as authorized.
-            // Do NOT call subscribe() here — account: 'all' is rejected on OTP sockets.
-            this.is_authorized = true;
-            setIsAuthorized(true);
         }
 
         chart_api.init(force_create_connection);
