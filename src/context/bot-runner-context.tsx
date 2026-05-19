@@ -37,6 +37,7 @@ import {
   runAfterPurchase,
   runBeforePurchase,
   runDuringPurchase,
+  runSubmarket,
   runTickAnalysis,
   evalBotPrediction,
   getBotStakeVar,
@@ -540,13 +541,182 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       "success",
     );
 
+    const workspaceXml = readSavedWorkspaceXml(userRef.current?.id);
+    let botState: BotVarState | null = workspaceXml ? initBotState(workspaceXml) : null;
+    let currentStake = settings.stake;
+    if (botState) {
+      botState.totalProfit = 0;
+      const xmlInitStake = getBotStakeVar(botState);
+      if (xmlInitStake != null) currentStake = xmlInitStake;
+    }
+
+    const ohlcGranularity = workspaceXml ? getXmlOhlcGranularity(workspaceXml) : 60;
+
+    // Tick stream state — defined here so tick WS can start before trading connection
+    let latestTickCache: { quote: number; epoch: number } | null = null;
+    let tickSubId: string | null = null;
+    let ohlcSubId: string | null = null;
+    let tickReconnectAttempts = 0;
+    let pingIntervalId: ReturnType<typeof setInterval> | null = null;
+    let currentTickWs: WebSocket | null = null;
+    let botAnalysisPaused = false;
+    let duringPurchaseCallback: (() => void) | null = null;
+
+    const resolvePendingTick = (quote: number, epoch: number) => {
+      const resolve = pendingTickResolveRef.current;
+      if (resolve) {
+        pendingTickResolveRef.current = null;
+        resolve({ quote, epoch });
+      } else {
+        latestTickCache = { quote, epoch };
+      }
+    };
+
+    const nextTick = (): Promise<{ quote: number; epoch: number } | null> =>
+      new Promise((resolve) => {
+        if (latestTickCache) {
+          const data = latestTickCache;
+          latestTickCache = null;
+          resolve(data);
+          return;
+        }
+        pendingTickResolveRef.current = resolve;
+      });
+
     let stopTickWs: () => void = () => {};
+
+    const openTickWs = () => {
+      const ws = new WebSocket(`${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${DERIV_LEGACY_APP_ID}`);
+      currentTickWs = ws;
+      tickSubId = null;
+      ohlcSubId = null;
+
+      ws.onopen = () => {
+        tickReconnectAttempts = 0;
+        ws.send(JSON.stringify({ ticks: settings!.symbol, subscribe: 1 }));
+        ws.send(JSON.stringify({
+          ticks_history: settings!.symbol,
+          adjust_start_time: 1,
+          count: 100,
+          end: "latest",
+          granularity: ohlcGranularity,
+          style: "candles",
+          subscribe: 1,
+        }));
+        // Keepalive ping every 25 seconds
+        if (pingIntervalId) clearInterval(pingIntervalId);
+        pingIntervalId = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ ping: 1 }));
+        }, 25000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data as string) as Record<string, unknown>;
+          const sub = msg.subscription as Record<string, unknown> | undefined;
+
+          if (msg.msg_type === "candles" && Array.isArray(msg.candles)) {
+            if (sub?.id && !ohlcSubId) ohlcSubId = String(sub.id);
+            if (botState) {
+              const candles: OhlcCandle[] = (msg.candles as Record<string, unknown>[]).map((c) => ({
+                open: Number(c.open ?? 0), high: Number(c.high ?? 0),
+                low: Number(c.low ?? 0), close: Number(c.close ?? 0), epoch: Number(c.epoch ?? 0),
+              }));
+              botState.ohlcHistory[ohlcGranularity] = candles;
+            }
+            return;
+          }
+
+          if (msg.msg_type === "ohlc" && msg.ohlc && typeof msg.ohlc === "object") {
+            const o = msg.ohlc as Record<string, unknown>;
+            if (sub?.id && !ohlcSubId) ohlcSubId = String(sub.id);
+            const gran = Number(o.granularity ?? ohlcGranularity);
+            if (botState) {
+              const candle: OhlcCandle = {
+                open: Number(o.open ?? 0), high: Number(o.high ?? 0),
+                low: Number(o.low ?? 0), close: Number(o.close ?? 0), epoch: Number(o.epoch ?? 0),
+              };
+              const hist = botState.ohlcHistory[gran] ?? [];
+              const last = hist[hist.length - 1];
+              if (last && last.epoch === candle.epoch) hist[hist.length - 1] = candle;
+              else { hist.push(candle); if (hist.length > 200) hist.splice(0, hist.length - 200); }
+              botState.ohlcHistory[gran] = hist;
+            }
+            return;
+          }
+
+          if (sub?.id && !tickSubId) tickSubId = String(sub.id);
+          if (msg.msg_type === "tick" && msg.tick && typeof msg.tick === "object") {
+            const tick = msg.tick as Record<string, unknown>;
+            const quote = Number(tick.quote ?? 0);
+            const epoch = Number(tick.epoch ?? 0);
+            const pipSize = Number(tick.pip_size ?? 0);
+            const qStr = pipSize > 0 ? Number(Math.abs(quote)).toFixed(pipSize) : String(Math.abs(quote));
+            const lastDigit = Number(qStr.slice(-1));
+            if (botState) {
+              botState.tickDigits = [...botState.tickDigits.slice(-49), lastDigit];
+              botState.tickPrices = [...(botState.tickPrices ?? []).slice(-49), quote];
+              botState.lastTickPrice = quote;
+              if (workspaceXml && !botAnalysisPaused) runTickAnalysis(workspaceXml, botState);
+              duringPurchaseCallback?.();
+            }
+            resolvePendingTick(quote, epoch);
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onerror = () => {
+        if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
+      };
+
+      ws.onclose = () => {
+        if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
+        if (!footerBotRunningRef.current) return; // bot stopped — don't reconnect
+        // Auto-reconnect with exponential back-off (up to 10 attempts)
+        if (tickReconnectAttempts < 10) {
+          tickReconnectAttempts++;
+          const delay = Math.min(500 * tickReconnectAttempts, 8000);
+          addJournal(`Tick stream disconnected — reconnecting in ${(delay / 1000).toFixed(1)}s...`, "warning");
+          window.setTimeout(openTickWs, delay);
+        } else {
+          addJournal("Tick stream could not be restored. Bot stopped.", "error");
+          footerBotRunningRef.current = false;
+          setStatus("stopped");
+          if (pendingTickResolveRef.current) {
+            pendingTickResolveRef.current(null);
+            pendingTickResolveRef.current = null;
+          }
+        }
+      };
+
+      return ws;
+    };
+
+    stopTickWs = () => {
+      footerBotRunningRef.current = false;
+      if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
+      try {
+        if (currentTickWs?.readyState === WebSocket.OPEN) {
+          if (tickSubId) currentTickWs.send(JSON.stringify({ forget: tickSubId }));
+          if (ohlcSubId) currentTickWs.send(JSON.stringify({ forget: ohlcSubId }));
+          currentTickWs.close();
+        }
+      } catch { /* ignore */ }
+    };
+    stopTickWsFnRef.current = stopTickWs;
+
+    // Start tick WS immediately (before trading connection) to reduce first-tick latency.
+    // The WS only needs settings.symbol which is already resolved.
+    openTickWs();
+
     try {
       const session = await ensureDerivTradingConnection(currentAccount, { context: "footer-bot-run" });
       const sessionAccountUpper = String(session.account_id ?? "").trim().toUpperCase();
       const selectedAccountUpper = String(currentAccount.account_id ?? "").trim().toUpperCase();
       if (!sessionAccountUpper || sessionAccountUpper !== selectedAccountUpper) {
+        stopTickWs();
         footerBotRunningRef.current = false;
+        botRunModeRef.current = null;
         setStatus("stopped");
         const message = `Run aborted: trading session resolved to ${session.account_id} but the selected account is ${currentAccount.account_id}.`;
         addJournal(message, "error");
@@ -561,173 +731,10 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
         selectedAccountId: session.account_id,
         selectedAccountType: session.normalizedType,
       };
-      let currentStake = settings.stake;
       let runningProfit = 0;
       const tpThreshold = Math.abs(Number(settings.takeProfit) || 0);
       const slThreshold = Math.abs(Number(settings.stopLoss) || 0);
       const runCap = Math.max(1, Math.round(Number(settings.maxRuns) || 10000));
-
-      const workspaceXml = readSavedWorkspaceXml(userRef.current?.id);
-      let botState: BotVarState | null = workspaceXml ? initBotState(workspaceXml) : null;
-      if (botState) {
-        botState.totalProfit = 0;
-        const xmlInitStake = getBotStakeVar(botState);
-        if (xmlInitStake != null) currentStake = xmlInitStake;
-      }
-
-      let botAnalysisPaused = false;
-      let duringPurchaseCallback: (() => void) | null = null;
-      const ohlcGranularity = workspaceXml ? getXmlOhlcGranularity(workspaceXml) : 60;
-      let ohlcSubId: string | null = null;
-
-      // Tick stream — with auto-reconnect and keepalive
-      let latestTickCache: { quote: number; epoch: number } | null = null;
-      let tickSubId: string | null = null;
-      let tickReconnectAttempts = 0;
-      let pingIntervalId: ReturnType<typeof setInterval> | null = null;
-      let currentTickWs: WebSocket | null = null;
-
-      const resolvePendingTick = (quote: number, epoch: number) => {
-        const resolve = pendingTickResolveRef.current;
-        if (resolve) {
-          pendingTickResolveRef.current = null;
-          resolve({ quote, epoch });
-        } else {
-          latestTickCache = { quote, epoch };
-        }
-      };
-
-      const nextTick = (): Promise<{ quote: number; epoch: number } | null> =>
-        new Promise((resolve) => {
-          if (latestTickCache) {
-            const data = latestTickCache;
-            latestTickCache = null;
-            resolve(data);
-            return;
-          }
-          pendingTickResolveRef.current = resolve;
-        });
-
-      const openTickWs = () => {
-        const ws = new WebSocket(`${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${DERIV_LEGACY_APP_ID}`);
-        currentTickWs = ws;
-        tickSubId = null;
-        ohlcSubId = null;
-
-        ws.onopen = () => {
-          tickReconnectAttempts = 0;
-          ws.send(JSON.stringify({ ticks: settings!.symbol, subscribe: 1 }));
-          ws.send(JSON.stringify({
-            ticks_history: settings!.symbol,
-            adjust_start_time: 1,
-            count: 100,
-            end: "latest",
-            granularity: ohlcGranularity,
-            style: "candles",
-            subscribe: 1,
-          }));
-          // Keepalive ping every 25 seconds
-          if (pingIntervalId) clearInterval(pingIntervalId);
-          pingIntervalId = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ ping: 1 }));
-          }, 25000);
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data as string) as Record<string, unknown>;
-            const sub = msg.subscription as Record<string, unknown> | undefined;
-
-            if (msg.msg_type === "candles" && Array.isArray(msg.candles)) {
-              if (sub?.id && !ohlcSubId) ohlcSubId = String(sub.id);
-              if (botState) {
-                const candles: OhlcCandle[] = (msg.candles as Record<string, unknown>[]).map((c) => ({
-                  open: Number(c.open ?? 0), high: Number(c.high ?? 0),
-                  low: Number(c.low ?? 0), close: Number(c.close ?? 0), epoch: Number(c.epoch ?? 0),
-                }));
-                botState.ohlcHistory[ohlcGranularity] = candles;
-              }
-              return;
-            }
-
-            if (msg.msg_type === "ohlc" && msg.ohlc && typeof msg.ohlc === "object") {
-              const o = msg.ohlc as Record<string, unknown>;
-              if (sub?.id && !ohlcSubId) ohlcSubId = String(sub.id);
-              const gran = Number(o.granularity ?? ohlcGranularity);
-              if (botState) {
-                const candle: OhlcCandle = {
-                  open: Number(o.open ?? 0), high: Number(o.high ?? 0),
-                  low: Number(o.low ?? 0), close: Number(o.close ?? 0), epoch: Number(o.epoch ?? 0),
-                };
-                const hist = botState.ohlcHistory[gran] ?? [];
-                const last = hist[hist.length - 1];
-                if (last && last.epoch === candle.epoch) hist[hist.length - 1] = candle;
-                else { hist.push(candle); if (hist.length > 200) hist.splice(0, hist.length - 200); }
-                botState.ohlcHistory[gran] = hist;
-              }
-              return;
-            }
-
-            if (sub?.id && !tickSubId) tickSubId = String(sub.id);
-            if (msg.msg_type === "tick" && msg.tick && typeof msg.tick === "object") {
-              const tick = msg.tick as Record<string, unknown>;
-              const quote = Number(tick.quote ?? 0);
-              const epoch = Number(tick.epoch ?? 0);
-              const pipSize = Number(tick.pip_size ?? 0);
-              const qStr = pipSize > 0 ? Number(Math.abs(quote)).toFixed(pipSize) : String(Math.abs(quote));
-              const lastDigit = Number(qStr.slice(-1));
-              if (botState) {
-                botState.tickDigits = [...botState.tickDigits.slice(-49), lastDigit];
-                botState.tickPrices = [...(botState.tickPrices ?? []).slice(-49), quote];
-                botState.lastTickPrice = quote;
-                if (workspaceXml && !botAnalysisPaused) runTickAnalysis(workspaceXml, botState);
-                duringPurchaseCallback?.();
-              }
-              resolvePendingTick(quote, epoch);
-            }
-          } catch { /* ignore */ }
-        };
-
-        ws.onerror = () => {
-          if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
-        };
-
-        ws.onclose = () => {
-          if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
-          if (!footerBotRunningRef.current) return; // bot stopped — don't reconnect
-          // Auto-reconnect with exponential back-off (up to 10 attempts)
-          if (tickReconnectAttempts < 10) {
-            tickReconnectAttempts++;
-            const delay = Math.min(500 * tickReconnectAttempts, 8000);
-            addJournal(`Tick stream disconnected — reconnecting in ${(delay / 1000).toFixed(1)}s...`, "warning");
-            window.setTimeout(openTickWs, delay);
-          } else {
-            addJournal("Tick stream could not be restored. Bot stopped.", "error");
-            footerBotRunningRef.current = false;
-            setStatus("stopped");
-            if (pendingTickResolveRef.current) {
-              pendingTickResolveRef.current(null);
-              pendingTickResolveRef.current = null;
-            }
-          }
-        };
-
-        return ws;
-      };
-
-      openTickWs();
-      stopTickWs = () => {
-        footerBotRunningRef.current = false;
-        if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
-        try {
-          if (currentTickWs?.readyState === WebSocket.OPEN) {
-            if (tickSubId) currentTickWs.send(JSON.stringify({ forget: tickSubId }));
-            if (ohlcSubId) currentTickWs.send(JSON.stringify({ forget: ohlcSubId }));
-            currentTickWs.close();
-          }
-        } catch { /* ignore */ }
-      };
-      stopTickWsFnRef.current = stopTickWs;
 
       // Pre-flight proposal: start a proposal request in parallel with the first tick wait
       // so the proposal is ready (or nearly so) when the first tick arrives.
@@ -762,6 +769,11 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
         if (workspaceXml && botState) {
           botState.balance = Number(balanceRef.current ?? currentAccount.balance ?? 0);
           botState.totalRuns = completedRuns;
+          // Run SUBMARKET signal check — only trade when the condition is met
+          botState.submarketBreak = false;
+          const submarketSignaled = runSubmarket(workspaceXml, botState);
+          botState.notifyQueue = []; // suppress per-tick SUBMARKET notify messages (they fire every tick)
+          if (!submarketSignaled) continue;
           runBeforePurchase(workspaceXml, botState);
           drainNotifyQueue(botState, addJournal);
           if (botState.hasConditionalPurchase && botState.purchaseType === null) {

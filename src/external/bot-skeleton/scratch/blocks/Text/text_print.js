@@ -48,6 +48,6 @@ window.Blockly.JavaScript.javascriptGenerator.forBlock.text_print = block => {
             'TEXT',
             window.Blockly.JavaScript.javascriptGenerator.ORDER_NONE
         ) || "''";
-    const code = `window.alert(${msg});\n`;
+    const code = `console.log('Bot message:', ${msg});\n`;
     return code;
 };

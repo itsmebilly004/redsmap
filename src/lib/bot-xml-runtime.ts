@@ -65,6 +65,10 @@ export type BotVarState = {
   /** Queue of notify/text_print messages to be displayed by the caller */
   notifyQueue: Array<{ message: string; type: "success" | "warn" | "info" | "error" }>;
 
+  /** Set to true when controls_flow_statements(BREAK) fires — used by runSubmarket to
+   *  detect whether a signal loop was triggered. Reset at the start of each SUBMARKET call. */
+  submarketBreak: boolean;
+
   // --- OHLC candle history keyed by granularity in seconds ---
   ohlcHistory: Record<number, OhlcCandle[]>;
 };
@@ -572,7 +576,10 @@ function execBlock(block: Element, state: BotVarState): void {
     }
 
     case "controls_flow_statements":
-      if (getField(block, "FLOW") === "BREAK") throw new BreakSignal();
+      if (getField(block, "FLOW") === "BREAK") {
+        state.submarketBreak = true;
+        throw new BreakSignal();
+      }
       break;
 
     case "controls_repeat_ext": {
@@ -722,13 +729,10 @@ function execBlock(block: Element, state: BotVarState): void {
       break;
     }
 
-    // text_print: matches DDBOt's window.alert — we queue it as an info journal entry
-    case "text_print": {
-      const msgBlock = getValueBlock(block, "TEXT");
-      const message = msgBlock ? String(evalExpr(msgBlock, state)) : "";
-      if (message) state.notifyQueue.push({ message, type: "info" });
+    // text_print: in DDBOt this calls window.alert() (blocking). We suppress it entirely
+    // so bots never pause execution or show browser dialogs.
+    case "text_print":
       break;
-    }
 
     // btnotify: Deriv's internal notify variant — treat same as notify
     case "btnotify": {
@@ -779,6 +783,42 @@ function buildProcRegistry(doc: Document): Record<string, ProcDef> {
   return procs;
 }
 
+/** Executes the SUBMARKET statement from trade_definition for one tick.
+ *
+ * Returns true if trading should proceed this tick, false if the tick should be skipped.
+ *
+ * - If there is no SUBMARKET section: always returns true.
+ * - If SUBMARKET starts with controls_repeat_ext(INFINITY): this is a signal-wait pattern.
+ *   The loop body runs ONCE (limit=1). Returns true only if controls_flow_statements(BREAK)
+ *   was triggered inside the loop — meaning the signal condition was met this tick.
+ * - Any other SUBMARKET content (variable setup, etc.): runs the blocks and returns true. */
+export function runSubmarket(xmlText: string, state: BotVarState): boolean {
+  const doc = parseXmlDoc(xmlText);
+  if (!doc) return true;
+  const tradeDef = doc.querySelector('block[type="trade_definition"]');
+  if (!tradeDef) return true;
+  const submarketEl = getStatementBlock(tradeDef as Element, "SUBMARKET");
+  if (!submarketEl) return true;
+
+  // Detect signal-wait pattern: SUBMARKET starts with controls_repeat_ext(INFINITY)
+  const isSignalLoop =
+    submarketEl.getAttribute("type") === "controls_repeat_ext" &&
+    (() => {
+      const timesBlock = getValueBlock(submarketEl, "TIMES");
+      return (
+        timesBlock?.getAttribute("type") === "math_constant" &&
+        getField(timesBlock, "CONSTANT") === "INFINITY"
+      );
+    })();
+
+  state.submarketBreak = false;
+  try {
+    execChain(submarketEl, state);
+  } catch { /* ignore */ }
+
+  return isSignalLoop ? state.submarketBreak : true;
+}
+
 export function initBotState(xmlText: string): BotVarState | null {
   const doc = parseXmlDoc(xmlText);
   if (!doc) return null;
@@ -820,6 +860,7 @@ export function initBotState(xmlText: string): BotVarState | null {
     totalRuns: 0,
     notifyQueue: [],
     ohlcHistory: {},
+    submarketBreak: false,
   };
 
   for (const variable of doc.querySelectorAll("variables > variable")) {
