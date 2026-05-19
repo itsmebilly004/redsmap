@@ -252,32 +252,81 @@ export function TopShell({
       setBotMonitorStatus("stopped");
       footerBotRunningRef.current = false;
     };
+
+    // bot.info fires from three sources with different payloads:
+    //   Purchase.js  → { accountID, totalRuns, transaction_ids, contract_type, buy_price }
+    //   Balance.js   → { accountID, balance: "1,234.56 USD" }
+    //   Total.js     → { profit, contract, totalProfit, totalWins, totalLosses, totalStake, totalPayout }
+    // Use functional update to MERGE — never overwrite existing totals with zeros.
     const onBotInfo = (info: Record<string, unknown>) => {
-      setBotMonitorStats({
-        contractsWon: Number(info.totalWins ?? 0),
-        contractsLost: Number(info.totalLosses ?? 0),
-        runs: Number(info.totalRuns ?? 0),
-        totalPayout: Number(info.totalPayout ?? 0),
-        totalProfitLoss: Number(info.totalProfit ?? 0),
-        totalStake: Number(info.totalStake ?? 0),
-      });
+      const hasFullStats =
+        "totalWins" in info || "totalLosses" in info || "totalProfit" in info;
+
+      if (hasFullStats) {
+        setBotMonitorStats((prev) => ({
+          contractsWon: "totalWins" in info ? Number(info.totalWins) : prev.contractsWon,
+          contractsLost: "totalLosses" in info ? Number(info.totalLosses) : prev.contractsLost,
+          runs: "totalRuns" in info ? Number(info.totalRuns) : prev.runs,
+          totalPayout: "totalPayout" in info ? Number(info.totalPayout) : prev.totalPayout,
+          totalProfitLoss: "totalProfit" in info ? Number(info.totalProfit) : prev.totalProfitLoss,
+          totalStake: "totalStake" in info ? Number(info.totalStake) : prev.totalStake,
+        }));
+        footerBotStatsRef.current = {
+          contractsWon: "totalWins" in info ? Number(info.totalWins) : footerBotStatsRef.current.contractsWon,
+          contractsLost: "totalLosses" in info ? Number(info.totalLosses) : footerBotStatsRef.current.contractsLost,
+          runs: "totalRuns" in info ? Number(info.totalRuns) : footerBotStatsRef.current.runs,
+          totalPayout: "totalPayout" in info ? Number(info.totalPayout) : footerBotStatsRef.current.totalPayout,
+          totalProfitLoss: "totalProfit" in info ? Number(info.totalProfit) : footerBotStatsRef.current.totalProfitLoss,
+          totalStake: "totalStake" in info ? Number(info.totalStake) : footerBotStatsRef.current.totalStake,
+        };
+      } else if ("totalRuns" in info) {
+        // Purchase event — only bump run count, leave other stats intact
+        setBotMonitorStats((prev) => ({ ...prev, runs: Number(info.totalRuns) }));
+        footerBotStatsRef.current = { ...footerBotStatsRef.current, runs: Number(info.totalRuns) };
+      }
+
+      // Balance.js sends a formatted string e.g. "1,234.56 USD" — push to header balance
+      if ("balance" in info && info.balance != null) {
+        const raw = String(info.balance).replace(/,/g, "").match(/([\d.]+)/);
+        if (raw) {
+          const parsed = parseFloat(raw[1]);
+          if (Number.isFinite(parsed)) {
+            window.dispatchEvent(
+              new CustomEvent("deriv:dbot-balance", { detail: { balance: parsed } }),
+            );
+          }
+        }
+      }
     };
+
+    // bot.contract fires on every tick update of the open contract.
+    // Only finalise profit/status/exitSpot when is_sold=true.
     const onBotContract = (data: Record<string, unknown>) => {
       const contractId = String(data.contract_id ?? "");
       if (!contractId) return;
-      const status = String(data.status ?? "open").toLowerCase();
+      const isSold = Boolean(data.is_sold);
+      const rawStatus = String(data.status ?? "").toLowerCase();
       const mappedStatus: BotMonitorTransaction["status"] =
-        status === "won" ? "won" : status === "lost" ? "lost" : "open";
+        rawStatus === "won" ? "won" : rawStatus === "lost" ? "lost" : "open";
+
       setBotMonitorTransactions((items) => {
         const existing = items.find((t) => t.contractId === contractId);
         if (existing) {
+          // Live tick updates: ignore — only update on settlement to avoid flickering
+          if (!isSold) return items;
           return items.map((t) =>
             t.contractId === contractId
               ? {
                   ...t,
+                  status: mappedStatus !== "open" ? mappedStatus : t.status,
                   profit: Number(data.profit ?? t.profit),
-                  payout: Number(data.payout ?? t.payout),
-                  status: mappedStatus === "open" ? t.status : mappedStatus,
+                  payout: Number(data.sell_price ?? data.payout ?? t.payout),
+                  exitSpot:
+                    data.exit_tick != null
+                      ? Number(data.exit_tick)
+                      : data.exit_spot != null
+                        ? Number(data.exit_spot)
+                        : t.exitSpot,
                 }
               : t,
           );
@@ -285,11 +334,22 @@ export function TopShell({
         return [
           {
             contractId,
-            entrySpot: data.entry_spot ? Number(data.entry_spot) : null,
-            exitSpot: data.exit_spot ? Number(data.exit_spot) : null,
+            entrySpot:
+              data.entry_tick != null
+                ? Number(data.entry_tick)
+                : data.entry_spot != null
+                  ? Number(data.entry_spot)
+                  : null,
+            exitSpot: isSold
+              ? data.exit_tick != null
+                ? Number(data.exit_tick)
+                : data.exit_spot != null
+                  ? Number(data.exit_spot)
+                  : null
+              : null,
             id: crypto.randomUUID(),
-            payout: Number(data.payout ?? 0),
-            profit: Number(data.profit ?? 0),
+            payout: Number(isSold ? (data.sell_price ?? data.payout ?? 0) : (data.payout ?? 0)),
+            profit: isSold ? Number(data.profit ?? 0) : 0,
             stake: Number(data.buy_price ?? 0),
             status: mappedStatus,
             time: formatTime(),
@@ -298,8 +358,53 @@ export function TopShell({
         ];
       });
     };
-    const onLogSuccess = (data: { message?: string } | string) => {
-      const message = typeof data === "string" ? data : (data?.message ?? "");
+
+    // contract.status carries the trade lifecycle: purchase_sent → purchase_received → sold
+    type ContractStatusPayload =
+      | { id: string; data?: unknown; contract?: Record<string, unknown>; buy?: Record<string, unknown> }
+      | string;
+    const onContractStatus = (payload: ContractStatusPayload) => {
+      if (typeof payload === "string") return; // 'purchase.sold' from Sell.js market-sell path
+      const { id, data, contract } = payload;
+      if (id === "contract.purchase_sent") {
+        const price = Number(data ?? 0).toFixed(2);
+        setBotMonitorJournal((items) => [
+          { id: crypto.randomUUID(), message: `Placing trade for ${price}...`, time: formatTime(), type: "info" as const },
+          ...items,
+        ]);
+      } else if (id === "contract.purchase_received") {
+        setBotMonitorJournal((items) => [
+          { id: crypto.randomUUID(), message: `Contract bought (tx: ${String(data ?? "")})`, time: formatTime(), type: "info" as const },
+          ...items,
+        ]);
+      } else if (id === "contract.sold" && contract) {
+        const buyPrice = Number(contract.buy_price ?? 0);
+        const sellPrice = Number(contract.sell_price ?? 0);
+        const profit = sellPrice - buyPrice;
+        const won = profit > 0;
+        const currency = String(contract.currency ?? "");
+        const profitLabel = `${profit >= 0 ? "+" : ""}${profit.toFixed(2)}${currency ? " " + currency : ""}`;
+        const msg = `Contract settled: ${won ? "WON" : "LOST"} — Buy: ${buyPrice.toFixed(2)} | Sell: ${sellPrice.toFixed(2)} | P/L: ${profitLabel}`;
+        setBotMonitorJournal((items) => [
+          { id: crypto.randomUUID(), message: msg, time: formatTime(), type: (won ? "success" : "error") as BotMonitorJournalEntry["type"] },
+          ...items,
+        ]);
+      }
+    };
+
+    // ui.log.success carries { log_type, extra } from broadcast.log() — convert to readable strings
+    const onLogSuccess = (data: { message?: string; log_type?: string; extra?: Record<string, unknown> } | string) => {
+      let message: string;
+      if (typeof data === "string") {
+        message = data;
+      } else if (data?.message) {
+        message = data.message;
+      } else if (data?.log_type) {
+        message = formatBotLogMessage(data.log_type, data.extra);
+      } else {
+        return;
+      }
+      if (!message) return;
       setBotMonitorJournal((items) => [
         { id: crypto.randomUUID(), message, time: formatTime(), type: "success" },
         ...items,
@@ -307,6 +412,7 @@ export function TopShell({
     };
     const onLogError = (data: { message?: string } | string) => {
       const message = typeof data === "string" ? data : (data?.message ?? "");
+      if (!message) return;
       setBotMonitorJournal((items) => [
         { id: crypto.randomUUID(), message, time: formatTime(), type: "error" },
         ...items,
@@ -314,6 +420,7 @@ export function TopShell({
     };
     const onLogNotify = (data: { message?: string; type?: string } | string) => {
       const message = typeof data === "string" ? data : (data?.message ?? "");
+      if (!message) return;
       const rawType = typeof data === "object" ? (data?.type ?? "info") : "info";
       const type: BotMonitorJournalEntry["type"] =
         rawType === "error" ? "error" :
@@ -327,6 +434,7 @@ export function TopShell({
     };
     const onLogWarn = (data: { message?: string } | string) => {
       const message = typeof data === "string" ? data : (data?.message ?? "");
+      if (!message) return;
       setBotMonitorJournal((items) => [
         { id: crypto.randomUUID(), message, time: formatTime(), type: "warning" },
         ...items,
@@ -350,6 +458,7 @@ export function TopShell({
     globalObserver.register("bot.stop", onBotStop);
     globalObserver.register("bot.info", onBotInfo);
     globalObserver.register("bot.contract", onBotContract);
+    globalObserver.register("contract.status", onContractStatus);
     globalObserver.register("ui.log.success", onLogSuccess);
     globalObserver.register("ui.log.error", onLogError);
     globalObserver.register("ui.log.notify", onLogNotify);
@@ -362,6 +471,7 @@ export function TopShell({
       globalObserver.unregister("bot.stop", onBotStop);
       globalObserver.unregister("bot.info", onBotInfo);
       globalObserver.unregister("bot.contract", onBotContract);
+      globalObserver.unregister("contract.status", onContractStatus);
       globalObserver.unregister("ui.log.success", onLogSuccess);
       globalObserver.unregister("ui.log.error", onLogError);
       globalObserver.unregister("ui.log.notify", onLogNotify);
@@ -1712,6 +1822,35 @@ function formatTime() {
     minute: "2-digit",
     second: "2-digit",
   });
+}
+
+function formatBotLogMessage(logType: string, extra?: Record<string, unknown>): string {
+  const currency = String(extra?.currency ?? "");
+  const profit = Number(extra?.profit ?? 0);
+  const sign = profit >= 0 ? "+" : "";
+  const profitStr = `${sign}${Math.abs(profit).toFixed(2)}${currency ? " " + currency : ""}`;
+  switch (logType) {
+    case "purchase":
+      return extra?.longcode
+        ? `Purchased: ${extra.longcode}`
+        : `Contract purchased (tx: ${extra?.transaction_id ?? ""})`;
+    case "profit":
+      return `Trade won: ${profitStr}`;
+    case "lost":
+      return `Trade lost: ${profitStr}`;
+    case "sell":
+      return `Contract sold at market for ${Number(extra?.sold_for ?? 0).toFixed(2)}${currency ? " " + currency : ""}`;
+    case "not_offered":
+      return "Sell at market not currently available";
+    case "welcome":
+      return "Bot started";
+    case "welcome_back":
+      return "Bot restarted after error";
+    case "load_block":
+      return "Bot blocks loaded";
+    default:
+      return logType;
+  }
 }
 
 function AccountList({

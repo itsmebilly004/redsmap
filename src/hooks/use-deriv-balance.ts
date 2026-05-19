@@ -557,6 +557,20 @@ export function useDerivBalance(): LiveBalance {
     return () => window.removeEventListener("deriv:sessions-updated", refreshSessions);
   }, [isBrowser]);
 
+  // DBot engine pushes balance updates via this custom event after each contract settles.
+  useEffect(() => {
+    if (!isBrowser) return;
+    const onDbotBalance = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const value = event.detail?.balance;
+      if (typeof value === "number" && Number.isFinite(value)) {
+        setBalance(value);
+      }
+    };
+    window.addEventListener("deriv:dbot-balance", onDbotBalance);
+    return () => window.removeEventListener("deriv:dbot-balance", onDbotBalance);
+  }, [isBrowser]);
+
   useEffect(() => {
     accountsRef.current = accounts;
   }, [accounts]);
