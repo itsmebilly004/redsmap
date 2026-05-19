@@ -23,6 +23,7 @@ import {
 import {
   ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
+  getAuthenticatedWsUrl,
   type TradeCategory,
   type TradingAdapter,
   buildLegacyOAuthUrl,
@@ -493,7 +494,29 @@ export function TopShell({
     // Bridge token into the localStorage keys that api_base reads via V2GetActiveToken().
     const activeToken = account.deriv_token ?? "";
     const activeLoginId = account.loginid ?? account.account_id ?? "";
-    if (activeToken) {
+    const isOAuthAccount =
+      (account as { token_source?: string }).token_source === "oauth_access_token";
+
+    if (isOAuthAccount) {
+      // OAuth2 access tokens are rejected by the Deriv WS `{ authorize: token }` message.
+      // Use the existing OTP mechanism to get a pre-authorized WebSocket URL instead.
+      // api_base.generateDerivApiInstance() will use this URL and api_base.init() will
+      // skip authorizeAndSubscribe() because V2GetActiveToken() returns null.
+      try {
+        const wsUrl = await getAuthenticatedWsUrl(activeToken, activeLoginId, "oauth_access_token");
+        localStorage.setItem("deriv_bot_ws_url", wsUrl);
+        localStorage.removeItem("authToken");
+      } catch (err) {
+        setBotRunConnecting(false);
+        const msg = err instanceof Error ? err.message : "Could not prepare bot connection. Please reconnect your Deriv account.";
+        addFooterBotJournal(msg, "error");
+        setBotMonitorCollapsed(false);
+        setBotMonitorTab("journal");
+        toast.error(msg);
+        return;
+      }
+    } else if (activeToken) {
+      // Legacy Deriv API token — authorize directly via WebSocket.
       try {
         localStorage.setItem("authToken", activeToken);
         localStorage.setItem("active_loginid", activeLoginId);

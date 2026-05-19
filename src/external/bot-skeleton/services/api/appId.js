@@ -5,6 +5,19 @@ import { getInitialLanguage } from '@deriv-com/translations';
 import APIMiddleware from './api-middleware';
 
 export const generateDerivApiInstance = () => {
+    // For OAuth2 accounts a pre-authorized WS URL is stored here by the run handler.
+    // Using it skips the { authorize: token } step which OAuth tokens cannot satisfy.
+    const customWsUrl = localStorage.getItem('deriv_bot_ws_url');
+    if (customWsUrl) {
+        localStorage.removeItem('deriv_bot_ws_url');
+        const deriv_socket = new WebSocket(customWsUrl);
+        const deriv_api = new DerivAPIBasic({
+            connection: deriv_socket,
+            middleware: new APIMiddleware({}),
+        });
+        return deriv_api;
+    }
+
     const cleanedServer = getSocketURL().replace(/[^a-zA-Z0-9.]/g, '');
     const cleanedAppId = getAppId()?.replace?.(/[^a-zA-Z0-9]/g, '') ?? getAppId();
     const socket_url = `wss://${cleanedServer}/websockets/v3?app_id=${cleanedAppId}&l=${getInitialLanguage()}&brand=${website_name.toLowerCase()}`;
