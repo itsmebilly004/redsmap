@@ -71,7 +71,7 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
     name: "ArkTraders CandleVault Sentinel",
     iconKey: "zap",
     desc: "Digit Differs strategy loaded from the Candle Mine XML asset.",
-    fileMatch: "Candle-mine",
+    fileMatch: "candlevault",
     market: "R_100",
     tradeType: "Matches/Differs",
     contractType: "Differs",

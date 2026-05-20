@@ -344,6 +344,20 @@ export function sanitizeDbotXml(xml: string): string {
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     if (doc.getElementsByTagName("parsererror").length) return xml;
 
+    const serialize = () => new XMLSerializer().serializeToString(doc.documentElement);
+
+    // Upgrade old DBot XML format: root block was "trade", now "trade_definition".
+    // Only rename top-level <block type="trade"> elements (direct children of <xml>).
+    const root = doc.documentElement;
+    for (const child of Array.from(root.children)) {
+      if (
+        child.tagName.toLowerCase() === "block" &&
+        child.getAttribute("type") === "trade"
+      ) {
+        child.setAttribute("type", "trade_definition");
+      }
+    }
+
     // Find the trade_definition root block.
     const tradeDef = Array.from(doc.getElementsByTagName("block")).find(
       (b) => b.getAttribute("type") === "trade_definition",
@@ -355,7 +369,7 @@ export function sanitizeDbotXml(xml: string): string {
       (c) =>
         c.tagName.toLowerCase() === "statement" && c.getAttribute("name") === "TRADE_OPTIONS",
     );
-    if (!tradeOptionsStmt) return xml;
+    if (!tradeOptionsStmt) return serialize();
 
     // Walk the block chain in TRADE_OPTIONS looking for trade_definition_tradeoptions.
     let tradeoptionsBlock: Element | null = null;
@@ -379,9 +393,9 @@ export function sanitizeDbotXml(xml: string): string {
     const firstBlock = Array.from(tradeOptionsStmt.children).find(
       (c) => c.tagName.toLowerCase() === "block",
     ) as Element | undefined;
-    if (!firstBlock) return xml;
+    if (!firstBlock) return serialize();
     walk(firstBlock, null);
-    if (!tradeoptionsBlock) return xml; // Already correct.
+    if (!tradeoptionsBlock) return serialize(); // Already correct; may have renamed type="trade".
 
     // Detach tradeoptions from the chain, re-linking any successor block.
     const ownNext = Array.from(tradeoptionsBlock.children).find(
