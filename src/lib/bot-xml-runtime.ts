@@ -80,14 +80,20 @@ class BreakSignal extends Error {
   }
 }
 
+// Parse cache: keyed by length+prefix fingerprint. Avoids repeated DOMParser calls
+// for the same XML on every tick (runSubmarket, runTickAnalysis, etc. each parse).
+const _parseCache = new Map<string, Document | null>();
 function parseXmlDoc(xmlText: string): Document | null {
+  const key = `${xmlText.length}:${xmlText.slice(0, 128)}`;
+  if (_parseCache.has(key)) return _parseCache.get(key)!;
+  let doc: Document | null = null;
   try {
-    const doc = new DOMParser().parseFromString(xmlText, "text/xml");
-    if (doc.querySelector("parsererror")) return null;
-    return doc;
-  } catch {
-    return null;
-  }
+    const parsed = new DOMParser().parseFromString(xmlText, "text/xml");
+    doc = parsed.querySelector("parsererror") ? null : parsed;
+  } catch { /* ignore */ }
+  if (_parseCache.size >= 20) _parseCache.clear();
+  _parseCache.set(key, doc);
+  return doc;
 }
 
 function getField(el: Element, name: string): string {
