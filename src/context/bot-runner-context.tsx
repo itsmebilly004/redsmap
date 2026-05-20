@@ -749,9 +749,14 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
         try {
           const input = proposalInput({ ...settings!, currency: runCurrency }, stake);
           const xmlPurchaseOverride = bState?.purchaseType ? purchaseTypeToSide(bState.purchaseType) : null;
-          const finalInput: ProposalInput = xmlPurchaseOverride
+          const botPrediction = workspaceXml && bState ? evalBotPrediction(workspaceXml, bState) : null;
+          const baseOverride = xmlPurchaseOverride
             ? { ...input, tradeType: xmlPurchaseOverride.tradeType, side: xmlPurchaseOverride.side }
             : input;
+          const finalInput: ProposalInput = {
+            ...baseOverride,
+            selectedDigit: botPrediction != null ? Math.max(0, Math.min(9, Math.round(botPrediction))) : baseOverride.selectedDigit,
+          };
           const payload = buildStandardProposalPayload(finalInput, session.adapter as TradingAdapter);
           preflightProposal = requestProposal(payload, {
             ...context,
@@ -777,7 +782,11 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
           botState.submarketBreak = false;
           const submarketSignaled = runSubmarket(workspaceXml, botState);
           botState.notifyQueue = []; // suppress per-tick SUBMARKET notify messages (they fire every tick)
-          if (!submarketSignaled) continue;
+          if (!submarketSignaled) {
+            // Keep a proposal warm so it's ready when the signal fires
+            if (!preflightProposal) launchPreflight(currentStake, botState);
+            continue;
+          }
           runBeforePurchase(workspaceXml, botState);
           drainNotifyQueue(botState, addJournal);
           if (botState.hasConditionalPurchase && botState.purchaseType === null) {
@@ -881,7 +890,8 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
 
             // Fire the DB insert in parallel with trade execution — supabase latency
             // (~100-300 ms) is hidden behind the settlement wait (seconds).
-            const dbTradeIdPromise: Promise<string | null> = userRef.current?.id
+            // Not awaited in the hot path — chained non-blocking after settlement.
+            const dbInsertPromise: Promise<string | null> = userRef.current?.id
               ? supabase.from("trades").insert({
                   user_id: userRef.current.id, deriv_contract_id: contractId,
                   symbol: snapshot.symbol, trade_type: contractType,
@@ -919,15 +929,18 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
               profitLoss: settlement?.profit ?? 0,
               status: settlement?.status === "won" ? "won" : settlement?.status === "lost" ? "lost" : "open",
             });
-            // Non-blocking DB update — resolve insert ID (almost certainly done by now)
-            const dbTradeId = await dbTradeIdPromise;
-            if (userRef.current?.id && dbTradeId) {
-              void supabase.from("trades").update({
-                profit_loss: Number(settlement?.profit ?? 0),
-                payout: Number(settlement?.payout ?? 0),
-                status: settlement?.status === "won" ? "won" : settlement?.status === "lost" ? "lost" : "open",
-                closed_at: new Date().toISOString(),
-              }).eq("id", dbTradeId).catch(() => {});
+            // Non-blocking DB update — chain on the insert promise without awaiting
+            if (userRef.current?.id) {
+              const capturedSettlement = settlement;
+              void dbInsertPromise.then((dbTradeId) => {
+                if (!dbTradeId) return;
+                return supabase.from("trades").update({
+                  profit_loss: Number(capturedSettlement?.profit ?? 0),
+                  payout: Number(capturedSettlement?.payout ?? 0),
+                  status: capturedSettlement?.status === "won" ? "won" : capturedSettlement?.status === "lost" ? "lost" : "open",
+                  closed_at: new Date().toISOString(),
+                }).eq("id", dbTradeId).catch(() => {});
+              }).catch(() => {});
             }
             duringPurchaseCallback = null;
             tradeError = null;
@@ -937,7 +950,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             tradeError = error;
             if (!contractWasBought && attempt < BOT_TRADE_MAX_ATTEMPTS && shouldRetryBotTrade(error)) {
               addJournal("Deriv returned a temporary processing error. Retrying once.", "warning");
-              await sleep(200);
+              await sleep(50);
               continue;
             }
             break;
