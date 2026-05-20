@@ -111,6 +111,7 @@ export interface BotRunnerContextValue {
   connecting: boolean;
   journal: BotMonitorJournalEntry[];
   memoryReady: boolean;
+  serverMode: boolean;
   stats: BotMonitorStats;
   status: BotMonitorStatus;
   transactions: BotMonitorTransaction[];
@@ -142,6 +143,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(true);
   const [activeTab, setActiveTab] = useState("summary");
   const [memoryReady, setMemoryReady] = useState(false);
+  const [serverMode, setServerMode] = useState(false);
 
   // Persistent refs — survive React re-renders and TopShell remounts
   const footerBotRunningRef = useRef(false);
@@ -166,6 +168,17 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
   const pendingTickResolveRef = useRef<((data: { quote: number; epoch: number } | null) => void) | null>(null);
   const stopTickWsFnRef = useRef<(() => void) | null>(null);
   const settlementAbortRef = useRef<(() => void) | null>(null);
+
+  // Server-side background execution refs
+  const serverSessionIdRef = useRef<string | null>(null);
+  const serverModeRef = useRef(false);
+  // Snapshot of browser-run state for server handoff (updated every trade)
+  const handoffProfitRef = useRef(0);
+  const handoffStakeRef = useRef(0);
+  const handoffRunsRef = useRef(0);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   // Live value refs so async closures always read current account/currency/balance
   const accountRef = useRef(account);
@@ -220,6 +233,186 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  // ── Server session subscription ───────────────────────────────────────────
+  const subscribeToServerSession = useCallback(
+    (sessionId: string) => {
+      if (realtimeChannelRef.current) {
+        void supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+      const channel = supabase
+        .channel(`bot-session-${sessionId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "active_bot_sessions",
+            filter: `id=eq.${sessionId}`,
+          },
+          (payload) => {
+            const row = payload.new as {
+              status: string;
+              running_profit: number;
+              completed_runs: number;
+              stop_reason: string | null;
+              error_message: string | null;
+            };
+            setStats((prev) => ({
+              ...prev,
+              totalProfitLoss: row.running_profit,
+              runs: row.completed_runs,
+            }));
+            if (row.status === "stopped" || row.status === "error") {
+              serverSessionIdRef.current = null;
+              serverModeRef.current = false;
+              setServerMode(false);
+              setStatus("stopped");
+              void supabase.removeChannel(channel);
+              realtimeChannelRef.current = null;
+              if (row.status === "error") {
+                addJournal(`Background bot error: ${row.error_message ?? "Unknown"}`, "error");
+                toast.error("Background bot encountered an error");
+              } else {
+                const reason = row.stop_reason;
+                if (reason === "take_profit") {
+                  addJournal(
+                    `Take-profit reached by background bot. Total: +${row.running_profit.toFixed(2)}`,
+                    "success",
+                  );
+                  toast.success(`Background bot: take-profit reached (+${row.running_profit.toFixed(2)})`);
+                } else if (reason === "stop_loss") {
+                  addJournal(
+                    `Stop-loss reached by background bot. Total: ${row.running_profit.toFixed(2)}`,
+                    "warning",
+                  );
+                  toast.warning(`Background bot: stop-loss reached (${row.running_profit.toFixed(2)})`);
+                } else {
+                  addJournal(
+                    `Background bot completed — ${row.completed_runs} trades executed.`,
+                    "success",
+                  );
+                }
+              }
+            }
+          },
+        )
+        .subscribe();
+      realtimeChannelRef.current = channel;
+    },
+    [addJournal],
+  );
+
+  // ── Check for active server sessions on mount (user returned after closing browser) ──
+  useEffect(() => {
+    if (!user?.id) return;
+    const check = async () => {
+      try {
+        const { data } = await supabase
+          .from("active_bot_sessions")
+          .select("id, status, running_profit, completed_runs")
+          .eq("user_id", user.id)
+          .in("status", ["running", "pending"])
+          .order("started_at", { ascending: false })
+          .limit(1)
+          .single();
+        if (data && !serverSessionIdRef.current) {
+          serverSessionIdRef.current = data.id;
+          serverModeRef.current = true;
+          setServerMode(true);
+          setStatus("running");
+          setStats((prev) => ({
+            ...prev,
+            totalProfitLoss: data.running_profit,
+            runs: data.completed_runs,
+          }));
+          addJournal("Bot is running in the background on the server. Resuming live updates.", "info");
+          subscribeToServerSession(data.id);
+        }
+      } catch {
+        // No active server session — that's fine
+      }
+    };
+    void check();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // ── visibilitychange: hand off to server after 20s of inactivity ──────────
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        // Start a 20-second grace period before handing off to server
+        if (footerBotRunningRef.current && !serverModeRef.current && serverSessionIdRef.current) {
+          handoffTimerRef.current = setTimeout(() => {
+            const sessionId = serverSessionIdRef.current;
+            if (!sessionId || !footerBotRunningRef.current) return;
+            // Stop client runner, hand off to server
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
+            const anonKey =
+              import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
+              import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+            footerBotRunningRef.current = false;
+            botRunModeRef.current = null;
+            setStatus("running");
+            serverModeRef.current = true;
+            setServerMode(true);
+            pendingTickResolveRef.current?.(null);
+            pendingTickResolveRef.current = null;
+            settlementAbortRef.current?.();
+            settlementAbortRef.current = null;
+            stopTickWsFnRef.current?.();
+            stopTickWsFnRef.current = null;
+            void supabase
+              .from("active_bot_sessions")
+              .update({
+                status: "pending",
+                running_profit: handoffProfitRef.current,
+                current_stake: handoffStakeRef.current,
+                completed_runs: handoffRunsRef.current,
+              })
+              .eq("id", sessionId);
+            if (supabaseUrl && anonKey) {
+              fetch(`${supabaseUrl}/functions/v1/run-bot`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${anonKey}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ sessionId }),
+                keepalive: true,
+              }).catch(() => {});
+            }
+            subscribeToServerSession(sessionId);
+            addJournal("Tab went inactive — bot handed off to server. It will keep running in the background.", "info");
+            toast.info("Bot is now running in the background on the server.");
+          }, 20_000);
+        }
+      } else {
+        // Tab visible again — cancel pending handoff
+        if (handoffTimerRef.current) {
+          clearTimeout(handoffTimerRef.current);
+          handoffTimerRef.current = null;
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (handoffTimerRef.current) clearTimeout(handoffTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── beforeunload: fire sendBeacon so the server picks up immediately ──────
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const sessionId = serverSessionIdRef.current;
+      if (!sessionId) return;
+      try {
+        navigator.sendBeacon("/api/bot-handoff", JSON.stringify({ sessionId }));
+      } catch { /* ignore */ }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   // Register DBot engine observer events once at mount (client-side only)
   useEffect(() => {
@@ -457,6 +650,33 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     stopTickWsFnRef.current?.();
     stopTickWsFnRef.current = null;
     void _dbot?.terminateBot?.();
+    // Cancel pending server handoff timer
+    if (handoffTimerRef.current) {
+      clearTimeout(handoffTimerRef.current);
+      handoffTimerRef.current = null;
+    }
+    // Clear browser heartbeat
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+    // Stop server session if running
+    const sessionId = serverSessionIdRef.current;
+    if (sessionId) {
+      void supabase
+        .from("active_bot_sessions")
+        .update({ status: "stopped", stop_reason: "manual", stopped_at: new Date().toISOString() })
+        .eq("id", sessionId);
+      serverSessionIdRef.current = null;
+    }
+    if (serverModeRef.current) {
+      serverModeRef.current = false;
+      setServerMode(false);
+    }
+    if (realtimeChannelRef.current) {
+      void supabase.removeChannel(realtimeChannelRef.current);
+      realtimeChannelRef.current = null;
+    }
   }, []);
 
   const resetMonitor = useCallback(() => {
@@ -544,6 +764,45 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       `Bot run started on ${currentAccount.normalizedType === "demo" ? "DEMO" : "REAL"} account (${currentAccount.loginid || currentAccount.account_id}).`,
       "success",
     );
+
+    // Create a server-side session so the bot can continue if this tab closes
+    const userId = userRef.current?.id;
+    handoffProfitRef.current = 0;
+    handoffStakeRef.current = settings.stake;
+    handoffRunsRef.current = 0;
+    if (userId && currentAccount.account_id) {
+      try {
+        const { data: newSession } = await supabase
+          .from("active_bot_sessions")
+          .insert({
+            user_id: userId,
+            account_id: currentAccount.account_id,
+            settings,
+            status: "browser_running",
+            current_stake: settings.stake,
+          })
+          .select("id")
+          .single();
+        if (newSession) {
+          serverSessionIdRef.current = newSession.id;
+          serverModeRef.current = false;
+          // Heartbeat: keep last_heartbeat_at fresh so orphan-check knows browser is alive
+          heartbeatIntervalRef.current = setInterval(() => {
+            const sid = serverSessionIdRef.current;
+            if (!sid || !footerBotRunningRef.current) return;
+            void supabase
+              .from("active_bot_sessions")
+              .update({
+                last_heartbeat_at: new Date().toISOString(),
+                running_profit: handoffProfitRef.current,
+                current_stake: handoffStakeRef.current,
+                completed_runs: handoffRunsRef.current,
+              })
+              .eq("id", sid);
+          }, 30_000);
+        }
+      } catch { /* session creation is best-effort */ }
+    }
 
     const workspaceXml = readSavedWorkspaceXml(userRef.current?.id);
     let botState: BotVarState | null = workspaceXml ? initBotState(workspaceXml) : null;
@@ -995,6 +1254,8 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
 
         runningProfit += settlement.profit;
         completedRuns += 1;
+        handoffProfitRef.current = runningProfit;
+        handoffRunsRef.current = completedRuns;
         setStats((current) => ({
           contractsLost: current.contractsLost + (settlement!.status === "lost" ? 1 : 0),
           contractsWon: current.contractsWon + (settlement!.status === "won" ? 1 : 0),
@@ -1045,6 +1306,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             ? clampNumber(stake * snapshot.martingale, 0.35, snapshot.maxStake)
             : snapshot.stake;
         }
+        handoffStakeRef.current = currentStake;
         botAnalysisPaused = false;
 
         // Pre-flight the next proposal immediately so it's ready when the next tick arrives
@@ -1062,6 +1324,26 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       footerBotRunningRef.current = false;
       botRunModeRef.current = null;
       addJournal("Bot run completed.", "success");
+      // Mark server session as stopped (bot finished in-browser, no server handoff needed)
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      const sessionId = serverSessionIdRef.current;
+      if (sessionId && !serverModeRef.current) {
+        void supabase
+          .from("active_bot_sessions")
+          .update({
+            status: "stopped",
+            stop_reason: "manual",
+            running_profit: runningProfit,
+            current_stake: currentStake,
+            completed_runs: completedRuns,
+            stopped_at: new Date().toISOString(),
+          })
+          .eq("id", sessionId);
+        serverSessionIdRef.current = null;
+      }
     } catch (error) {
       stopTickWs();
       stopTickWsFnRef.current = null;
@@ -1069,6 +1351,18 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       footerBotRunningRef.current = false;
       botRunModeRef.current = null;
       setStatus("stopped");
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      const errSessionId = serverSessionIdRef.current;
+      if (errSessionId && !serverModeRef.current) {
+        void supabase
+          .from("active_bot_sessions")
+          .update({ status: "stopped", stop_reason: "manual", stopped_at: new Date().toISOString() })
+          .eq("id", errSessionId);
+        serverSessionIdRef.current = null;
+      }
       if (isNetworkError(error)) {
         addJournal(
           `Network error stopped the bot: ${message} — Please check your internet connection and try again.`,
@@ -1106,6 +1400,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       connecting,
       journal,
       memoryReady,
+      serverMode,
       stats,
       status,
       transactions,
@@ -1116,7 +1411,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       toggleRun,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeTab, collapsed, connecting, journal, memoryReady, stats, status, transactions],
+    [activeTab, collapsed, connecting, journal, memoryReady, serverMode, stats, status, transactions],
   );
 
   return <BotRunnerContext.Provider value={value}>{children}</BotRunnerContext.Provider>;

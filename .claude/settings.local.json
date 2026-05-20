@@ -68,7 +68,8 @@
       "Bash(Get-Content \"C:\\\\Users\\\\ADMIN\\\\Desktop\\\\deriv\\\\arktrader-hub\\\\src\\\\assets\\\\ArkTraders UnderPro Sentinel.xml\")",
       "Bash(Select-Object -First 80)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(npx tsr *)"
     ]
   }
 }

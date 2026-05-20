@@ -117,6 +117,7 @@ export function TopShell({
     collapsed: botMonitorCollapsed,
     connecting: botRunConnecting,
     journal: botMonitorJournal,
+    serverMode: botServerMode,
     stats: botMonitorStats,
     status: botMonitorStatus,
     transactions: botMonitorTransactions,
@@ -427,22 +428,35 @@ export function TopShell({
       </main>
 
       {showBotMonitor && (
-        <BotRunMonitorPanel
-          activeTab={botMonitorTab}
-          collapsed={botMonitorCollapsed}
-          connecting={botRunConnecting}
-          currency={currency || account?.currency || "USD"}
-          journal={botMonitorJournal}
-          mode="footer"
-          onReset={resetMonitor}
-          onRun={toggleRun}
-          onToggleCollapse={() => setBotMonitorCollapsed(!botMonitorCollapsed)}
-          setActiveTab={setBotMonitorTab}
-          stats={botMonitorStats}
-          status={botMonitorStatus}
-          title="Bot monitor"
-          transactions={botMonitorTransactions}
-        />
+        <>
+          {botServerMode && (
+            <div className="fixed bottom-14 left-1/2 z-50 -translate-x-1/2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/40 bg-blue-950/90 px-3 py-1 text-xs font-medium text-blue-300 shadow-lg backdrop-blur-sm">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
+                </span>
+                Running on server
+              </span>
+            </div>
+          )}
+          <BotRunMonitorPanel
+            activeTab={botMonitorTab}
+            collapsed={botMonitorCollapsed}
+            connecting={botRunConnecting}
+            currency={currency || account?.currency || "USD"}
+            journal={botMonitorJournal}
+            mode="footer"
+            onReset={resetMonitor}
+            onRun={toggleRun}
+            onToggleCollapse={() => setBotMonitorCollapsed(!botMonitorCollapsed)}
+            setActiveTab={setBotMonitorTab}
+            stats={botMonitorStats}
+            status={botMonitorStatus}
+            title="Bot monitor"
+            transactions={botMonitorTransactions}
+          />
+        </>
       )}
 
       {showAssistantButton && (

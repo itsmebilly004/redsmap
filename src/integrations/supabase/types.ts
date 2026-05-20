@@ -8,6 +8,63 @@ export type Database = {
   };
   public: {
     Tables: {
+      active_bot_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          account_id: string;
+          settings: Json;
+          status: string;
+          running_profit: number;
+          current_stake: number;
+          completed_runs: number;
+          stop_reason: string | null;
+          error_message: string | null;
+          runner_id: string | null;
+          runner_locked_at: string | null;
+          started_at: string;
+          stopped_at: string | null;
+          last_heartbeat_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          account_id: string;
+          settings: Json;
+          status?: string;
+          running_profit?: number;
+          current_stake?: number;
+          completed_runs?: number;
+          stop_reason?: string | null;
+          error_message?: string | null;
+          runner_id?: string | null;
+          runner_locked_at?: string | null;
+          started_at?: string;
+          stopped_at?: string | null;
+          last_heartbeat_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          account_id?: string;
+          settings?: Json;
+          status?: string;
+          running_profit?: number;
+          current_stake?: number;
+          completed_runs?: number;
+          stop_reason?: string | null;
+          error_message?: string | null;
+          runner_id?: string | null;
+          runner_locked_at?: string | null;
+          started_at?: string;
+          stopped_at?: string | null;
+          last_heartbeat_at?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       bot_xml_presets: {
         Row: {
           bot_id: string;

@@ -5,6 +5,12 @@
     "VITE_DERIV_LEGACY_APP_ID": "133647"
   },
   "outputDirectory": "dist/client",
+  "crons": [
+    {
+      "path": "/api/bot-orphan-check",
+      "schedule": "* * * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/((?!assets/).*)",
