@@ -165,6 +165,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
   // Stop signal: these refs let stopBot() unblock any pending async operation
   const pendingTickResolveRef = useRef<((data: { quote: number; epoch: number } | null) => void) | null>(null);
   const stopTickWsFnRef = useRef<(() => void) | null>(null);
+  const settlementAbortRef = useRef<(() => void) | null>(null);
 
   // Live value refs so async closures always read current account/currency/balance
   const accountRef = useRef(account);
@@ -449,6 +450,9 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       pendingTickResolveRef.current(null);
       pendingTickResolveRef.current = null;
     }
+    // Abort any pending settlement wait immediately
+    settlementAbortRef.current?.();
+    settlementAbortRef.current = null;
     // Close the tick WebSocket
     stopTickWsFnRef.current?.();
     stopTickWsFnRef.current = null;
@@ -889,10 +893,19 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
               : Promise.resolve(null);
 
             addJournal(`Bought contract ${contractId}. Waiting for settlement.`, "success");
-            settlement = await waitForSettlement(contractId, onContractUpdate);
+            settlement = await waitForSettlement(
+              contractId,
+              (abort) => { settlementAbortRef.current = abort; },
+              onContractUpdate,
+            );
+            settlementAbortRef.current = null;
 
-            // Settlement detected — update UI synchronously and kick off balance
-            // refresh in parallel so the balance and transaction list update together.
+            if (!footerBotRunningRef.current) break;
+
+            // Settlement detected — immediately push estimated balance to UI, then
+            // fire a full refresh in the background so the precise server value follows.
+            const estimatedBalance = (balanceRef.current ?? 0) + settlement.profit;
+            window.dispatchEvent(new CustomEvent("deriv:dbot-balance", { detail: { balance: estimatedBalance } }));
             void refreshBalances("footer-bot-trade-complete", currentAccount.account_id).catch(() => {});
             setTransactions((items) =>
               items.map((item) =>
@@ -930,6 +943,9 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             break;
           }
         }
+
+        // If the bot was stopped while awaiting settlement, skip all settlement processing.
+        if (!footerBotRunningRef.current) continue;
 
         if (!settlement) {
           const message = getDerivTradingErrorMessage(tradeError);
@@ -1124,6 +1140,7 @@ function proposalInput(settings: BotBuilderSettings, stake: number): ProposalInp
 
 async function waitForSettlement(
   contractId: string,
+  registerAbort: (abort: () => void) => void,
   onContractUpdate?: (contract: Record<string, unknown>) => void,
 ): Promise<Settlement> {
   return new Promise((resolve, reject) => {
@@ -1139,6 +1156,13 @@ async function waitForSettlement(
       resolve(emptySettlement);
       void unsubscribe?.();
     }, 45000);
+    registerAbort(() => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      void unsubscribe?.();
+      resolve(emptySettlement);
+    });
 
     subscribeOpenContract(contractId, (contract) => {
       onContractUpdate?.(contract);
@@ -1212,7 +1236,9 @@ function positiveNumberFrom(...values: unknown[]) {
 function clampNumber(value: number, min: number, max: number) {
   const number = Number(value);
   if (!Number.isFinite(number)) return min;
-  return Math.min(max, Math.max(min, number));
+  const clamped = Math.min(max, Math.max(min, number));
+  // Deriv rejects stakes with more than 2 decimal places
+  return Math.round(clamped * 100) / 100;
 }
 
 function formatTime() {
