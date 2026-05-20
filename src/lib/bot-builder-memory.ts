@@ -5,7 +5,10 @@ import {
   readPresetWorkspaceXml,
 } from "@/lib/bot-builder-state";
 import { writeRecentWorkspaceXml } from "@/external/bot-builder/recent-workspaces";
-import { writeSavedWorkspaceXml } from "@/external/bot-builder/workspace-persistence";
+import {
+  sanitizeDbotXml,
+  writeSavedWorkspaceXml,
+} from "@/external/bot-builder/workspace-persistence";
 
 export type BuilderMemoryImport = {
   name: string;
@@ -27,7 +30,9 @@ export async function importBotXmlIntoBuilderMemory(
   userId: string | null | undefined,
   input: BuilderMemoryImport,
 ): Promise<void> {
-  const freshXml = normalizeXml(input.xml);
+  // Sanitize first to fix any structural issues (e.g. tradeoptions in the
+  // wrong Blockly chain) before validation so the check itself doesn't fail.
+  const freshXml = sanitizeDbotXml(normalizeXml(input.xml));
   if (!isBlocklyXml(freshXml)) {
     throw new Error("The selected bot preset is not a Blockly XML strategy.");
   }
@@ -35,11 +40,13 @@ export async function importBotXmlIntoBuilderMemory(
   // If a presetId is given, check whether the user already has edits for this
   // preset saved. If so, restore those instead of wiping them with the fresh
   // deployment XML — this preserves any block-level adjustments the user made.
+  // Sanitize the saved XML too so any structurally-broken older snapshot does
+  // not prevent the workspace from loading.
   let workspaceXml = freshXml;
   if (input.presetId && userId) {
     const savedUserXml = readPresetWorkspaceXml(userId, input.presetId);
     if (savedUserXml) {
-      workspaceXml = savedUserXml;
+      workspaceXml = sanitizeDbotXml(savedUserXml);
     }
   }
 

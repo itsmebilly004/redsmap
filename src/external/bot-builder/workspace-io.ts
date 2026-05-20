@@ -3,7 +3,11 @@
 
 import { saveAs } from "file-saver";
 import main_xml from "@/external/bot-skeleton/scratch/xml/main.xml?raw";
-import { loadWorkspaceXmlIntoBlockly, persistWorkspaceSnapshot } from "./workspace-persistence";
+import {
+  loadWorkspaceXmlIntoBlockly,
+  persistWorkspaceSnapshot,
+  sanitizeDbotXml,
+} from "./workspace-persistence";
 
 const isBlocklyXml = (xml: string): boolean => {
   if (!xml) return false;
@@ -50,6 +54,9 @@ export async function loadWorkspaceFromFile(
     console.warn("[bot-builder] file rejected by isBlocklyXml check, first 200 chars:", text.slice(0, 200));
     return { ok: false, reason: "That file isn't a Blockly strategy XML." };
   }
+  // Fix known structural issues (e.g. tradeoptions in wrong chain) before
+  // handing off to Blockly so old exported XML files load without errors.
+  text = sanitizeDbotXml(text);
   const restored = loadWorkspaceXmlIntoBlockly(workspace, text);
   if (!restored) {
     return {

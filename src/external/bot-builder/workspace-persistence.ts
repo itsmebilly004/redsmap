@@ -327,6 +327,113 @@ function parseBlocklyXml(xmlText: string): Document | null {
   }
 }
 
+/**
+ * Fix the known "Next statement does not exist" structural issue in DBot XML:
+ * `trade_definition_tradeoptions` has setNextStatement(false) so it must live
+ * in the SUBMARKET statement, not inside the TRADE_OPTIONS chain.  Any saved
+ * XML from before this fix was applied will have it in the wrong place, which
+ * causes Blockly's domToWorkspace to throw on load.
+ *
+ * The function DOM-parses the XML, moves the block if misplaced, and
+ * re-serialises.  Returns the original string unchanged if no issue is found
+ * or if the environment lacks DOMParser / XMLSerializer.
+ */
+export function sanitizeDbotXml(xml: string): string {
+  if (typeof DOMParser === "undefined" || typeof XMLSerializer === "undefined") return xml;
+  try {
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    if (doc.getElementsByTagName("parsererror").length) return xml;
+
+    // Find the trade_definition root block.
+    const tradeDef = Array.from(doc.getElementsByTagName("block")).find(
+      (b) => b.getAttribute("type") === "trade_definition",
+    );
+    if (!tradeDef) return xml;
+
+    // Find the TRADE_OPTIONS statement child.
+    const tradeOptionsStmt = Array.from(tradeDef.children).find(
+      (c) =>
+        c.tagName.toLowerCase() === "statement" && c.getAttribute("name") === "TRADE_OPTIONS",
+    );
+    if (!tradeOptionsStmt) return xml;
+
+    // Walk the block chain in TRADE_OPTIONS looking for trade_definition_tradeoptions.
+    let tradeoptionsBlock: Element | null = null;
+    let tradeoptionsParentNext: Element | null = null;
+
+    const walk = (block: Element, parentNext: Element | null) => {
+      if (block.getAttribute("type") === "trade_definition_tradeoptions") {
+        tradeoptionsBlock = block;
+        tradeoptionsParentNext = parentNext;
+        return;
+      }
+      for (const child of Array.from(block.children)) {
+        if (child.tagName.toLowerCase() !== "next") continue;
+        const childBlock = Array.from(child.children).find(
+          (c) => c.tagName.toLowerCase() === "block",
+        ) as Element | undefined;
+        if (childBlock) walk(childBlock, child);
+      }
+    };
+
+    const firstBlock = Array.from(tradeOptionsStmt.children).find(
+      (c) => c.tagName.toLowerCase() === "block",
+    ) as Element | undefined;
+    if (!firstBlock) return xml;
+    walk(firstBlock, null);
+    if (!tradeoptionsBlock) return xml; // Already correct.
+
+    // Detach tradeoptions from the chain, re-linking any successor block.
+    const ownNext = Array.from(tradeoptionsBlock.children).find(
+      (c) => c.tagName.toLowerCase() === "next",
+    ) as Element | undefined;
+    const successor = ownNext
+      ? (Array.from(ownNext.children).find(
+          (c) => c.tagName.toLowerCase() === "block",
+        ) as Element | undefined)
+      : undefined;
+    if (ownNext) tradeoptionsBlock.removeChild(ownNext);
+
+    if (tradeoptionsParentNext === null) {
+      // tradeoptions was the first block in the statement.
+      tradeOptionsStmt.removeChild(tradeoptionsBlock);
+      if (successor) tradeOptionsStmt.appendChild(successor);
+    } else {
+      tradeoptionsParentNext.removeChild(tradeoptionsBlock);
+      if (successor) {
+        tradeoptionsParentNext.appendChild(successor);
+      } else {
+        tradeoptionsParentNext.parentElement?.removeChild(tradeoptionsParentNext);
+      }
+    }
+
+    // Remove any residual <next> left on tradeoptions (defensive).
+    for (const c of Array.from(tradeoptionsBlock.children)) {
+      if (c.tagName.toLowerCase() === "next") {
+        tradeoptionsBlock.removeChild(c);
+        break;
+      }
+    }
+
+    // Find or create the SUBMARKET statement and place tradeoptions there.
+    let submarketStmt = Array.from(tradeDef.children).find(
+      (c) =>
+        c.tagName.toLowerCase() === "statement" && c.getAttribute("name") === "SUBMARKET",
+    ) as Element | undefined;
+    if (!submarketStmt) {
+      submarketStmt = doc.createElement("statement");
+      submarketStmt.setAttribute("name", "SUBMARKET");
+      tradeDef.appendChild(submarketStmt);
+    }
+    while (submarketStmt.firstChild) submarketStmt.removeChild(submarketStmt.firstChild);
+    submarketStmt.appendChild(tradeoptionsBlock);
+
+    return new XMLSerializer().serializeToString(doc.documentElement);
+  } catch {
+    return xml;
+  }
+}
+
 function childElement(
   parent: Element | null | undefined,
   tagName: string,

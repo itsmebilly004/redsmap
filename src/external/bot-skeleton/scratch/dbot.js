@@ -1,3 +1,4 @@
+import localForage from "localforage";
 import { save_types } from "../constants";
 import { config } from "../constants/config";
 import ApiHelpers from "../services/api/api-helpers";
@@ -158,10 +159,28 @@ class DBot {
 
         const event_group = `dbot-load${Date.now()}`;
         window.Blockly.Events.setGroup(event_group);
-        window.Blockly.Xml.domToWorkspace(
-          window.Blockly.utils.xml.textToDom(window.Blockly.derivWorkspace.strategy_to_load),
-          this.workspace,
-        );
+        const strategy_xml = window.Blockly.derivWorkspace.strategy_to_load;
+        let workspace_loaded = false;
+        try {
+          window.Blockly.Xml.domToWorkspace(
+            window.Blockly.utils.xml.textToDom(strategy_xml),
+            this.workspace,
+          );
+          workspace_loaded = true;
+        } catch (savedErr) {
+          console.warn(
+            "[dbot] Saved workspace failed to load, clearing cached entry and falling back to main.xml:",
+            savedErr?.message ?? savedErr,
+          );
+          // Remove the broken saved_workspaces entry so future mounts use main.xml.
+          localForage.removeItem("saved_workspaces").catch(() => {});
+        }
+        if (!workspace_loaded) {
+          window.Blockly.Xml.domToWorkspace(
+            window.Blockly.utils.xml.textToDom(main_xml),
+            this.workspace,
+          );
+        }
 
         const { save_modal } = DBotStore.instance ?? {};
         save_modal?.setBotName?.(file_name);
