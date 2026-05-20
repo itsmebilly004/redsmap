@@ -671,6 +671,9 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
 
       ws.onerror = () => {
         if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
+        if (footerBotRunningRef.current) {
+          addJournal("Network interruption detected on tick stream — checking connection...", "warning");
+        }
       };
 
       ws.onclose = () => {
@@ -680,10 +683,16 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
         if (tickReconnectAttempts < 10) {
           tickReconnectAttempts++;
           const delay = Math.min(500 * tickReconnectAttempts, 8000);
-          addJournal(`Tick stream disconnected — reconnecting in ${(delay / 1000).toFixed(1)}s...`, "warning");
+          const reconnectMsg = tickReconnectAttempts === 1
+            ? `Weak network detected: tick stream dropped. Reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${tickReconnectAttempts}/10)`
+            : `Tick stream disconnected — reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${tickReconnectAttempts}/10)`;
+          addJournal(reconnectMsg, "warning");
           window.setTimeout(openTickWs, delay);
         } else {
-          addJournal("Tick stream could not be restored. Bot stopped.", "error");
+          addJournal(
+            "Tick stream could not be restored after 10 attempts. Please check your internet connection and restart the bot.",
+            "error",
+          );
           footerBotRunningRef.current = false;
           setStatus("stopped");
           if (pendingTickResolveRef.current) {
@@ -714,7 +723,17 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     openTickWs();
 
     try {
+      // Warn the user if connecting to Deriv takes unusually long (weak network signal).
+      const connectionSlowTimer = window.setTimeout(() => {
+        if (footerBotRunningRef.current) {
+          addJournal(
+            "Connecting to Deriv is taking longer than expected — your network may be slow or unstable.",
+            "warning",
+          );
+        }
+      }, 8000);
       const session = await ensureDerivTradingConnection(currentAccount, { context: "footer-bot-run" });
+      window.clearTimeout(connectionSlowTimer);
       const sessionAccountUpper = String(session.account_id ?? "").trim().toUpperCase();
       const selectedAccountUpper = String(currentAccount.account_id ?? "").trim().toUpperCase();
       if (!sessionAccountUpper || sessionAccountUpper !== selectedAccountUpper) {
@@ -949,7 +968,12 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             duringPurchaseCallback = null;
             tradeError = error;
             if (!contractWasBought && attempt < BOT_TRADE_MAX_ATTEMPTS && shouldRetryBotTrade(error)) {
-              addJournal("Deriv returned a temporary processing error. Retrying once.", "warning");
+              addJournal(
+                isNetworkError(error)
+                  ? "Trade request failed due to network instability. Retrying once..."
+                  : "Deriv returned a temporary processing error. Retrying once.",
+                "warning",
+              );
               await sleep(50);
               continue;
             }
@@ -1045,7 +1069,14 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       footerBotRunningRef.current = false;
       botRunModeRef.current = null;
       setStatus("stopped");
-      addJournal(message, "error");
+      if (isNetworkError(error)) {
+        addJournal(
+          `Network error stopped the bot: ${message} — Please check your internet connection and try again.`,
+          "error",
+        );
+      } else {
+        addJournal(message, "error");
+      }
       toast.error(message);
     }
   }
@@ -1225,6 +1256,25 @@ function drainNotifyQueue(
       item.type === "error" ? "error" : item.type === "success" ? "success" : item.type === "warn" ? "warning" : "info";
     addJournal(`[Bot] ${item.message}`, jType);
   }
+}
+
+function isNetworkError(error: unknown): boolean {
+  const message = getDerivTradingErrorMessage(error).toLowerCase();
+  const name = String((error as Error)?.name ?? "").toLowerCase();
+  return (
+    name === "networkerror" ||
+    message.includes("network") ||
+    message.includes("failed to fetch") ||
+    message.includes("websocket") ||
+    message.includes("socket") ||
+    message.includes("offline") ||
+    message.includes("timed out") ||
+    message.includes("timeout") ||
+    message.includes("connection refused") ||
+    message.includes("connection reset") ||
+    message.includes("econnrefused") ||
+    message.includes("econnreset")
+  );
 }
 
 function shouldRetryBotTrade(error: unknown) {
