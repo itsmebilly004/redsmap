@@ -154,7 +154,7 @@ export function TradePanel({
   stickyActions = false,
 }: TradePanelProps) {
   const { user } = useAuth();
-  const { account, balance: accountBalance, currency, refreshBalances } = useDerivBalanceContext();
+  const { account, balance: accountBalance, currency } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
 
@@ -445,7 +445,7 @@ export function TradePanel({
         setQuotes(next);
         setQuotesLoading(false);
       }
-    }, 350);
+    }, 100);
     return () => {
       cancelled = true;
       clearTimeout(timeout);
@@ -482,14 +482,9 @@ export function TradePanel({
       tradeIdRef.current = null;
       activeAccountIdRef.current = null;
       closedRef.current = false;
-      if (account) {
-        void refreshBalances("post-trade-reset").catch((error) => {
-          console.warn("[Manual Trader] balance refresh after trade close failed", error);
-        });
-      }
     }, 3500);
     return () => window.clearTimeout(resetTimer);
-  }, [account, activeContract.status, refreshBalances, selectedTradeType]);
+  }, [account, activeContract.status, selectedTradeType]);
 
   useEffect(() => {
     const selectedAccountId = account?.account_id ?? null;
@@ -677,7 +672,43 @@ export function TradePanel({
       const buy = buyResponse.buy ?? {};
       const contractId = String(buy.contract_id ?? "");
       const contractType = String(buy.contract_type ?? fallbackPayload.contract_type);
-      const { data: trade, error: insertError } = await supabase
+      const buyPrice = numberFrom(buy.buy_price) ?? askPrice;
+      const contractPayout = numberFrom(buy.payout) ?? quote?.payout ?? null;
+
+      // Show active contract immediately — don't wait for DB or subscription round-trip
+      activeAccountIdRef.current = tradingSession.account_id;
+      setActiveContract({
+        ...EMPTY_CONTRACT_STATE,
+        buyPrice,
+        contractId,
+        payout: contractPayout,
+        status: "active",
+      });
+
+      // Optimistic balance deduction so the UI reflects the stake immediately
+      window.dispatchEvent(
+        new CustomEvent("deriv:dbot-balance", {
+          detail: { balance: (accountBalance ?? 0) - (buyPrice ?? stake) },
+        }),
+      );
+
+      // Track trade locally right away; update with real DB id when insert resolves
+      upsertTrackedTrade(user.id, {
+        contractId,
+        contractType,
+        currency: tradeCurrency,
+        id: `manual-${contractId}`,
+        market,
+        openedAt: new Date().toISOString(),
+        payout: Number(buy.payout ?? quote?.payout ?? 0),
+        profitLoss: 0,
+        source: "manual",
+        stake,
+        status: "open",
+      });
+
+      // Fire DB insert without blocking the UI — resolve trade ID when it lands
+      void supabase
         .from("trades")
         .insert({
           user_id: user.id,
@@ -688,35 +719,34 @@ export function TradePanel({
           payout: Number(buy.payout ?? quote?.payout ?? 0),
           status: "open",
         })
-        .select()
-        .single();
-      if (insertError) {
-        console.error("[Deriv Trade] Could not save trade", insertError);
-        toast.error("Trade placed, but history could not be saved.");
-      }
-      tradeIdRef.current = trade?.id ?? null;
-      activeAccountIdRef.current = tradingSession.account_id;
-      upsertTrackedTrade(user.id, {
-        contractId,
-        contractType,
-        currency: tradeCurrency,
-        id: trade?.id ?? `manual-${contractId}`,
-        market,
-        openedAt: new Date().toISOString(),
-        payout: Number(buy.payout ?? quote?.payout ?? 0),
-        profitLoss: 0,
-        source: "manual",
-        stake,
-        status: "open",
-      });
-      setActiveContract({
-        ...EMPTY_CONTRACT_STATE,
-        buyPrice: numberFrom(buy.buy_price) ?? askPrice,
-        contractId,
-        payout: numberFrom(buy.payout) ?? quote?.payout ?? null,
-        status: "active",
-      });
-      unsubscribeRef.current = await subscribeOpenContract(contractId, (openContract) => {
+        .select("id")
+        .single()
+        .then(({ data, error: insertError }) => {
+          if (insertError) {
+            console.error("[Deriv Trade] Could not save trade", insertError);
+            toast.error("Trade placed, but history could not be saved.");
+          }
+          const dbId = data?.id ?? null;
+          tradeIdRef.current = dbId;
+          if (dbId) {
+            upsertTrackedTrade(user.id, {
+              contractId,
+              contractType,
+              currency: tradeCurrency,
+              id: dbId,
+              market,
+              openedAt: new Date().toISOString(),
+              payout: Number(buy.payout ?? quote?.payout ?? 0),
+              profitLoss: 0,
+              source: "manual",
+              stake,
+              status: "open",
+            });
+          }
+        });
+
+      // Start contract subscription without blocking — updates flow in via the callback
+      subscribeOpenContract(contractId, (openContract) => {
         setActiveContract((current) => {
           const next = normalizeOpenContract(openContract, current);
           console.info("[Deriv Trade] proposal_open_contract update", {
@@ -730,11 +760,7 @@ export function TradePanel({
             status: next.status,
             websocketAccountId: getTradingSocketAccountId(),
           });
-          // Live in-contract TP/SL trigger: if the user set thresholds and the
-          // contract supports an early sell, fire a sell as soon as the
-          // current unrealised profit crosses either limit. The `awaitingAutoSellRef`
-          // guard prevents the same threshold from queuing repeated sells while
-          // the WebSocket round-trip is still in flight.
+          // Live in-contract TP/SL trigger
           if (
             !config.supportsMultiplier &&
             config.supportsEarlySell &&
@@ -763,6 +789,12 @@ export function TradePanel({
           if (["sold", "won", "lost"].includes(next.status) && current.status === "active") {
             const realised = Number(next.currentProfit ?? 0);
             if (Number.isFinite(realised)) {
+              // Push real balance update immediately when contract closes
+              window.dispatchEvent(
+                new CustomEvent("deriv:dbot-balance", {
+                  detail: { balance: (accountBalance ?? 0) + realised },
+                }),
+              );
               setSessionProfit((prior) => {
                 const total = prior + realised;
                 const tp = Math.abs(Number(takeProfit) || 0);
@@ -781,17 +813,15 @@ export function TradePanel({
             }
             void cleanupSubscription();
             void markTradeClosed(next);
-            void refreshBalances("trade-closed").catch((error) => {
-              console.warn("[Manual Trader] balance refresh after close failed", error);
-            });
           }
           return next;
         });
-      });
+      }).then(
+        (off) => { unsubscribeRef.current = off; },
+        (error) => { console.warn("[Deriv Trade] proposal_open_contract subscription failed", error); },
+      );
+
       setQuotesVersion((value) => value + 1);
-      void refreshBalances("trade-placed").catch((error) => {
-        console.warn("[Manual Trader] balance refresh after buy failed", error);
-      });
     } catch (error) {
       const message = getDerivTradingErrorMessage(error);
       console.error("[Deriv Trade] Buy failed", error);
@@ -828,12 +858,17 @@ export function TradePanel({
         sellPrice: numberFrom(sold.sold_for, sold.sell_price) ?? activeContract.sellPrice,
         status: profit >= 0 ? "won" : "lost",
       };
+      // Update UI instantly — don't block on cleanup or DB write
       setActiveContract(next);
-      await cleanupSubscription();
-      await markTradeClosed(next);
-      void refreshBalances("manual-sell").catch((error) => {
-        console.warn("[Manual Trader] balance refresh after sell failed", error);
-      });
+      // Push realised balance immediately
+      window.dispatchEvent(
+        new CustomEvent("deriv:dbot-balance", {
+          detail: { balance: (accountBalance ?? 0) + profit },
+        }),
+      );
+      // Non-blocking cleanup and DB update
+      void cleanupSubscription();
+      void markTradeClosed(next);
     } catch (error) {
       const message = getDerivTradingErrorMessage(error);
       setErrorMessage(message);

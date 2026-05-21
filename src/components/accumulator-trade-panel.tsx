@@ -51,7 +51,7 @@ type Props = {
 
 export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketChange }: Props) {
   const { user } = useAuth();
-  const { account, balance: accountBalance, currency, refreshBalances } = useDerivBalanceContext();
+  const { account, balance: accountBalance, currency } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
   const selectedAccountIsDemo = account ? isDemoAccount(account) : false;
@@ -112,14 +112,9 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       activeAccountIdRef.current = null;
       tradeIdRef.current = null;
       closedRef.current = false;
-      if (account) {
-        void refreshBalances("post-accumulator-reset").catch((error) => {
-          console.warn("[Accumulator] balance refresh after trade close failed", error);
-        });
-      }
     }, 3500);
     return () => window.clearTimeout(resetTimer);
-  }, [account, refreshBalances, state.status]);
+  }, [state.status]);
 
   useEffect(() => {
     const off = onStatus((socketStatus) => {
@@ -335,7 +330,40 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       console.info("[Accumulator] contract_id", contractId);
       activeAccountIdRef.current = tradingSession.account_id;
 
-      const { data: trade, error: tradeInsertError } = await supabase
+      // Show active state immediately — don't wait for DB insert or subscription
+      setState((current) => ({
+        ...current,
+        contractId,
+        buyPrice: Number(contract.buy_price ?? askPrice),
+        currentPayout: Number(contract.payout ?? askPrice),
+        currentProfit: 0,
+        status: "active",
+      }));
+
+      // Optimistic balance deduction so UI reflects the stake right away
+      window.dispatchEvent(
+        new CustomEvent("deriv:dbot-balance", {
+          detail: { balance: (accountBalance ?? 0) - (Number(contract.buy_price ?? askPrice)) },
+        }),
+      );
+
+      // Track locally with a fallback ID; update to real DB id when insert resolves
+      upsertTrackedTrade(user?.id, {
+        contractId,
+        contractType: payload.contract_type,
+        currency: tradeCurrency,
+        id: `accumulator-${contractId}`,
+        market,
+        openedAt: new Date().toISOString(),
+        payout: Number(contract.payout ?? askPrice),
+        profitLoss: 0,
+        source: "accumulator",
+        stake,
+        status: "open",
+      });
+
+      // Fire DB insert without blocking
+      void supabase
         .from("trades")
         .insert({
           user_id: user!.id,
@@ -346,37 +374,34 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
           payout: Number(contract.payout ?? askPrice),
           status: "open",
         })
-        .select()
-        .single();
-      if (tradeInsertError) {
-        console.error("[Accumulator] Could not save trade history", tradeInsertError);
-        toast.error("Trade placed, but history could not be saved.");
-      }
-      tradeIdRef.current = trade?.id ?? null;
-      upsertTrackedTrade(user?.id, {
-        contractId,
-        contractType: payload.contract_type,
-        currency: tradeCurrency,
-        id: trade?.id ?? `accumulator-${contractId}`,
-        market,
-        openedAt: new Date().toISOString(),
-        payout: Number(contract.payout ?? askPrice),
-        profitLoss: 0,
-        source: "accumulator",
-        stake,
-        status: "open",
-      });
+        .select("id")
+        .single()
+        .then(({ data, error: tradeInsertError }) => {
+          if (tradeInsertError) {
+            console.error("[Accumulator] Could not save trade history", tradeInsertError);
+            toast.error("Trade placed, but history could not be saved.");
+          }
+          const dbId = data?.id ?? null;
+          tradeIdRef.current = dbId;
+          if (dbId) {
+            upsertTrackedTrade(user?.id, {
+              contractId,
+              contractType: payload.contract_type,
+              currency: tradeCurrency,
+              id: dbId,
+              market,
+              openedAt: new Date().toISOString(),
+              payout: Number(contract.payout ?? askPrice),
+              profitLoss: 0,
+              source: "accumulator",
+              stake,
+              status: "open",
+            });
+          }
+        });
 
-      setState((current) => ({
-        ...current,
-        contractId,
-        buyPrice: Number(contract.buy_price ?? askPrice),
-        currentPayout: Number(contract.payout ?? askPrice),
-        currentProfit: 0,
-        status: "active",
-      }));
-
-      unsubscribeRef.current = await subscribeOpenContract(contractId, (openContract) => {
+      // Start subscription without blocking
+      subscribeOpenContract(contractId, (openContract) => {
         setState((current) => {
           const next = normalizeAccumulatorContract(openContract, current);
           console.info("[Accumulator] proposal_open_contract update", {
@@ -392,9 +417,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             status: next.status,
             barrierSource: next.barrierSource,
           });
-          // Client-side stop-loss for accumulators: Deriv's accumulator
-          // proposal API doesn't accept a stop_loss limit, so we trigger an
-          // early sell once the unrealised loss crosses the threshold.
+          // Client-side stop-loss: trigger early sell once unrealised loss crosses threshold
           if (
             stopLossEnabled &&
             stopLoss > 0 &&
@@ -417,6 +440,12 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
           if ((next.status === "lost" || next.status === "sold") && current.status === "active") {
             const realised = Number(next.currentProfit ?? 0);
             if (Number.isFinite(realised)) {
+              // Push real balance immediately when contract closes
+              window.dispatchEvent(
+                new CustomEvent("deriv:dbot-balance", {
+                  detail: { balance: (accountBalance ?? 0) + realised },
+                }),
+              );
               setSessionProfit((prior) => {
                 const total = prior + realised;
                 const tp = Math.abs(Number(takeProfit) || 0);
@@ -435,16 +464,13 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             }
             void cleanupSubscription();
             void markTradeClosed(next);
-            void refreshBalances("accumulator-closed").catch((error) => {
-              console.warn("[Accumulator] balance refresh after close failed", error);
-            });
           }
           return next;
         });
-      });
-      void refreshBalances("accumulator-placed").catch((error) => {
-        console.warn("[Accumulator] balance refresh after buy failed", error);
-      });
+      }).then(
+        (off) => { unsubscribeRef.current = off; },
+        (error) => { console.warn("[Accumulator] proposal_open_contract subscription failed", error); },
+      );
     } catch (error: unknown) {
       const message = getDerivTradingErrorMessage(error);
       console.error("[Accumulator] Trade failed", error);
@@ -481,12 +507,17 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
         status: "sold",
         isValidToSell: false,
       };
+      // Update UI instantly
       setState(next);
-      await cleanupSubscription();
-      await markTradeClosed(next);
-      void refreshBalances("accumulator-sell").catch((error) => {
-        console.warn("[Accumulator] balance refresh after sell failed", error);
-      });
+      // Push realised balance immediately
+      window.dispatchEvent(
+        new CustomEvent("deriv:dbot-balance", {
+          detail: { balance: (accountBalance ?? 0) + profit },
+        }),
+      );
+      // Non-blocking cleanup and DB update
+      void cleanupSubscription();
+      void markTradeClosed(next);
     } catch (error: unknown) {
       const message = getDerivTradingErrorMessage(error);
       setState((current) => ({ ...current, status: "error", error: message }));
