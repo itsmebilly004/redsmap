@@ -71,7 +71,12 @@
       "Bash(git commit -m ' *)",
       "Bash(npx tsr *)",
       "Bash(gh run *)",
-      "Bash(npx vercel *)"
+      "Bash(npx vercel *)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(d.get\\('uid'\\), d.get\\('state'\\), d.get\\('url'\\)\\) for d in data.get\\('deployments',[]\\)]\")",
+      "Read(//c/Users/ADMIN/.local/share/**)",
+      "Read(//c/Users/ADMIN/AppData/Roaming/com.vercel.cli/**)",
+      "Read(//c/Users/ADMIN/AppData/Local/com.vercel.cli/**)",
+      "Bash(python3 -c \"import json; data=json.load\\(open\\('C:/Users/ADMIN/AppData/Roaming/com.vercel.cli/Data/auth.json'\\)\\); print\\(data.get\\('token',''\\)\\)\")"
     ]
   }
 }

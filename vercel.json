@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "env": {
     "VITE_DERIV_LEGACY_APP_ID": "133647"
