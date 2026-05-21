@@ -6,6 +6,7 @@ let _fetch: FetchHandler | null = null;
 
 async function getServerFetch(): Promise<FetchHandler> {
   if (!_fetch) {
+    // @ts-expect-error - dist/server/server.js is generated at build time and has no type declarations
     const mod = await import("../dist/server/server.js");
     _fetch = mod.default.fetch.bind(mod.default);
   }
