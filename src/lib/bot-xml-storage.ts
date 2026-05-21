@@ -6,6 +6,7 @@ const assetXmlModules = import.meta.glob<string>("/src/assets/*.xml", {
   query: "?raw",
 });
 
+
 async function loadAssetXml(asset: TradingBotAsset): Promise<string> {
   const entry = Object.entries(assetXmlModules).find(([path]) => path.includes(asset.fileMatch));
   if (!entry) throw new Error(`XML asset not found for ${asset.name}`);
