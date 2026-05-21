@@ -8,9 +8,14 @@
   "crons": [
     {
       "path": "/api/bot-orphan-check",
-      "schedule": "* * * * *"
+      "schedule": "0 * * * *"
     }
   ],
+  "functions": {
+    "api/ssr.ts": {
+      "includeFiles": "dist/server/**"
+    }
+  },
   "headers": [
     {
       "source": "/((?!assets/).*)",

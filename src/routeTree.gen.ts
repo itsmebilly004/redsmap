@@ -27,8 +27,8 @@ import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard.analy
 import { Route as ApiDerivTokenExchangeRouteImport } from './routes/api/deriv-token-exchange'
 import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-accounts'
 import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
-import { Route as ApiBotHandoffRouteImport } from './routes/api/bot-handoff'
 import { Route as ApiBotOrphanCheckRouteImport } from './routes/api/bot-orphan-check'
+import { Route as ApiBotHandoffRouteImport } from './routes/api/bot-handoff'
 
 const TradingBotsRoute = TradingBotsRouteImport.update({
   id: '/trading-bots',
@@ -120,14 +120,14 @@ const ApiDerivAccountOtpRoute = ApiDerivAccountOtpRouteImport.update({
   path: '/api/deriv-account-otp',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiBotHandoffRoute = ApiBotHandoffRouteImport.update({
-  id: '/api/bot-handoff',
-  path: '/api/bot-handoff',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiBotOrphanCheckRoute = ApiBotOrphanCheckRouteImport.update({
   id: '/api/bot-orphan-check',
   path: '/api/bot-orphan-check',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBotHandoffRoute = ApiBotHandoffRouteImport.update({
+  id: '/api/bot-handoff',
+  path: '/api/bot-handoff',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -143,11 +143,11 @@ export interface FileRoutesByFullPath {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
+  '/api/bot-handoff': typeof ApiBotHandoffRoute
+  '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
-  '/api/bot-handoff': typeof ApiBotHandoffRoute
-  '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/strategy/$slug': typeof StrategySlugRoute
@@ -164,11 +164,11 @@ export interface FileRoutesByTo {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
+  '/api/bot-handoff': typeof ApiBotHandoffRoute
+  '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
-  '/api/bot-handoff': typeof ApiBotHandoffRoute
-  '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/strategy/$slug': typeof StrategySlugRoute
@@ -187,11 +187,11 @@ export interface FileRoutesById {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
+  '/api/bot-handoff': typeof ApiBotHandoffRoute
+  '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
-  '/api/bot-handoff': typeof ApiBotHandoffRoute
-  '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/strategy/$slug': typeof StrategySlugRoute
@@ -211,11 +211,11 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
+    | '/api/bot-handoff'
+    | '/api/bot-orphan-check'
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
-    | '/api/bot-handoff'
-    | '/api/bot-orphan-check'
     | '/dashboard/analytics'
     | '/dashboard/settings'
     | '/strategy/$slug'
@@ -232,11 +232,11 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
+    | '/api/bot-handoff'
+    | '/api/bot-orphan-check'
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
-    | '/api/bot-handoff'
-    | '/api/bot-orphan-check'
     | '/dashboard/analytics'
     | '/dashboard/settings'
     | '/strategy/$slug'
@@ -254,11 +254,11 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
+    | '/api/bot-handoff'
+    | '/api/bot-orphan-check'
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
-    | '/api/bot-handoff'
-    | '/api/bot-orphan-check'
     | '/dashboard/analytics'
     | '/dashboard/settings'
     | '/strategy/$slug'
@@ -277,11 +277,11 @@ export interface RootRouteChildren {
   RedirectRoute: typeof RedirectRoute
   StrategiesRoute: typeof StrategiesRoute
   TradingBotsRoute: typeof TradingBotsRoute
+  ApiBotHandoffRoute: typeof ApiBotHandoffRoute
+  ApiBotOrphanCheckRoute: typeof ApiBotOrphanCheckRoute
   ApiDerivAccountOtpRoute: typeof ApiDerivAccountOtpRoute
   ApiDerivAccountsRoute: typeof ApiDerivAccountsRoute
   ApiDerivTokenExchangeRoute: typeof ApiDerivTokenExchangeRoute
-  ApiBotHandoffRoute: typeof ApiBotHandoffRoute
-  ApiBotOrphanCheckRoute: typeof ApiBotOrphanCheckRoute
   StrategySlugRoute: typeof StrategySlugRoute
 }
 
@@ -413,18 +413,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDerivAccountOtpRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/bot-handoff': {
-      id: '/api/bot-handoff'
-      path: '/api/bot-handoff'
-      fullPath: '/api/bot-handoff'
-      preLoaderRoute: typeof ApiBotHandoffRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/bot-orphan-check': {
       id: '/api/bot-orphan-check'
       path: '/api/bot-orphan-check'
       fullPath: '/api/bot-orphan-check'
       preLoaderRoute: typeof ApiBotOrphanCheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/bot-handoff': {
+      id: '/api/bot-handoff'
+      path: '/api/bot-handoff'
+      fullPath: '/api/bot-handoff'
+      preLoaderRoute: typeof ApiBotHandoffRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -458,11 +458,11 @@ const rootRouteChildren: RootRouteChildren = {
   RedirectRoute: RedirectRoute,
   StrategiesRoute: StrategiesRoute,
   TradingBotsRoute: TradingBotsRoute,
+  ApiBotHandoffRoute: ApiBotHandoffRoute,
+  ApiBotOrphanCheckRoute: ApiBotOrphanCheckRoute,
   ApiDerivAccountOtpRoute: ApiDerivAccountOtpRoute,
   ApiDerivAccountsRoute: ApiDerivAccountsRoute,
   ApiDerivTokenExchangeRoute: ApiDerivTokenExchangeRoute,
-  ApiBotHandoffRoute: ApiBotHandoffRoute,
-  ApiBotOrphanCheckRoute: ApiBotOrphanCheckRoute,
   StrategySlugRoute: StrategySlugRoute,
 }
 export const routeTree = rootRouteImport

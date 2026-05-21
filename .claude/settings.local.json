@@ -69,7 +69,9 @@
       "Bash(Select-Object -First 80)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(npx tsr *)"
+      "Bash(npx tsr *)",
+      "Bash(gh run *)",
+      "Bash(npx vercel *)"
     ]
   }
 }
