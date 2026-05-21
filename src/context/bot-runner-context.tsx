@@ -20,6 +20,7 @@ import {
 import {
   ensureDerivTradingConnection,
   getDerivTradingErrorMessage,
+  subscribeBalance,
   type TradeCategory,
   type TradingAdapter,
 } from "@/lib/deriv";
@@ -163,6 +164,9 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
   const dBotBaselineRef = useRef<{
     wins: number; losses: number; profit: number; stake: number; payout: number; runs: number;
   } | null>(null);
+
+  // Cleanup for real-time balance subscription (Deriv balance WS stream)
+  const balanceSubCleanupRef = useRef<(() => void) | null>(null);
 
   // Stop signal: these refs let stopBot() unblock any pending async operation
   const pendingTickResolveRef = useRef<((data: { quote: number; epoch: number } | null) => void) | null>(null);
@@ -638,6 +642,9 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     botRunModeRef.current = null;
     setConnecting(false);
     setStatus("stopped");
+    // Stop real-time balance subscription
+    balanceSubCleanupRef.current?.();
+    balanceSubCleanupRef.current = null;
     // Unblock any awaited nextTick() immediately
     if (pendingTickResolveRef.current) {
       pendingTickResolveRef.current(null);
@@ -993,6 +1000,17 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       }, 8000);
       const session = await ensureDerivTradingConnection(currentAccount, { context: "footer-bot-run" });
       window.clearTimeout(connectionSlowTimer);
+
+      // Subscribe to the Deriv balance stream on the live trading WS so every
+      // contract settlement pushes an accurate balance to the UI immediately.
+      balanceSubCleanupRef.current?.();
+      balanceSubCleanupRef.current = null;
+      subscribeBalance(currentAccount.deriv_token, (b) => {
+        window.dispatchEvent(new CustomEvent("deriv:dbot-balance", { detail: { balance: b.balance } }));
+      }).then((cleanup) => {
+        balanceSubCleanupRef.current = cleanup;
+      }).catch(() => {});
+
       const sessionAccountUpper = String(session.account_id ?? "").trim().toUpperCase();
       const selectedAccountUpper = String(currentAccount.account_id ?? "").trim().toUpperCase();
       if (!sessionAccountUpper || sessionAccountUpper !== selectedAccountUpper) {
@@ -1190,11 +1208,12 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
 
             if (!footerBotRunningRef.current) break;
 
-            // Settlement detected — immediately push estimated balance to UI, then
-            // fire a full refresh in the background so the precise server value follows.
+            // The real-time balance subscription (subscribeBalance) pushes the
+            // accurate balance from Deriv's WS stream immediately after settlement.
+            // Keep an optimistic local update as an instant fallback in case the
+            // WS balance event arrives slightly after this point.
             const estimatedBalance = (balanceRef.current ?? 0) + settlement.profit;
             window.dispatchEvent(new CustomEvent("deriv:dbot-balance", { detail: { balance: estimatedBalance } }));
-            void refreshBalances("footer-bot-trade-complete", currentAccount.account_id).catch(() => {});
             setTransactions((items) =>
               items.map((item) =>
                 item.id === record.id
@@ -1319,6 +1338,8 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
 
       stopTickWs();
       stopTickWsFnRef.current = null;
+      balanceSubCleanupRef.current?.();
+      balanceSubCleanupRef.current = null;
       void refreshBalances("footer-bot-run-complete", currentAccount.account_id).catch(() => {});
       setStatus("stopped");
       footerBotRunningRef.current = false;
@@ -1347,6 +1368,8 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       stopTickWs();
       stopTickWsFnRef.current = null;
+      balanceSubCleanupRef.current?.();
+      balanceSubCleanupRef.current = null;
       const message = getDerivTradingErrorMessage(error);
       footerBotRunningRef.current = false;
       botRunModeRef.current = null;
