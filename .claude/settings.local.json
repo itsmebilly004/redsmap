@@ -76,7 +76,8 @@
       "Read(//c/Users/ADMIN/.local/share/**)",
       "Read(//c/Users/ADMIN/AppData/Roaming/com.vercel.cli/**)",
       "Read(//c/Users/ADMIN/AppData/Local/com.vercel.cli/**)",
-      "Bash(python3 -c \"import json; data=json.load\\(open\\('C:/Users/ADMIN/AppData/Roaming/com.vercel.cli/Data/auth.json'\\)\\); print\\(data.get\\('token',''\\)\\)\")"
+      "Bash(python3 -c \"import json; data=json.load\\(open\\('C:/Users/ADMIN/AppData/Roaming/com.vercel.cli/Data/auth.json'\\)\\); print\\(data.get\\('token',''\\)\\)\")",
+      "WebFetch(domain:developers.deriv.com)"
     ]
   }
 }
