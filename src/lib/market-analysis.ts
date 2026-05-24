@@ -64,8 +64,83 @@ export type StakeRecommendation = {
   worstCaseLossStreak: number;
 };
 
+/**
+ * Concurrency limit for parallel Deriv public WebSocket requests. Each
+ * `fetchTicks` call opens a fresh public WS via `publicSend`, and Deriv
+ * routinely times out (15 s) when more than ~4 are opened in parallel from
+ * a single browser. Keep this small to stay well under that ceiling.
+ */
+const MAX_PARALLEL_TICK_FETCHES = 4;
+const TICK_FETCH_RETRIES = 2;
+const TICK_RETRY_BACKOFF_MS = 700;
+
+/**
+ * In-flight cache so concurrent callers asking for the same symbol within a
+ * single analysis run share one WebSocket request. Also short-circuits the
+ * "analyzeBestBotOpportunities + manual digit heatmap" overlap that fires
+ * back-to-back. Entries expire so a Rerun click always sees fresh data.
+ */
+const TICKS_CACHE_TTL_MS = 8_000;
+const ticksCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<Awaited<ReturnType<typeof fetchTicks>>> }
+>();
+
+async function fetchTicksWithRetry(symbol: string, count: number) {
+  const now = Date.now();
+  const cached = ticksCache.get(symbol);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const promise = (async () => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= TICK_FETCH_RETRIES; attempt += 1) {
+      try {
+        return await fetchTicks(symbol, count);
+      } catch (err) {
+        lastError = err;
+        if (attempt < TICK_FETCH_RETRIES) {
+          await sleep(TICK_RETRY_BACKOFF_MS * (attempt + 1));
+        }
+      }
+    }
+    throw lastError;
+  })();
+
+  ticksCache.set(symbol, { expiresAt: now + TICKS_CACHE_TTL_MS, promise });
+  // Drop the entry on failure so a Rerun retries instead of replaying the error.
+  promise.catch(() => ticksCache.delete(symbol));
+  return promise;
+}
+
+async function mapWithConcurrencyLimit<T, R>(
+  items: T[],
+  limit: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      results[index] = await task(items[index], index);
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, limit), items.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 export async function analyzeDigitsForSymbol(symbol: string) {
-  const ticks = await fetchTicks(symbol, 500);
+  const ticks = await fetchTicksWithRetry(symbol, 500);
   const digits = digitsFromPrices(
     ticks.map((tick) => tick.value),
     500,
@@ -98,10 +173,27 @@ const LAUNCHABLE_BOT_PRESET_IDS = new Set(TRADING_BOT_ASSETS.map((asset) => asse
 
 export async function analyzeBestBotOpportunities() {
   const markets = Array.from(new Set(BOT_PRESET_CONFIGS.map((preset) => preset.market)));
-  const analyses = await Promise.all(
-    markets.map(async (market) => [market, await analyzeDigitsForSymbol(market)] as const),
+  // Isolate per-market failures: one timed-out symbol must not abort the whole
+  // scan. Markets that fail every retry are simply absent from the result map.
+  const analyses = await mapWithConcurrencyLimit(
+    markets,
+    MAX_PARALLEL_TICK_FETCHES,
+    async (market) => {
+      try {
+        return [market, await analyzeDigitsForSymbol(market)] as const;
+      } catch {
+        return [market, null] as const;
+      }
+    },
   );
-  const marketMap = new Map(analyses);
+  const marketMap = new Map(
+    analyses.filter((entry): entry is readonly [string, DigitMarketAnalysis] => entry[1] !== null),
+  );
+  if (marketMap.size === 0) {
+    throw new Error(
+      "Could not reach Deriv's market data right now. Check your connection and try again.",
+    );
+  }
   return BOT_PRESET_CONFIGS.map((preset) => {
     const analysis = marketMap.get(preset.market);
     if (!analysis) return null;
@@ -148,22 +240,36 @@ export async function analyzeBestMarketForContract(
 ): Promise<ManualMarketSuggestion[]> {
   const symbols = MANUAL_ANALYZABLE_SYMBOLS;
   if (kind === "rise_fall") {
-    const results = await Promise.all(
-      symbols.map(async (symbol) => analyzeRiseFallForSymbol(symbol).catch(() => null)),
+    const results = await mapWithConcurrencyLimit(
+      symbols,
+      MAX_PARALLEL_TICK_FETCHES,
+      async (symbol) => {
+        try {
+          return await analyzeRiseFallForSymbol(symbol);
+        } catch {
+          return null;
+        }
+      },
     );
-    return results
-      .filter((item): item is ManualMarketSuggestion => Boolean(item))
-      .sort((left, right) => right.edge - left.edge);
+    const good = results.filter((item): item is ManualMarketSuggestion => Boolean(item));
+    if (good.length === 0) {
+      throw new Error(
+        "Could not reach Deriv's market data right now. Check your connection and try again.",
+      );
+    }
+    return good.sort((left, right) => right.edge - left.edge);
   }
 
-  const digitResults = await Promise.all(
-    symbols.map(async (symbol) => {
+  const digitResults = await mapWithConcurrencyLimit(
+    symbols,
+    MAX_PARALLEL_TICK_FETCHES,
+    async (symbol) => {
       try {
         return await analyzeDigitsForSymbol(symbol);
       } catch {
         return null;
       }
-    }),
+    },
   );
 
   const suggestions: ManualMarketSuggestion[] = [];
@@ -237,11 +343,16 @@ export async function analyzeBestMarketForContract(
       });
     }
   }
+  if (suggestions.length === 0) {
+    throw new Error(
+      "Could not reach Deriv's market data right now. Check your connection and try again.",
+    );
+  }
   return suggestions.sort((left, right) => right.edge - left.edge);
 }
 
 async function analyzeRiseFallForSymbol(symbol: string): Promise<ManualMarketSuggestion> {
-  const ticks = await fetchTicks(symbol, 500);
+  const ticks = await fetchTicksWithRetry(symbol, 500);
   let rise = 0;
   let fall = 0;
   for (let index = 1; index < ticks.length; index += 1) {
