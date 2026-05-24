@@ -1,7 +1,9 @@
-import { fetchTicks, SYNTHETIC_MARKETS } from "@/lib/deriv";
+import { fetchTicks, publicSendBatch, SYNTHETIC_MARKETS } from "@/lib/deriv";
 import { BOT_PRESET_CONFIGS, type BotPresetConfig } from "@/lib/bot-presets";
 import { calculateDigitStats, digitsFromPrices } from "@/lib/digit-stats";
 import { TRADING_BOT_ASSETS } from "@/lib/trading-bot-database";
+
+type TickPoint = { time: number; value: number };
 
 type OverUnderRecommendation = {
   expected: number;
@@ -64,86 +66,135 @@ export type StakeRecommendation = {
   worstCaseLossStreak: number;
 };
 
-/**
- * Concurrency limit for parallel Deriv public WebSocket requests. Each
- * `fetchTicks` call opens a fresh public WS via `publicSend`, and Deriv
- * routinely times out (15 s) when more than ~4 are opened in parallel from
- * a single browser. Keep this small to stay well under that ceiling.
- */
-const MAX_PARALLEL_TICK_FETCHES = 4;
-const TICK_FETCH_RETRIES = 2;
-const TICK_RETRY_BACKOFF_MS = 700;
+export type ManualStakeRecommendation = {
+  rationale: string;
+  riskBand: "aggressive" | "balanced" | "conservative";
+  stake: number;
+};
 
 /**
- * In-flight cache so concurrent callers asking for the same symbol within a
- * single analysis run share one WebSocket request. Also short-circuits the
- * "analyzeBestBotOpportunities + manual digit heatmap" overlap that fires
- * back-to-back. Entries expire so a Rerun click always sees fresh data.
+ * 300 ticks gives a statistically meaningful window (~5 min on R_100, ~5 min
+ * on 1HZ markets) while being noticeably faster on the wire than 500.
+ */
+const ANALYSIS_TICK_COUNT = 300;
+/** Per-call timeout when individual symbols are fetched in isolation. */
+const PUBLIC_REQUEST_TIMEOUT_MS = 10_000;
+/** Per-symbol timeout inside a batched fetch — short because the WS handshake is paid once. */
+const BATCH_REQUEST_TIMEOUT_MS = 9_000;
+
+/**
+ * Short-lived in-flight cache so the back-to-back "Best Bot scan → manual
+ * digit heatmap" pattern doesn't open the same symbol twice. Rerun clears
+ * the entry by expiry; explicit failures purge it immediately.
  */
 const TICKS_CACHE_TTL_MS = 8_000;
 const ticksCache = new Map<
   string,
-  { expiresAt: number; promise: Promise<Awaited<ReturnType<typeof fetchTicks>>> }
+  { expiresAt: number; promise: Promise<TickPoint[]> }
 >();
 
-async function fetchTicksWithRetry(symbol: string, count: number) {
-  const now = Date.now();
-  const cached = ticksCache.get(symbol);
-  if (cached && cached.expiresAt > now) return cached.promise;
-
-  const promise = (async () => {
-    let lastError: unknown;
-    for (let attempt = 0; attempt <= TICK_FETCH_RETRIES; attempt += 1) {
-      try {
-        return await fetchTicks(symbol, count);
-      } catch (err) {
-        lastError = err;
-        if (attempt < TICK_FETCH_RETRIES) {
-          await sleep(TICK_RETRY_BACKOFF_MS * (attempt + 1));
-        }
-      }
-    }
-    throw lastError;
-  })();
-
-  ticksCache.set(symbol, { expiresAt: now + TICKS_CACHE_TTL_MS, promise });
-  // Drop the entry on failure so a Rerun retries instead of replaying the error.
+function cacheTicksPromise(symbol: string, promise: Promise<TickPoint[]>) {
+  ticksCache.set(symbol, { expiresAt: Date.now() + TICKS_CACHE_TTL_MS, promise });
   promise.catch(() => ticksCache.delete(symbol));
   return promise;
 }
 
-async function mapWithConcurrencyLimit<T, R>(
-  items: T[],
-  limit: number,
-  task: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const worker = async () => {
-    while (true) {
-      const index = cursor;
-      cursor += 1;
-      if (index >= items.length) return;
-      results[index] = await task(items[index], index);
+/**
+ * Fetch ticks for many symbols in ONE WebSocket round-trip. This is the main
+ * speed win for the AI assistant: instead of opening 10 sockets (10 × ~250ms
+ * handshake), we open 1 and multiplex via req_id.
+ *
+ * Returns a `Map<symbol, TickPoint[]>`. Symbols whose batched request errored
+ * are simply absent — callers must handle the partial-result case.
+ */
+export async function fetchTicksBatch(
+  symbols: string[],
+  count: number = ANALYSIS_TICK_COUNT,
+): Promise<Map<string, TickPoint[]>> {
+  const now = Date.now();
+  const map = new Map<string, TickPoint[]>();
+  const toFetch: string[] = [];
+  const cachedPromises: { symbol: string; promise: Promise<TickPoint[]> }[] = [];
+
+  for (const symbol of symbols) {
+    const cached = ticksCache.get(symbol);
+    if (cached && cached.expiresAt > now) {
+      cachedPromises.push({ symbol, promise: cached.promise });
+    } else {
+      toFetch.push(symbol);
     }
-  };
-  const workers = Array.from(
-    { length: Math.min(Math.max(1, limit), items.length) },
-    () => worker(),
-  );
-  await Promise.all(workers);
-  return results;
+  }
+
+  // Resolve cached entries in parallel with the new batch
+  const cacheTasks = cachedPromises.map(async ({ symbol, promise }) => {
+    try {
+      const ticks = await promise;
+      if (ticks.length > 0) map.set(symbol, ticks);
+    } catch {
+      /* swallow — symbol simply absent from result map */
+    }
+  });
+
+  if (toFetch.length > 0) {
+    const responses = await publicSendBatch(
+      toFetch.map((symbol) => ({
+        ticks_history: symbol,
+        style: "ticks",
+        count,
+        end: "latest",
+        adjust_start_time: 1,
+      })),
+      { timeoutMs: BATCH_REQUEST_TIMEOUT_MS },
+    );
+
+    toFetch.forEach((symbol, index) => {
+      const response = responses[index];
+      if (response instanceof Error) {
+        // Surface nothing for failed symbols; cache miss left as-is so a Rerun retries.
+        return;
+      }
+      const history = response?.history as { prices?: unknown[]; times?: unknown[] } | undefined;
+      const prices = Array.isArray(history?.prices) ? history.prices : [];
+      const times = Array.isArray(history?.times) ? history.times : [];
+      const ticks: TickPoint[] = prices
+        .map((price, i) => ({ time: Number(times[i]), value: Number(price) }))
+        .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value));
+      if (ticks.length === 0) return;
+      map.set(symbol, ticks);
+      // Cache the resolved value so subsequent single-symbol calls (e.g. digit heatmap)
+      // hit the cache instead of opening a new WS.
+      cacheTicksPromise(symbol, Promise.resolve(ticks));
+    });
+  }
+
+  await Promise.all(cacheTasks);
+  return map;
 }
 
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** Fetch ticks for a single symbol with the in-flight cache layered on top. */
+async function fetchTicksSingle(symbol: string, count: number = ANALYSIS_TICK_COUNT) {
+  const now = Date.now();
+  const cached = ticksCache.get(symbol);
+  if (cached && cached.expiresAt > now) return cached.promise;
+  const promise = (async () => {
+    // Use a tight timeout via Promise.race rather than the global 15s default.
+    return await Promise.race<TickPoint[]>([
+      fetchTicks(symbol, count),
+      new Promise<TickPoint[]>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Deriv public request timed out")),
+          PUBLIC_REQUEST_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+  })();
+  return cacheTicksPromise(symbol, promise);
 }
 
-export async function analyzeDigitsForSymbol(symbol: string) {
-  const ticks = await fetchTicksWithRetry(symbol, 500);
+function buildDigitAnalysis(symbol: string, ticks: TickPoint[]): DigitMarketAnalysis {
   const digits = digitsFromPrices(
     ticks.map((tick) => tick.value),
-    500,
+    ANALYSIS_TICK_COUNT,
   );
   const stats = calculateDigitStats(digits);
   const counts = stats.counts;
@@ -169,26 +220,24 @@ export async function analyzeDigitsForSymbol(symbol: string) {
   } satisfies DigitMarketAnalysis;
 }
 
+export async function analyzeDigitsForSymbol(symbol: string) {
+  const ticks = await fetchTicksSingle(symbol, ANALYSIS_TICK_COUNT);
+  return buildDigitAnalysis(symbol, ticks);
+}
+
 const LAUNCHABLE_BOT_PRESET_IDS = new Set(TRADING_BOT_ASSETS.map((asset) => asset.id));
 
 export async function analyzeBestBotOpportunities() {
   const markets = Array.from(new Set(BOT_PRESET_CONFIGS.map((preset) => preset.market)));
-  // Isolate per-market failures: one timed-out symbol must not abort the whole
-  // scan. Markets that fail every retry are simply absent from the result map.
-  const analyses = await mapWithConcurrencyLimit(
-    markets,
-    MAX_PARALLEL_TICK_FETCHES,
-    async (market) => {
-      try {
-        return [market, await analyzeDigitsForSymbol(market)] as const;
-      } catch {
-        return [market, null] as const;
-      }
-    },
-  );
-  const marketMap = new Map(
-    analyses.filter((entry): entry is readonly [string, DigitMarketAnalysis] => entry[1] !== null),
-  );
+  // One WebSocket round-trip for ALL bot-relevant markets at once — much faster
+  // than 1 socket per symbol.
+  const ticksBySymbol = await fetchTicksBatch(markets, ANALYSIS_TICK_COUNT);
+  const marketMap = new Map<string, DigitMarketAnalysis>();
+  for (const symbol of markets) {
+    const ticks = ticksBySymbol.get(symbol);
+    if (!ticks || ticks.length === 0) continue;
+    marketMap.set(symbol, buildDigitAnalysis(symbol, ticks));
+  }
   if (marketMap.size === 0) {
     throw new Error(
       "Could not reach Deriv's market data right now. Check your connection and try again.",
@@ -239,42 +288,31 @@ export async function analyzeBestMarketForContract(
   kind: ManualContractKind,
 ): Promise<ManualMarketSuggestion[]> {
   const symbols = MANUAL_ANALYZABLE_SYMBOLS;
+  // One batched WebSocket round-trip for all 10 markets. Rise/Fall uses raw
+  // tick prices; digit-style contracts derive digits from the same prices, so
+  // both flows share the same fetch.
+  const ticksBySymbol = await fetchTicksBatch(symbols, ANALYSIS_TICK_COUNT);
+
   if (kind === "rise_fall") {
-    const results = await mapWithConcurrencyLimit(
-      symbols,
-      MAX_PARALLEL_TICK_FETCHES,
-      async (symbol) => {
-        try {
-          return await analyzeRiseFallForSymbol(symbol);
-        } catch {
-          return null;
-        }
-      },
-    );
-    const good = results.filter((item): item is ManualMarketSuggestion => Boolean(item));
-    if (good.length === 0) {
+    const results: ManualMarketSuggestion[] = [];
+    for (const symbol of symbols) {
+      const ticks = ticksBySymbol.get(symbol);
+      if (!ticks || ticks.length < 2) continue;
+      results.push(riseFallSuggestionFromTicks(symbol, ticks));
+    }
+    if (results.length === 0) {
       throw new Error(
         "Could not reach Deriv's market data right now. Check your connection and try again.",
       );
     }
-    return good.sort((left, right) => right.edge - left.edge);
+    return results.sort((left, right) => right.edge - left.edge);
   }
 
-  const digitResults = await mapWithConcurrencyLimit(
-    symbols,
-    MAX_PARALLEL_TICK_FETCHES,
-    async (symbol) => {
-      try {
-        return await analyzeDigitsForSymbol(symbol);
-      } catch {
-        return null;
-      }
-    },
-  );
-
   const suggestions: ManualMarketSuggestion[] = [];
-  for (const analysis of digitResults) {
-    if (!analysis) continue;
+  for (const symbol of symbols) {
+    const ticks = ticksBySymbol.get(symbol);
+    if (!ticks || ticks.length === 0) continue;
+    const analysis = buildDigitAnalysis(symbol, ticks);
     if (kind === "even_odd") {
       const side =
         analysis.evenPercentage >= analysis.oddPercentage ? "Even" : "Odd";
@@ -351,8 +389,7 @@ export async function analyzeBestMarketForContract(
   return suggestions.sort((left, right) => right.edge - left.edge);
 }
 
-async function analyzeRiseFallForSymbol(symbol: string): Promise<ManualMarketSuggestion> {
-  const ticks = await fetchTicksWithRetry(symbol, 500);
+function riseFallSuggestionFromTicks(symbol: string, ticks: TickPoint[]): ManualMarketSuggestion {
   let rise = 0;
   let fall = 0;
   for (let index = 1; index < ticks.length; index += 1) {
@@ -377,6 +414,32 @@ async function analyzeRiseFallForSymbol(symbol: string): Promise<ManualMarketSug
     side,
     symbol,
   };
+}
+
+/**
+ * Flat-stake sizing for manual binary contracts (no martingale recovery on losses).
+ * Anchors stake at 1–3% of balance scaled by risk band; refuses to bet more than
+ * one Deriv minimum if the user only has a few units of balance.
+ */
+export function recommendManualStake(input: {
+  balance: number | null | undefined;
+  edge?: number;
+}): ManualStakeRecommendation {
+  const balance = Math.max(0, Number(input.balance ?? 0));
+  const riskBand: ManualStakeRecommendation["riskBand"] =
+    balance < 50 ? "conservative" : balance < 500 ? "balanced" : "aggressive";
+  const FRACTION = { conservative: 0.01, balanced: 0.02, aggressive: 0.03 } as const;
+  const rawStake = balance > 0 ? balance * FRACTION[riskBand] : 0.5;
+  const stake = Math.max(0.35, Math.round(rawStake * 100) / 100);
+  const edge = Math.max(0, Number(input.edge ?? 0));
+  const rationale =
+    balance > 0
+      ? `Flat ${(FRACTION[riskBand] * 100).toFixed(0)}% of your ${balance >= 100 ? balance.toFixed(0) : balance.toFixed(2)} balance (${riskBand}). ` +
+        (edge > 0
+          ? `Edge of ${edge.toFixed(1)}% is small — keep stake flat instead of compounding on losses.`
+          : `No statistical edge detected; treat as a coin-flip and only stake what you can lose.`)
+      : "Default opening stake — connect your Deriv account to size from real balance.";
+  return { rationale, riskBand, stake };
 }
 
 /**

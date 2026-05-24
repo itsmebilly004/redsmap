@@ -21,13 +21,16 @@ import {
   analyzeBestBotOpportunities,
   analyzeBestMarketForContract,
   analyzeDigitsForSymbol,
+  recommendManualStake,
   recommendStakeAndMartingale,
   type BotOpportunity,
   type DigitMarketAnalysis,
   type ManualContractKind,
   type ManualMarketSuggestion,
+  type ManualStakeRecommendation,
   type StakeRecommendation,
 } from "@/lib/market-analysis";
+import { setManualTradePickup } from "@/lib/manual-trade-pickup";
 import { cn } from "@/lib/utils";
 
 type AssistantView = "best-bot" | "manual" | "memory";
@@ -274,6 +277,35 @@ export function AiAssistant({
     setError(null);
   }
 
+  const topManualSuggestion = manualSuggestions[0] ?? null;
+  const manualStakeAdvice: ManualStakeRecommendation | null = useMemo(() => {
+    if (!topManualSuggestion) return null;
+    return recommendManualStake({
+      balance,
+      edge: topManualSuggestion.edge,
+    });
+  }, [balance, topManualSuggestion]);
+
+  function handleLaunchManualTrader() {
+    if (!topManualSuggestion || !manualKind || !manualStakeAdvice) return;
+    setManualTradePickup({
+      stake: manualStakeAdvice.stake,
+      symbol: topManualSuggestion.symbol,
+      tradeType: manualKind,
+    });
+    recordActivity(user?.id, {
+      message: `AI handoff to manual trader: ${manualKind} on ${topManualSuggestion.symbol} @ ${manualStakeAdvice.stake.toFixed(2)} ${currency || "USD"}.`,
+      meta: {
+        kind: manualKind,
+        stake: manualStakeAdvice.stake,
+        symbol: topManualSuggestion.symbol,
+      },
+      type: "assistant",
+    });
+    setOpen(false);
+    navigate({ to: "/" });
+  }
+
   return (
     <>
       {open && (
@@ -498,23 +530,50 @@ export function AiAssistant({
                       ).
                     </AssistantInfoCard>
 
+                    {manualStakeAdvice && (
+                      <div className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
+                          Stake advice for your balance
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-3 text-xs">
+                          <RecommendationStat
+                            label="Suggested stake"
+                            value={`${manualStakeAdvice.stake.toFixed(2)} ${currency || "USD"}`}
+                          />
+                          <RecommendationStat
+                            label="Risk band"
+                            value={capitalize(manualStakeAdvice.riskBand)}
+                          />
+                        </div>
+                        <div className="mt-2 text-[11px] leading-5 text-[#62707c] dark:text-[#aab1b8]">
+                          {manualStakeAdvice.rationale}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex gap-2">
                       <button
                         type="button"
                         onClick={handleRerun}
                         disabled={loading}
-                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#d7dce0] bg-white px-3 py-2.5 text-sm font-semibold text-[#42505b] transition hover:bg-[#f5f7f8] dark:border-[#2a2f35] dark:bg-[#101214] dark:text-[#d4dbe2] dark:hover:bg-[#171a1d]"
+                        className="flex items-center justify-center gap-1.5 rounded-xl border border-[#d7dce0] bg-white px-3 py-2.5 text-sm font-semibold text-[#42505b] transition hover:bg-[#f5f7f8] dark:border-[#2a2f35] dark:bg-[#101214] dark:text-[#d4dbe2] dark:hover:bg-[#171a1d]"
                       >
                         <RefreshCw className={cn("size-4", loading && "animate-spin")} />
-                        Rerun scan
+                        Rerun
                       </button>
                       <button
                         type="button"
-                        onClick={() => navigate({ to: "/charts" })}
-                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#4bb4b3] px-3 py-2.5 text-sm font-bold text-white shadow transition hover:bg-[#3aa19f]"
+                        onClick={handleLaunchManualTrader}
+                        disabled={!manualStakeAdvice}
+                        className={cn(
+                          "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold text-white shadow transition",
+                          manualStakeAdvice
+                            ? "bg-[#4bb4b3] hover:bg-[#3aa19f]"
+                            : "bg-[#9ca3af] cursor-not-allowed",
+                        )}
                       >
                         <Play className="size-4" />
-                        Open chart
+                        Launch on Manual Trader
                       </button>
                     </div>
 

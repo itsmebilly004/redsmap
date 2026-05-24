@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Maximize2, Minimize2 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DerivChart } from "@/components/deriv-chart";
@@ -7,6 +7,7 @@ import { TopShell } from "@/components/top-shell";
 import { TradePanel } from "@/components/trade-panel";
 import { useAuth } from "@/hooks/use-auth";
 import { readRememberedMarket, rememberMarketSelection } from "@/lib/activity-memory";
+import { consumeManualTradePickup } from "@/lib/manual-trade-pickup";
 import {
   DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE,
   recordDerivOAuthTrace,
@@ -32,12 +33,19 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const { user } = useAuth();
+  // Consume the AI assistant's one-shot pickup BEFORE initialising state so the
+  // suggested symbol/tradeType/stake apply on first render. The pickup is
+  // cleared inside `consumeManualTradePickup` so a later refresh starts clean.
+  const aiPickup = useMemo(() => consumeManualTradePickup(), []);
   const [symbol, setSymbol] = useState(
-    () => readRememberedMarket(undefined, "manual", "1HZ100V") ?? "1HZ100V",
+    () =>
+      aiPickup?.symbol ??
+      readRememberedMarket(undefined, "manual", "1HZ100V") ??
+      "1HZ100V",
   );
   const [price, setPrice] = useState<number | null>(null);
   const [tickPrices, setTickPrices] = useState<number[]>([]);
-  const [tradeType, setTradeType] = useState<TradeCategory>("accumulator");
+  const [tradeType, setTradeType] = useState<TradeCategory>(aiPickup?.tradeType ?? "accumulator");
   const [barriers, setBarriers] = useState<{
     breached?: boolean;
     entry: number | null;
@@ -69,10 +77,17 @@ function Index() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
+    // If the AI assistant just handed off a pick, persist it as the user's
+    // remembered market so this effect doesn't immediately override it with
+    // whatever was last selected before the AI suggestion.
+    if (aiPickup?.symbol) {
+      rememberMarketSelection(user?.id, "manual", aiPickup.symbol);
+      return;
+    }
     const remembered = readRememberedMarket(user?.id, "manual");
     if (!remembered) return;
     setSymbol((current) => (current === remembered ? current : remembered));
-  }, [user?.id]);
+  }, [aiPickup?.symbol, user?.id]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -265,6 +280,8 @@ function Index() {
               <TradePanel
                 market={symbol}
                 lastPrice={price}
+                initialStake={aiPickup?.stake}
+                initialTradeType={aiPickup?.tradeType}
                 onAccumulatorBarriers={handleAccumulatorBarriers}
                 onMarketChange={handleMarketChange}
                 onTradeTypeChange={setTradeType}
@@ -324,6 +341,8 @@ function Index() {
               <TradePanel
                 market={symbol}
                 lastPrice={price}
+                initialStake={aiPickup?.stake}
+                initialTradeType={aiPickup?.tradeType}
                 onAccumulatorBarriers={handleAccumulatorBarriers}
                 onMarketChange={handleMarketChange}
                 onTradeTypeChange={setTradeType}

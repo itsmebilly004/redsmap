@@ -3032,6 +3032,115 @@ async function publicSend(payload: DerivRecord): Promise<DerivMessage> {
   });
 }
 
+/**
+ * Send N public Deriv requests over a SINGLE shared WebSocket and resolve each
+ * independently. Cuts the per-call WS handshake overhead (TLS + WS upgrade,
+ * typically 150–400 ms) to a single one for the whole batch — the main source
+ * of latency when the AI assistant scans many markets in parallel.
+ *
+ * Each item resolves to a DerivMessage on success or an Error on per-request
+ * failure (timeout, server error, dropped socket). The promise never rejects;
+ * callers inspect each element to decide what to do.
+ */
+export async function publicSendBatch(
+  payloads: DerivRecord[],
+  options?: { timeoutMs?: number },
+): Promise<(DerivMessage | Error)[]> {
+  if (!isBrowser || payloads.length === 0) return [];
+  const timeoutMs = options?.timeoutMs ?? 12000;
+  const results = new Array<DerivMessage | Error | undefined>(payloads.length);
+  const requestIds = payloads.map(() => reqId++);
+  const indexById = new Map<number, number>();
+  requestIds.forEach((id, idx) => indexById.set(id, idx));
+
+  let ws: WebSocket;
+  try {
+    ws = await connectPublic();
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error("Deriv public WebSocket failed to open");
+    return payloads.map(() => error);
+  }
+
+  return new Promise<(DerivMessage | Error)[]>((resolveAll) => {
+    let completed = 0;
+    const timeouts = new Map<number, ReturnType<typeof setTimeout>>();
+
+    const finalize = () => {
+      for (const t of timeouts.values()) clearTimeout(t);
+      timeouts.clear();
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
+      // Fill any holes (defensive — shouldn't happen given the bookkeeping)
+      resolveAll(
+        results.map((value) =>
+          value === undefined ? new Error("Deriv public batch did not return") : value,
+        ),
+      );
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data as string) as DerivMessage & { req_id?: number };
+        const reqIdNum = typeof msg.req_id === "number" ? msg.req_id : -1;
+        const index = indexById.get(reqIdNum);
+        if (index === undefined || results[index] !== undefined) return;
+        const timeoutId = timeouts.get(reqIdNum);
+        if (timeoutId) clearTimeout(timeoutId);
+        timeouts.delete(reqIdNum);
+        results[index] = msg.error ? derivMessageError(msg.error) : msg;
+        completed += 1;
+        if (completed === payloads.length) finalize();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    ws.onerror = () => {
+      const error = new Error("Deriv public batch socket failed");
+      for (let i = 0; i < payloads.length; i += 1) {
+        if (results[i] === undefined) results[i] = error;
+      }
+      finalize();
+    };
+
+    ws.onclose = () => {
+      if (completed === payloads.length) return;
+      const error = new Error("Deriv public batch socket closed prematurely");
+      for (let i = 0; i < payloads.length; i += 1) {
+        if (results[i] === undefined) results[i] = error;
+      }
+      finalize();
+    };
+
+    payloads.forEach((payload, index) => {
+      const id = requestIds[index];
+      const timeoutId = setTimeout(() => {
+        if (results[index] !== undefined) return;
+        results[index] = new Error("Deriv public request timed out");
+        timeouts.delete(id);
+        completed += 1;
+        if (completed === payloads.length) finalize();
+      }, timeoutMs);
+      timeouts.set(id, timeoutId);
+      try {
+        ws.send(JSON.stringify({ ...payload, req_id: id }));
+      } catch (err) {
+        if (results[index] === undefined) {
+          results[index] = err instanceof Error ? err : new Error("Deriv public request failed");
+          const t = timeouts.get(id);
+          if (t) clearTimeout(t);
+          timeouts.delete(id);
+          completed += 1;
+          if (completed === payloads.length) finalize();
+        }
+      }
+    });
+  });
+}
+
 export const SYNTHETIC_MARKETS = [
   { symbol: "R_10", name: "Volatility 10 Index" },
   { symbol: "R_25", name: "Volatility 25 Index" },
