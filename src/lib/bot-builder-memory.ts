@@ -1,14 +1,20 @@
 import {
   clearCurrentBotPresetId,
+  initialBotBuilderSettings,
   persistCurrentBotPresetId,
+  persistCurrentBotSettings,
   persistPresetWorkspaceXml,
   readPresetWorkspaceXml,
+  type BotBuilderSettings,
 } from "@/lib/bot-builder-state";
 import { writeRecentWorkspaceXml } from "@/external/bot-builder/recent-workspaces";
 import {
+  extractSettingsFromXmlText,
   sanitizeDbotXml,
   writeSavedWorkspaceXml,
 } from "@/external/bot-builder/workspace-persistence";
+import { TRADING_BOT_ASSETS } from "@/lib/trading-bot-database";
+import { fetchBotXmlFromDatabase } from "@/lib/bot-xml-storage";
 
 export type BuilderMemoryImport = {
   name: string;
@@ -64,4 +70,51 @@ export async function importBotXmlIntoBuilderMemory(
 
   writeSavedWorkspaceXml(userId, workspaceXml);
   await writeRecentWorkspaceXml(workspaceXml, input.name);
+}
+
+/**
+ * Deploy a bot preset from the AI assistant with a custom opening stake and
+ * martingale already applied. The XML is loaded from the database (same
+ * source as the Trading Bot Presets page) so the builder memory is identical
+ * to a manual deploy — then we overwrite the run-loop knobs in
+ * `current-settings` so the next Run uses the AI's risk-sized values.
+ *
+ * Caller is responsible for navigating to /bot-builder after this resolves.
+ */
+export async function deployBotFromAiSuggestion(input: {
+  martingale: number;
+  presetId: string;
+  stake: number;
+  userId: string;
+}): Promise<{ name: string }> {
+  const asset = TRADING_BOT_ASSETS.find((item) => item.id === input.presetId);
+  if (!asset) {
+    throw new Error(`Bot preset "${input.presetId}" is not registered as a deployable asset.`);
+  }
+
+  const xml = await fetchBotXmlFromDatabase(input.presetId);
+  await importBotXmlIntoBuilderMemory(input.userId, {
+    name: asset.name,
+    presetId: input.presetId,
+    xml,
+  });
+
+  // Apply the AI-recommended stake & martingale on top of XML-derived defaults
+  // so the bot-builder panel + footer Run both pick them up immediately.
+  const baseSettings: BotBuilderSettings =
+    extractSettingsFromXmlText(xml) ?? { ...initialBotBuilderSettings };
+  const martingale = Math.max(1, input.martingale);
+  const stake = Math.max(0.35, input.stake);
+  persistCurrentBotSettings(
+    input.userId,
+    {
+      ...baseSettings,
+      martingale,
+      maxStake: Math.max(baseSettings.maxStake, stake * Math.max(1, martingale) * 8),
+      stake,
+    },
+    { presetId: input.presetId },
+  );
+
+  return { name: asset.name };
 }

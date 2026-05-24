@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { BrainCircuit, RefreshCw, Sparkles, X } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { toast } from "sonner";
+import { BrainCircuit, Info, Play, RefreshCw, Rocket, Sparkles, X } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
   persistAssistantButtonPosition,
   readActivityMemory,
@@ -10,17 +13,31 @@ import {
   readRememberedMarket,
   readTrackedTrades,
   recordActivity,
+  recordBotPresetActivity,
 } from "@/lib/activity-memory";
 import { readSavedBotPresets } from "@/lib/bot-builder-state";
+import { deployBotFromAiSuggestion } from "@/lib/bot-builder-memory";
 import {
   analyzeBestBotOpportunities,
+  analyzeBestMarketForContract,
   analyzeDigitsForSymbol,
+  recommendStakeAndMartingale,
   type BotOpportunity,
   type DigitMarketAnalysis,
+  type ManualContractKind,
+  type ManualMarketSuggestion,
+  type StakeRecommendation,
 } from "@/lib/market-analysis";
 import { cn } from "@/lib/utils";
 
-type AssistantView = "best-bot" | "even-odd" | "memory" | "over-under";
+type AssistantView = "best-bot" | "manual" | "memory";
+
+const MANUAL_CONTRACT_OPTIONS: { kind: ManualContractKind; label: string; description: string }[] = [
+  { kind: "even_odd", label: "Even / Odd", description: "Last digit of the exit spot." },
+  { kind: "over_under", label: "Over / Under", description: "Last digit above or below a threshold." },
+  { kind: "matches_differs", label: "Matches / Differs", description: "Last digit equals (or doesn't) a number." },
+  { kind: "rise_fall", label: "Rise / Fall", description: "Will the price end higher or lower." },
+];
 
 const ASSISTANT_BUTTON_SIZE_DESKTOP = 56;
 const ASSISTANT_BUTTON_SIZE_MOBILE = 40;
@@ -33,15 +50,20 @@ export function AiAssistant({
   showBotMonitor: boolean;
 }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const { balance, currency } = useDerivBalanceContext();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<AssistantView>("best-bot");
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const [viewport, setViewport] = useState(() => readViewport());
   const [digitAnalysis, setDigitAnalysis] = useState<DigitMarketAnalysis | null>(null);
   const [botOpportunities, setBotOpportunities] = useState<BotOpportunity[]>([]);
+  const [manualKind, setManualKind] = useState<ManualContractKind | null>(null);
+  const [manualSuggestions, setManualSuggestions] = useState<ManualMarketSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [launching, setLaunching] = useState(false);
   const dragRef = useRef<{
     moved: boolean;
     originX: number;
@@ -85,6 +107,7 @@ export function AiAssistant({
   useEffect(() => {
     if (!open) return;
     if (view === "memory") return;
+    if (view === "manual" && !manualKind) return; // wait until user picks a contract family
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -100,12 +123,23 @@ export function AiAssistant({
               type: "assistant",
             });
           })
-        : analyzeDigitsForSymbol(currentMarket).then((result) => {
+        : analyzeBestMarketForContract(manualKind!).then((result) => {
             if (cancelled) return;
-            setDigitAnalysis(result);
+            setManualSuggestions(result);
+            // Stash a digit analysis for the chosen market so the digit-heatmap
+            // card still renders for digit-style contracts.
+            if (manualKind !== "rise_fall" && result[0]?.symbol) {
+              analyzeDigitsForSymbol(result[0].symbol)
+                .then((digit) => {
+                  if (!cancelled) setDigitAnalysis(digit);
+                })
+                .catch(() => {});
+            } else {
+              setDigitAnalysis(null);
+            }
             recordActivity(user?.id, {
-              message: `Ran AI ${view} analysis on ${currentMarket}.`,
-              meta: { market: currentMarket, view },
+              message: `Ran AI manual scan for ${manualKind}.`,
+              meta: { kind: manualKind, view },
               type: "assistant",
             });
           });
@@ -126,7 +160,7 @@ export function AiAssistant({
     return () => {
       cancelled = true;
     };
-  }, [currentMarket, open, refreshKey, user?.id, view]);
+  }, [currentMarket, manualKind, open, refreshKey, user?.id, view]);
 
   const panelStyle = useMemo(() => {
     const panelWidth = Math.min(viewport.width - 16, viewport.width < 640 ? 340 : 380);
@@ -184,27 +218,61 @@ export function AiAssistant({
     if (!drag.moved) toggleOpen();
   }
 
-  const bestBot = botOpportunities[0] ?? null;
-  const digitBias =
-    digitAnalysis == null
-      ? null
-      : view === "even-odd"
-        ? digitAnalysis.evenPercentage >= digitAnalysis.oddPercentage
-          ? {
-              label: "Even",
-              probability: digitAnalysis.evenPercentage,
-              secondary: digitAnalysis.oddPercentage,
-            }
-          : {
-              label: "Odd",
-              probability: digitAnalysis.oddPercentage,
-              secondary: digitAnalysis.evenPercentage,
-            }
-        : {
-            label: `${digitAnalysis.overUnder.side === "under" ? "Under" : "Over"} ${digitAnalysis.overUnder.threshold}`,
-            probability: digitAnalysis.overUnder.probability,
-            secondary: digitAnalysis.overUnder.expected,
-          };
+  const bestBot = botOpportunities.find((item) => item.launchable) ?? botOpportunities[0] ?? null;
+  const stakeRecommendation: StakeRecommendation | null = useMemo(() => {
+    if (!bestBot) return null;
+    return recommendStakeAndMartingale({
+      balance,
+      presetMartingale: bestBot.presetMartingale,
+      presetMartingaleMode: bestBot.presetMartingaleMode,
+      presetStake: bestBot.presetStake,
+    });
+  }, [balance, bestBot]);
+
+  async function handleLaunchBestBot() {
+    if (!bestBot || !user?.id) {
+      if (!user?.id) {
+        toast.error("Sign in to deploy a bot.");
+        navigate({ to: "/auth", search: { mode: "signin" } });
+      }
+      return;
+    }
+    if (!bestBot.launchable) {
+      toast.error("This bot isn't registered as a deployable preset.");
+      return;
+    }
+    if (!stakeRecommendation) return;
+    setLaunching(true);
+    try {
+      await deployBotFromAiSuggestion({
+        martingale: stakeRecommendation.martingale,
+        presetId: bestBot.presetId,
+        stake: stakeRecommendation.stake,
+        userId: user.id,
+      });
+      recordBotPresetActivity(user.id, "deployed", bestBot.name, bestBot.presetId);
+      toast.success(`Deployed ${bestBot.name} — ${bestBot.marketLabel} ready.`);
+      setOpen(false);
+      navigate({ to: "/bot-builder" });
+    } catch (launchError) {
+      const message =
+        launchError instanceof Error ? launchError.message : "Could not launch this bot.";
+      toast.error(message);
+    } finally {
+      setLaunching(false);
+    }
+  }
+
+  function handleRerun() {
+    setRefreshKey((value) => value + 1);
+  }
+
+  function handleManualKindChange(kind: ManualContractKind | null) {
+    setManualKind(kind);
+    setManualSuggestions([]);
+    setDigitAnalysis(null);
+    setError(null);
+  }
 
   return (
     <>
@@ -246,8 +314,7 @@ export function AiAssistant({
           <div className="flex gap-2 overflow-x-auto border-b border-[#e7eaee] px-3 py-2 dark:border-[#24282d]">
             {([
               ["best-bot", "Best Bot"],
-              ["even-odd", "Even/Odd"],
-              ["over-under", "Over/Under"],
+              ["manual", "Manual Trader"],
               ["memory", "Memory"],
             ] as const).map(([value, label]) => (
               <button
@@ -267,27 +334,101 @@ export function AiAssistant({
           </div>
 
           <div className="h-[calc(100%-7.25rem)] overflow-y-auto px-4 py-4 text-sm">
-            {loading && <AssistantInfoCard title="Running analysis">Pulling the latest 500 ticks for the recommendation.</AssistantInfoCard>}
+            {loading && <AssistantInfoCard title="Running analysis">Pulling the latest 500 ticks across every synthetic market for the recommendation.</AssistantInfoCard>}
             {!loading && error && <AssistantInfoCard tone="error" title="Analysis failed">{error}</AssistantInfoCard>}
 
             {!loading && !error && view === "best-bot" && bestBot && (
               <div className="space-y-3">
-                <AssistantInfoCard title="Best bot right now">
-                  {bestBot.name} is leading on {bestBot.marketLabel} with an estimated win profile of{" "}
-                  <strong>{bestBot.actualProbability.toFixed(1)}%</strong> against an expected{" "}
-                  <strong>{bestBot.expectedProbability.toFixed(1)}%</strong>. Current edge:{" "}
+                <AssistantInfoCard title={`Top pick: ${bestBot.name}`}>
+                  Strongest empirical edge right now on <strong>{bestBot.marketLabel}</strong>. Win rate
+                  in the last 500 ticks: <strong>{bestBot.actualProbability.toFixed(1)}%</strong> vs. a
+                  uniform expectation of <strong>{bestBot.expectedProbability.toFixed(1)}%</strong> (edge{" "}
                   <strong className={bestBot.edge >= 0 ? "text-[#078a5b]" : "text-[#cc2f39]"}>
                     {signedPercent(bestBot.edge)}
                   </strong>
-                  .
+                  ).
                 </AssistantInfoCard>
+
+                {stakeRecommendation && (
+                  <div className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
+                      Risk-sized for your balance
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-3 text-xs">
+                      <RecommendationStat
+                        label="Stake"
+                        value={`${stakeRecommendation.stake.toFixed(2)} ${currency || "USD"}`}
+                      />
+                      <RecommendationStat
+                        label="Martingale"
+                        value={`${stakeRecommendation.martingale.toFixed(2)}×`}
+                      />
+                      <RecommendationStat
+                        label="Risk band"
+                        value={capitalize(stakeRecommendation.riskBand)}
+                      />
+                      <RecommendationStat
+                        label={`Worst-case (${stakeRecommendation.worstCaseLossStreak} losses)`}
+                        value={`-${stakeRecommendation.worstCaseLoss.toFixed(2)} ${currency || "USD"}`}
+                        valueClassName="text-[#cc2f39]"
+                      />
+                    </div>
+                    <div className="mt-2 text-[11px] leading-5 text-[#62707c] dark:text-[#aab1b8]">
+                      {stakeRecommendation.rationale}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleLaunchBestBot()}
+                    disabled={!bestBot.launchable || launching || !user?.id}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold text-white shadow transition",
+                      bestBot.launchable && user?.id
+                        ? "bg-[#4bb4b3] hover:bg-[#3aa19f]"
+                        : "bg-[#9ca3af] cursor-not-allowed",
+                      launching && "opacity-70",
+                    )}
+                  >
+                    <Rocket className="size-4" />
+                    {launching
+                      ? "Launching..."
+                      : !user?.id
+                        ? "Sign in to launch"
+                        : !bestBot.launchable
+                          ? "Not deployable"
+                          : `Launch on ${bestBot.marketLabel}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRerun}
+                    disabled={loading}
+                    className="flex items-center justify-center gap-1.5 rounded-xl border border-[#d7dce0] bg-white px-3 py-2.5 text-sm font-semibold text-[#42505b] transition hover:bg-[#f5f7f8] dark:border-[#2a2f35] dark:bg-[#101214] dark:text-[#d4dbe2] dark:hover:bg-[#171a1d]"
+                  >
+                    <RefreshCw className={cn("size-4", loading && "animate-spin")} />
+                    Rerun
+                  </button>
+                </div>
+
                 <div className="space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
+                    Other ranked bots
+                  </div>
                   {botOpportunities.slice(0, 4).map((item) => (
                     <div
                       key={item.presetId}
                       className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]"
                     >
-                      <div className="font-semibold">{item.name}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold">{item.name}</div>
+                        {!item.launchable && (
+                          <span className="rounded-full bg-[#fff7e0] px-2 py-0.5 text-[10px] font-bold text-[#a36b00] dark:bg-[#3a2a00] dark:text-[#ffd166]">
+                            Not deployable
+                          </span>
+                        )}
+                      </div>
                       <div className="mt-1 text-xs text-[#62707c] dark:text-[#aab1b8]">
                         {item.marketLabel} · {item.tradeType.replace("_", " ")} / {item.contractType}
                       </div>
@@ -301,50 +442,139 @@ export function AiAssistant({
                     </div>
                   ))}
                 </div>
+
+                <AccuracyDisclaimer />
               </div>
             )}
 
-            {!loading && !error && (view === "even-odd" || view === "over-under") && digitAnalysis && digitBias && (
+            {!loading && !error && view === "manual" && (
               <div className="space-y-3">
-                <AssistantInfoCard title={view === "even-odd" ? "Even/Odd bias" : "Over/Under bias"}>
-                  {view === "even-odd" ? (
-                    <>
-                      Best current direction on {digitAnalysis.marketLabel}: <strong>{digitBias.label}</strong>{" "}
-                      at <strong>{digitBias.probability.toFixed(1)}%</strong>. Opposite side is{" "}
-                      <strong>{digitBias.secondary.toFixed(1)}%</strong>.
-                    </>
-                  ) : (
-                    <>
-                      Strongest current setup on {digitAnalysis.marketLabel}:{" "}
-                      <strong>{digitBias.label}</strong> at{" "}
-                      <strong>{digitBias.probability.toFixed(1)}%</strong>. Uniform expectation is{" "}
-                      <strong>{digitBias.secondary.toFixed(1)}%</strong>.
-                    </>
-                  )}
-                </AssistantInfoCard>
                 <div className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]">
                   <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
-                    Digit snapshot
+                    Step 1 · What do you want to trade?
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {digitAnalysis.percentages.map((pct, digit) => (
-                      <span
-                        key={digit}
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {MANUAL_CONTRACT_OPTIONS.map((option) => (
+                      <button
+                        key={option.kind}
+                        type="button"
+                        onClick={() => handleManualKindChange(option.kind)}
                         className={cn(
-                          "rounded-full border px-2.5 py-1 text-xs font-semibold",
-                          digitAnalysis.hottestDigits.includes(digit)
+                          "rounded-xl border px-3 py-2 text-left text-xs transition",
+                          manualKind === option.kind
                             ? "border-[#4bb4b3] bg-[#e6f8f7] text-[#087a78] dark:border-[#4bb4b3] dark:bg-[#103536] dark:text-[#8be6e4]"
-                            : "border-[#d7dce0] bg-white text-[#41515d] dark:border-[#2a2f35] dark:bg-[#101214] dark:text-[#d4dbe2]",
+                            : "border-[#d7dce0] bg-white text-[#41515d] hover:bg-[#f5f7f8] dark:border-[#2a2f35] dark:bg-[#101214] dark:text-[#d4dbe2] dark:hover:bg-[#171a1d]",
                         )}
                       >
-                        {digit}: {pct.toFixed(1)}%
-                      </span>
+                        <div className="font-semibold">{option.label}</div>
+                        <div className="mt-0.5 text-[11px] opacity-80">{option.description}</div>
+                      </button>
                     ))}
                   </div>
-                  <div className="mt-3 text-xs text-[#62707c] dark:text-[#aab1b8]">
-                    Sample size {digitAnalysis.sampleSize}. Latest digit {digitAnalysis.latestDigit ?? "-"}.
-                  </div>
                 </div>
+
+                {!manualKind && (
+                  <AssistantInfoCard title="Pick a contract type to scan">
+                    The assistant will rank every synthetic market by recent statistical lean for the
+                    contract family you choose, so you can trade it manually with the strongest edge.
+                  </AssistantInfoCard>
+                )}
+
+                {manualKind && manualSuggestions.length > 0 && (
+                  <>
+                    <AssistantInfoCard title={`Best market right now`}>
+                      For <strong>{labelForKind(manualKind)}</strong>, the strongest setup is{" "}
+                      <strong>{manualSuggestions[0].side}</strong> on{" "}
+                      <strong>{manualSuggestions[0].marketLabel}</strong>. Empirical hit-rate{" "}
+                      <strong>{manualSuggestions[0].probability.toFixed(1)}%</strong> vs. uniform{" "}
+                      <strong>{manualSuggestions[0].expected.toFixed(1)}%</strong> (edge{" "}
+                      <strong
+                        className={
+                          manualSuggestions[0].edge >= 0 ? "text-[#078a5b]" : "text-[#cc2f39]"
+                        }
+                      >
+                        {signedPercent(manualSuggestions[0].edge)}
+                      </strong>
+                      ).
+                    </AssistantInfoCard>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleRerun}
+                        disabled={loading}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#d7dce0] bg-white px-3 py-2.5 text-sm font-semibold text-[#42505b] transition hover:bg-[#f5f7f8] dark:border-[#2a2f35] dark:bg-[#101214] dark:text-[#d4dbe2] dark:hover:bg-[#171a1d]"
+                      >
+                        <RefreshCw className={cn("size-4", loading && "animate-spin")} />
+                        Rerun scan
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate({ to: "/charts" })}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#4bb4b3] px-3 py-2.5 text-sm font-bold text-white shadow transition hover:bg-[#3aa19f]"
+                      >
+                        <Play className="size-4" />
+                        Open chart
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
+                        Ranked markets
+                      </div>
+                      {manualSuggestions.slice(0, 6).map((item) => (
+                        <div
+                          key={item.symbol}
+                          className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+                            <span>{item.marketLabel}</span>
+                            <span className="text-xs font-bold text-[#4bb4b3]">{item.side}</span>
+                          </div>
+                          <div className="mt-1 text-[11px] leading-5 text-[#62707c] dark:text-[#aab1b8]">
+                            {item.detail}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
+                            <span>Actual {item.probability.toFixed(1)}%</span>
+                            <span>Expected {item.expected.toFixed(1)}%</span>
+                            <span className={item.edge >= 0 ? "text-[#078a5b]" : "text-[#cc2f39]"}>
+                              Edge {signedPercent(item.edge)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {digitAnalysis && manualKind !== "rise_fall" && (
+                      <div className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
+                          Digit heatmap · {digitAnalysis.marketLabel}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {digitAnalysis.percentages.map((pct, digit) => (
+                            <span
+                              key={digit}
+                              className={cn(
+                                "rounded-full border px-2.5 py-1 text-xs font-semibold",
+                                digitAnalysis.hottestDigits.includes(digit)
+                                  ? "border-[#4bb4b3] bg-[#e6f8f7] text-[#087a78] dark:border-[#4bb4b3] dark:bg-[#103536] dark:text-[#8be6e4]"
+                                  : "border-[#d7dce0] bg-white text-[#41515d] dark:border-[#2a2f35] dark:bg-[#101214] dark:text-[#d4dbe2]",
+                              )}
+                            >
+                              {digit}: {pct.toFixed(1)}%
+                            </span>
+                          ))}
+                        </div>
+                        <div className="mt-3 text-xs text-[#62707c] dark:text-[#aab1b8]">
+                          Sample size {digitAnalysis.sampleSize}. Latest digit{" "}
+                          {digitAnalysis.latestDigit ?? "-"}.
+                        </div>
+                      </div>
+                    )}
+
+                    <AccuracyDisclaimer />
+                  </>
+                )}
               </div>
             )}
 
@@ -479,6 +709,49 @@ function AssistantInfoCard({
       <div className="mt-1 leading-6">{children}</div>
     </div>
   );
+}
+
+function RecommendationStat({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
+        {label}
+      </div>
+      <div className={cn("mt-0.5 text-sm font-bold text-[#172029] dark:text-[#f1f5f9]", valueClassName)}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function AccuracyDisclaimer() {
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-[#e6deb1] bg-[#fff9e6] px-3 py-2 text-[11px] leading-5 text-[#7a5a00] dark:border-[#3a2f00] dark:bg-[#23200d] dark:text-[#f5d76e]">
+      <Info className="mt-0.5 size-3.5 shrink-0" />
+      <div>
+        Suggestions are statistical leans from the most recent 500 ticks. Deriv synthetic indices are
+        RNG-driven — every digit converges to 10% and every coin flip to 50% over time. Treat this as
+        a signal, not a guarantee. Trade only what you can afford to lose.
+      </div>
+    </div>
+  );
+}
+
+function labelForKind(kind: ManualContractKind): string {
+  return MANUAL_CONTRACT_OPTIONS.find((option) => option.kind === kind)?.label ?? kind;
+}
+
+function capitalize(value: string): string {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function MemoryCard({

@@ -91,6 +91,11 @@ function loadDbotModules(): Promise<void> {
 }
 
 const BOT_TRADE_MAX_ATTEMPTS = 2;
+// Cool-down between consecutive trades so users have time to click Stop before
+// the next buy fires. On high-frequency tick markets (1HZ10V, 1HZ100V) the
+// settlement→next-buy gap is otherwise under a second, leaving no window to abort.
+// The delay is interruptible — stopBot() unblocks it immediately.
+const BOT_INTER_RUN_DELAY_MS = 1500;
 const DERIV_TEMPORARY_PROCESSING_MESSAGE =
   "Sorry, an error occurred while processing your request.";
 
@@ -172,6 +177,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
   const pendingTickResolveRef = useRef<((data: { quote: number; epoch: number } | null) => void) | null>(null);
   const stopTickWsFnRef = useRef<(() => void) | null>(null);
   const settlementAbortRef = useRef<(() => void) | null>(null);
+  const interRunDelayResolveRef = useRef<(() => void) | null>(null);
 
   // Server-side background execution refs
   const serverSessionIdRef = useRef<string | null>(null);
@@ -653,6 +659,9 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     // Abort any pending settlement wait immediately
     settlementAbortRef.current?.();
     settlementAbortRef.current = null;
+    // Unblock any inter-run cool-down delay immediately
+    interRunDelayResolveRef.current?.();
+    interRunDelayResolveRef.current = null;
     // Close the tick WebSocket
     stopTickWsFnRef.current?.();
     stopTickWsFnRef.current = null;
@@ -1135,6 +1144,12 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
 
             const proposalId = String(proposal.proposal?.id ?? "");
             const askPrice = positiveNumberFrom(proposal.proposal?.ask_price, stake) ?? stake;
+            // Final stop check before committing the trade — if the user clicked
+            // Stop while the proposal was in flight, do not place the buy.
+            if (!footerBotRunningRef.current) {
+              tradeError = null;
+              break;
+            }
             const buy = await buyProposal(proposalId, askPrice, {
               ...context,
               contractType: String(payload.contract_type ?? context.contractType),
@@ -1330,6 +1345,23 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
 
         // Pre-flight the next proposal immediately so it's ready when the next tick arrives
         launchPreflight(currentStake, botState);
+
+        // Cool-down between consecutive trades so users have time to click Stop
+        // before the next buy fires. Interruptible — stopBot() unblocks it instantly.
+        if (footerBotRunningRef.current && completedRuns < runCap) {
+          await new Promise<void>((resolve) => {
+            const timeoutId = window.setTimeout(() => {
+              interRunDelayResolveRef.current = null;
+              resolve();
+            }, BOT_INTER_RUN_DELAY_MS);
+            interRunDelayResolveRef.current = () => {
+              window.clearTimeout(timeoutId);
+              interRunDelayResolveRef.current = null;
+              resolve();
+            };
+          });
+          if (!footerBotRunningRef.current) break;
+        }
       }
 
       if (footerBotRunningRef.current && completedRuns >= runCap) {
