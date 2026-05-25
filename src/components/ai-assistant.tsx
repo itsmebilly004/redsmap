@@ -67,6 +67,7 @@ export function AiAssistant({
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [launching, setLaunching] = useState(false);
+  const [lastAnalysisAt, setLastAnalysisAt] = useState<Date | null>(null);
   const dragRef = useRef<{
     moved: boolean;
     originX: number;
@@ -148,6 +149,9 @@ export function AiAssistant({
           });
 
     run
+      .then(() => {
+        if (!cancelled) setLastAnalysisAt(new Date());
+      })
       .catch((analysisError) => {
         if (cancelled) return;
         setError(
@@ -320,7 +324,9 @@ export function AiAssistant({
                 <span className="truncate">AI Market Assistant</span>
               </div>
               <div className="truncate text-[11px] text-[#6b7280] dark:text-[#aab1b8]">
-                Current market: {currentMarket}
+                {lastAnalysisAt
+                  ? `Updated ${lastAnalysisAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })} · ${currentMarket}`
+                  : `Current market: ${currentMarket}`}
               </div>
             </div>
             <div className="flex items-center gap-2">

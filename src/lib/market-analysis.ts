@@ -73,21 +73,26 @@ export type ManualStakeRecommendation = {
 };
 
 /**
- * 300 ticks gives a statistically meaningful window (~5 min on R_100, ~5 min
- * on 1HZ markets) while being noticeably faster on the wire than 500.
+ * 200 ticks gives a statistically meaningful window (margin of error ≈7% at 95%
+ * CI for a 50% baseline, ≈4% for digit-specific contracts) while keeping the
+ * analysis responsive: between two Reruns 30 s apart on a 2-second-tick market,
+ * ~15 of the 200 ticks are new — enough movement that genuine shifts in the
+ * distribution change the ranking, instead of being drowned out by stale data.
  */
-const ANALYSIS_TICK_COUNT = 300;
+const ANALYSIS_TICK_COUNT = 200;
 /** Per-call timeout when individual symbols are fetched in isolation. */
 const PUBLIC_REQUEST_TIMEOUT_MS = 10_000;
 /** Per-symbol timeout inside a batched fetch — short because the WS handshake is paid once. */
 const BATCH_REQUEST_TIMEOUT_MS = 9_000;
 
 /**
- * Short-lived in-flight cache so the back-to-back "Best Bot scan → manual
- * digit heatmap" pattern doesn't open the same symbol twice. Rerun clears
- * the entry by expiry; explicit failures purge it immediately.
+ * Short-lived in-flight cache. Purpose is ONLY to dedupe near-simultaneous
+ * fetches inside one analysis run (the batch fetch followed ~100 ms later by
+ * the manual digit-heatmap single-fetch). It must NOT preserve results across
+ * user actions — that would make every Rerun return the same answer and pin
+ * the recommendation to one market even when the underlying data has shifted.
  */
-const TICKS_CACHE_TTL_MS = 8_000;
+const TICKS_CACHE_TTL_MS = 2_000;
 const ticksCache = new Map<
   string,
   { expiresAt: number; promise: Promise<TickPoint[]> }

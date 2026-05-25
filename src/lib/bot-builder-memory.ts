@@ -116,5 +116,24 @@ export async function deployBotFromAiSuggestion(input: {
     { presetId: input.presetId },
   );
 
+  // Notify any already-mounted BotBuilder that the workspace XML on disk has
+  // changed. Without this, a user who is already on /bot-builder sees the OLD
+  // workspace because navigate() is a no-op on the same route and BotBuilder
+  // only reads `readSavedWorkspaceXml` once at mount.
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(BOT_DEPLOYED_EVENT, {
+        detail: { presetId: input.presetId, source: "ai-assistant" },
+      }),
+    );
+  }
+
   return { name: asset.name };
 }
+
+export const BOT_DEPLOYED_EVENT = "arktrader:bot-deployed";
+
+export type BotDeployedEventDetail = {
+  presetId: string;
+  source: "ai-assistant" | "trading-bots" | "manual";
+};

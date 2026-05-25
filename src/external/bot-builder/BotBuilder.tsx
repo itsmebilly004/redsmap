@@ -48,6 +48,7 @@ import {
   readSavedBotPresets,
   type SavedBotPreset,
 } from "@/lib/bot-builder-state";
+import { BOT_DEPLOYED_EVENT } from "@/lib/bot-builder-memory";
 import { ToolboxItems } from "./toolbox-items";
 import {
   extractSettingsFromWorkspace,
@@ -309,6 +310,28 @@ const BotBuilderInner = observer(() => {
     // (userId null → uuid) and preset URL changes are handled by their own
     // effects so we never re-inject Blockly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hot-swap the workspace when a deploy happens while the page is already
+  // mounted. Without this, navigating to /bot-builder when already on
+  // /bot-builder is a no-op (TanStack Router doesn't remount), so the
+  // builder keeps showing the previous bot even though localStorage already
+  // holds the new XML. Fired by `deployBotFromAiSuggestion`.
+  React.useEffect(() => {
+    const handler = () => {
+      if (!initialisedRef.current) return;
+      const workspace = getDerivWorkspace();
+      if (!workspace) return;
+      const xml =
+        readSavedWorkspaceXml(userIdRef.current) ?? readSavedWorkspaceXml(null);
+      if (!xml) return;
+      const ok = loadWorkspaceXmlIntoBlockly(workspace, xml);
+      if (ok) {
+        persistWorkspaceSnapshot(userIdRef.current, workspace);
+      }
+    };
+    window.addEventListener(BOT_DEPLOYED_EVENT, handler);
+    return () => window.removeEventListener(BOT_DEPLOYED_EVENT, handler);
   }, []);
 
   // When the user signs in AFTER the bot-builder has already mounted (late auth
