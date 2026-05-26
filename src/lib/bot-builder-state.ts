@@ -106,7 +106,12 @@ function presetWorkspacesStorageKey(userId?: string | null) {
   return `arktrader:bot-builder:${userId ?? "guest"}:preset-workspaces`;
 }
 
-const PRESET_WORKSPACES_STORAGE_VERSION = 1;
+// Bumped to 2 (2026-05-26) to invalidate cached preset workspaces created from
+// the older candlevault XML that was missing the `set text3 / print text3` else
+// segment. Previously cached XML was loaded in preference to the fresh asset on
+// Deploy, so users who had ever deployed the bot would never see the fix —
+// invalidating the store forces the fresh XML to be picked up on next deploy.
+const PRESET_WORKSPACES_STORAGE_VERSION = 2;
 const PRESET_SETTINGS_STORAGE_VERSION = 1;
 
 type PresetSettingsEntry = {

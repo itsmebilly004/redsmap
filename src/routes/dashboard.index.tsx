@@ -2,17 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { useDerivBalanceContext } from "@/context/deriv-balance-context";
-import {
-  Wallet,
-  TrendingUp,
-  Activity,
-  Bot,
-  ArrowUpRight,
-  ArrowDownRight,
-  Plug,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Activity, ArrowDownRight, ArrowUpRight, Bot, Plug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   buildOAuthUrl,
@@ -28,37 +18,8 @@ export const Route = createFileRoute("/dashboard/")({
   component: DashboardHome,
 });
 
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string | number;
-  accent?: string;
-}) {
-  return (
-    <div className="min-w-0 rounded-xl border border-border bg-card/80 p-4 text-card-foreground shadow-sm backdrop-blur-sm sm:p-5">
-      <div className="flex min-w-0 items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-xs uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
-        <Icon className="size-4 text-muted-foreground" />
-      </div>
-      <div
-        className={`mt-3 break-words font-mono text-xl sm:text-2xl ${accent ?? "text-foreground"}`}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
 function DashboardHome() {
   const { user } = useAuth();
-  const { balance, currency } = useDerivBalanceContext();
   const [hasDeriv, setHasDeriv] = useState<boolean | null>(null);
   const [trades, setTrades] = useState<Tables<"trades">[]>([]);
 
@@ -79,7 +40,7 @@ function DashboardHome() {
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
-        .limit(10)
+        .limit(5)
         .then(({ data, error }) => {
           if (!cancelled && !error) setTrades(data ?? []);
         });
@@ -100,10 +61,6 @@ function DashboardHome() {
     };
   }, [user]);
 
-  const totalPL = trades.reduce((a, t) => a + Number(t.profit_loss ?? 0), 0);
-  const wins = trades.filter((t) => t.status === "won").length;
-  const losses = trades.filter((t) => t.status === "lost").length;
-  const winRate = wins + losses ? Math.round((wins / (wins + losses)) * 100) : 0;
   const connectDeriv = async () => {
     try {
       const url = await buildOAuthUrl({ returnTo: "/dashboard" });
@@ -139,23 +96,6 @@ function DashboardHome() {
           </Button>
         </div>
       )}
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={Wallet}
-          label="Account balance"
-          value={balance != null ? `${balance.toFixed(2)} ${currency}` : "—"}
-          accent="text-foreground"
-        />
-        <StatCard
-          icon={Wallet}
-          label="Total P&L"
-          value={`${totalPL >= 0 ? "+" : ""}${totalPL.toFixed(2)}`}
-          accent={totalPL >= 0 ? "text-success" : "text-destructive"}
-        />
-        <StatCard icon={Activity} label="Trades" value={trades.length} />
-        <StatCard icon={TrendingUp} label="Win rate" value={`${winRate}%`} />
-      </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Recent trades */}
