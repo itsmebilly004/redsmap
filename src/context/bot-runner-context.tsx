@@ -1202,6 +1202,8 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             // Fire the DB insert in parallel with trade execution — supabase latency
             // (~100-300 ms) is hidden behind the settlement wait (seconds).
             // Not awaited in the hot path — chained non-blocking after settlement.
+            // Errors are surfaced (console + journal) so a broken schema / RLS
+            // rejection doesn't silently drop the bot's history off the dashboard.
             const dbInsertPromise: Promise<string | null> = userRef.current?.id
               ? supabase.from("trades").insert({
                   user_id: userRef.current.id, deriv_contract_id: contractId,
@@ -1209,8 +1211,18 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
                   stake, payout: Number(buy.buy?.payout ?? 0), status: "open",
                 })
                 .select("id").single()
-                .then(({ data, error }) => (!error && data) ? String(data.id) : null)
-                .catch(() => null)
+                .then(({ data, error }) => {
+                  if (error) {
+                    console.error("[Bot] Could not persist trade row", error);
+                    addJournal(`Trade history insert failed: ${error.message}`, "warning");
+                    return null;
+                  }
+                  return data ? String(data.id) : null;
+                })
+                .catch((error) => {
+                  console.error("[Bot] Trade insert threw", error);
+                  return null;
+                })
               : Promise.resolve(null);
 
             addJournal(`Bought contract ${contractId}. Waiting for settlement.`, "success");
@@ -1241,7 +1253,9 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
               profitLoss: settlement?.profit ?? 0,
               status: settlement?.status === "won" ? "won" : settlement?.status === "lost" ? "lost" : "open",
             });
-            // Non-blocking DB update — chain on the insert promise without awaiting
+            // Non-blocking DB update — chain on the insert promise without awaiting.
+            // Logging here too so an RLS or schema failure on settlement update
+            // shows up in the console rather than vanishing.
             if (userRef.current?.id) {
               const capturedSettlement = settlement;
               void dbInsertPromise.then((dbTradeId) => {
@@ -1251,8 +1265,12 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
                   payout: Number(capturedSettlement?.payout ?? 0),
                   status: capturedSettlement?.status === "won" ? "won" : capturedSettlement?.status === "lost" ? "lost" : "open",
                   closed_at: new Date().toISOString(),
-                }).eq("id", dbTradeId).catch(() => {});
-              }).catch(() => {});
+                }).eq("id", dbTradeId).then(({ error }) => {
+                  if (error) console.error("[Bot] Could not finalise trade row", error);
+                });
+              }).catch((error) => {
+                console.error("[Bot] Trade settlement update threw", error);
+              });
             }
             duringPurchaseCallback = null;
             tradeError = null;

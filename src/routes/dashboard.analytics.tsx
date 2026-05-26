@@ -23,33 +23,48 @@ function AnalyticsPage() {
 
   useEffect(() => {
     if (!user) return;
+    const userId = user.id;
     let cancelled = false;
     const loadTrades = () =>
       supabase
         .from("trades")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: true })
         .then(({ data, error }) => {
-          if (cancelled || error) return;
+          if (cancelled) return;
+          if (error) {
+            console.error("[Analytics] Failed to load trades", error);
+            return;
+          }
           setTrades(data ?? []);
         });
     void loadTrades();
     const channel = supabase
-      .channel(`analytics-trades-${user.id}`)
+      .channel(`analytics-trades-${userId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "trades", filter: `user_id=eq.${user.id}` },
+        { event: "*", schema: "public", table: "trades", filter: `user_id=eq.${userId}` },
         () => {
           void loadTrades();
         },
       )
       .subscribe();
+    // Refresh whenever the page becomes visible / tab regains focus so the
+    // user always sees the latest trade history when navigating back from
+    // the trade desk or bot runner, even if the realtime stream dropped.
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadTrades();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
       void supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user?.id]);
 
   const stats = useMemo(() => {
     const wins = trades.filter((t) => t.status === "won").length;

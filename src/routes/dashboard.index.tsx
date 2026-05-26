@@ -25,11 +25,12 @@ function DashboardHome() {
 
   useEffect(() => {
     if (!user) return;
+    const userId = user.id;
     let cancelled = false;
     supabase
       .from("sessions")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .limit(1)
       .then(({ data, error }) => {
         if (!cancelled && !error) setHasDeriv((data?.length ?? 0) > 0);
@@ -38,28 +39,44 @@ function DashboardHome() {
       supabase
         .from("trades")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(5)
         .then(({ data, error }) => {
-          if (!cancelled && !error) setTrades(data ?? []);
+          if (cancelled) return;
+          if (error) {
+            console.error("[Dashboard] Failed to load trades", error);
+            return;
+          }
+          setTrades(data ?? []);
         });
     void loadTrades();
     const channel = supabase
-      .channel(`dashboard-trades-${user.id}`)
+      .channel(`dashboard-trades-${userId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "trades", filter: `user_id=eq.${user.id}` },
+        { event: "*", schema: "public", table: "trades", filter: `user_id=eq.${userId}` },
         () => {
           void loadTrades();
         },
       )
       .subscribe();
+    // Fallback: refresh whenever the tab regains focus or becomes visible,
+    // so the user always sees the latest trades after navigating in from
+    // the trade desk / bot builder even if the realtime stream missed an
+    // event (e.g. flaky WebSocket, table newly added to the publication).
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadTrades();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
       void supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user?.id]);
 
   const connectDeriv = async () => {
     try {
