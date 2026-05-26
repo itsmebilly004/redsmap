@@ -30,4 +30,5 @@
     }
   ],
   "rewrites": [{ "source": "/((?!assets/).*)", "destination": "/api/ssr" }]
+  
 }
