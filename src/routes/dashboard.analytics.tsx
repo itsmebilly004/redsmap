@@ -20,31 +20,60 @@ export const Route = createFileRoute("/dashboard/analytics")({
 function AnalyticsPage() {
   const { user } = useAuth();
   const [trades, setTrades] = useState<Tables<"trades">[]>([]);
+  // Totals come from dedicated `count: "exact"` queries instead of trades.length
+  // so the stat cards reflect the real database totals even when the user has
+  // more than the 1000-row PostgREST window the trade history is rendered from.
+  const [counts, setCounts] = useState<{ total: number; wins: number; losses: number }>({
+    total: 0,
+    wins: 0,
+    losses: 0,
+  });
 
   useEffect(() => {
     if (!user) return;
     const userId = user.id;
     let cancelled = false;
-    const loadTrades = () =>
-      supabase
-        .from("trades")
-        .select("*")
-        .eq("user_id", userId)
-        // Fetch newest-first so the PostgREST 1000-row cap can't strand a
-        // recently-placed trade behind days of older history. We reverse
-        // the array in JS below to keep the equity curve chronological.
-        .order("created_at", { ascending: false })
-        .limit(1000)
-        .then(({ data, error }) => {
-          if (cancelled) return;
-          if (error) {
-            console.error("[Analytics] Failed to load trades", error);
-            return;
-          }
-          // Reverse to ascending so the equity-curve cumulation walks
-          // through trades in time order rather than backwards.
-          setTrades((data ?? []).slice().reverse());
-        });
+    const loadTrades = async () => {
+      const [{ data, error: rowsError }, totalRes, winsRes, lossesRes] = await Promise.all([
+        supabase
+          .from("trades")
+          .select("*")
+          .eq("user_id", userId)
+          // Newest-first so the 1000-row cap can't strand recent trades behind
+          // days of older history. We reverse in JS to keep the equity curve
+          // chronological.
+          .order("created_at", { ascending: false })
+          .limit(1000),
+        supabase
+          .from("trades")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", userId),
+        supabase
+          .from("trades")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .eq("status", "won"),
+        supabase
+          .from("trades")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .eq("status", "lost"),
+      ]);
+      if (cancelled) return;
+      if (rowsError) {
+        console.error("[Analytics] Failed to load trades", rowsError);
+      } else {
+        setTrades((data ?? []).slice().reverse());
+      }
+      if (totalRes.error) console.error("[Analytics] total count failed", totalRes.error);
+      if (winsRes.error) console.error("[Analytics] wins count failed", winsRes.error);
+      if (lossesRes.error) console.error("[Analytics] losses count failed", lossesRes.error);
+      setCounts({
+        total: totalRes.count ?? 0,
+        wins: winsRes.count ?? 0,
+        losses: lossesRes.count ?? 0,
+      });
+    };
     void loadTrades();
     const channel = supabase
       .channel(`analytics-trades-${userId}`)
@@ -73,9 +102,7 @@ function AnalyticsPage() {
   }, [user?.id]);
 
   const stats = useMemo(() => {
-    const wins = trades.filter((t) => t.status === "won").length;
-    const losses = trades.filter((t) => t.status === "lost").length;
-    const total = trades.length;
+    const { total, wins, losses } = counts;
     const totalStake = trades.reduce((a, t) => a + Number(t.stake ?? 0), 0);
     const profit = trades.reduce((a, t) => a + Number(t.profit_loss ?? 0), 0);
     const roi = totalStake ? (profit / totalStake) * 100 : 0;
@@ -95,7 +122,7 @@ function AnalyticsPage() {
       equity,
       reversed,
     };
-  }, [trades]);
+  }, [trades, counts]);
 
   return (
     <div className="space-y-6">
