@@ -30,14 +30,20 @@ function AnalyticsPage() {
         .from("trades")
         .select("*")
         .eq("user_id", userId)
-        .order("created_at", { ascending: true })
+        // Fetch newest-first so the PostgREST 1000-row cap can't strand a
+        // recently-placed trade behind days of older history. We reverse
+        // the array in JS below to keep the equity curve chronological.
+        .order("created_at", { ascending: false })
+        .limit(1000)
         .then(({ data, error }) => {
           if (cancelled) return;
           if (error) {
             console.error("[Analytics] Failed to load trades", error);
             return;
           }
-          setTrades(data ?? []);
+          // Reverse to ascending so the equity-curve cumulation walks
+          // through trades in time order rather than backwards.
+          setTrades((data ?? []).slice().reverse());
         });
     void loadTrades();
     const channel = supabase
