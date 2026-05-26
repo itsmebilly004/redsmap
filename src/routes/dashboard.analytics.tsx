@@ -163,19 +163,25 @@ function AnalyticsPage() {
                   </td>
                 </tr>
               ) : (
-                stats.reversed.map((t) => (
+                stats.reversed.map((t) => {
+                  const stake = Number(t.stake ?? 0);
+                  const payout = Number(t.payout ?? 0);
+                  const storedPL = Number(t.profit_loss ?? 0);
+                  const settled = t.status === "won" || t.status === "lost";
+                  const pl = storedPL !== 0 ? storedPL : settled ? payout - stake : 0;
+                  return (
                   <tr key={t.id} className="border-b border-glass-border/50">
                     <td className="py-2 font-mono text-xs text-muted-foreground">
                       {new Date(t.created_at).toLocaleString()}
                     </td>
                     <td className="py-2 font-mono text-xs">{t.symbol}</td>
                     <td className="py-2 font-mono text-xs">{t.trade_type}</td>
-                    <td className="py-2 text-right font-mono">{Number(t.stake).toFixed(2)}</td>
+                    <td className="py-2 text-right font-mono">{stake.toFixed(2)}</td>
                     <td
-                      className={`py-2 text-right font-mono ${Number(t.profit_loss) >= 0 ? "text-success" : "text-destructive"}`}
+                      className={`py-2 text-right font-mono ${pl >= 0 ? "text-success" : "text-destructive"}`}
                     >
-                      {Number(t.profit_loss ?? 0) >= 0 ? "+" : ""}
-                      {Number(t.profit_loss ?? 0).toFixed(2)}
+                      {pl >= 0 ? "+" : ""}
+                      {pl.toFixed(2)}
                     </td>
                     <td className="py-2 text-right">
                       <span
@@ -191,7 +197,8 @@ function AnalyticsPage() {
                       </span>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

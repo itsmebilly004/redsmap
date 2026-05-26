@@ -5,7 +5,7 @@
     <variable type="" id="mXtFswo{p,|%W1:V-$+r">profit</variable>
     <variable type="" id="%L?;380E6Lr^3b.%}t5Q">win amount</variable>
     <variable type="" id="r;j5hdLRm`b6LFCDue7-">martingale</variable>
-    <variable type="" id="T3xT3_v@r_!d_cMvLt_92">text3</variable>
+    <variable type="" id="cMv_text3_var_id_1">text3</variable>
   </variables>
   <block type="trade_definition" id="trade" deletable="false" x="-4" y="-45">
     <statement name="TRADE_OPTIONS">
@@ -305,29 +305,29 @@
                   <block type="trade_again" id="WlL(Yr4%r-~ea4QwP#Nm"></block>
                 </statement>
                 <statement name="ELSE">
-                  <block type="variables_set" id="cMv@SetT3xt3@bL0ck_!">
-                    <field name="VAR" id="T3xT3_v@r_!d_cMvLt_92" variabletype="">text3</field>
+                  <block type="variables_set" id="cMvSetText3Block01">
+                    <field name="VAR" id="cMv_text3_var_id_1" variabletype="">text3</field>
                     <value name="VALUE">
-                      <block type="text_join" id="_3~!q2F=HY|q(Kdb^m9l">
+                      <block type="text_join" id="cMvText3JoinBlock01">
                         <mutation items="2"></mutation>
                         <value name="ADD0">
-                          <block type="text" id="Gg@4VoMw!c3UbQ[:@PB.">
+                          <block type="text" id="cMvText3HeadBlock01">
                             <field name="TEXT">Concluido! Lucro Total : </field>
                           </block>
                         </value>
                         <value name="ADD1">
-                          <block type="total_profit" id="O:MYUukPm?_m(w65eRd?"></block>
+                          <block type="total_profit" id="cMvText3ProfitBlock01"></block>
                         </value>
                       </block>
                     </value>
                     <next>
-                      <block type="text_print" id="Flww-KT}T1+c~bF:^cMb">
+                      <block type="text_print" id="cMvPrintText3Block01">
                         <value name="TEXT">
-                          <shadow type="text" id="kqlrIk.GO.^}hI,PoUV)">
+                          <shadow type="text" id="cMvPrintText3Shadow1">
                             <field name="TEXT">abc</field>
                           </shadow>
-                          <block type="variables_get" id="cMv@GetT3xt3@bL0ck_!">
-                            <field name="VAR" id="T3xT3_v@r_!d_cMvLt_92" variabletype="">text3</field>
+                          <block type="variables_get" id="cMvGetText3Block01">
+                            <field name="VAR" id="cMv_text3_var_id_1" variabletype="">text3</field>
                           </block>
                         </value>
                       </block>

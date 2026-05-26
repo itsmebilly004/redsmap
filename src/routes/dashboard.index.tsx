@@ -124,6 +124,14 @@ function DashboardHome() {
               {trades.map((t) => {
                 const win = t.status === "won";
                 const loss = t.status === "lost";
+                const stake = Number(t.stake ?? 0);
+                const payout = Number(t.payout ?? 0);
+                const storedPL = Number(t.profit_loss ?? 0);
+                // Trust the stored profit_loss when present. Otherwise derive it
+                // from Deriv's payout - stake (the canonical P&L formula): a win
+                // returns stake + winnings, a loss returns 0, so subtracting the
+                // stake always yields the actual net result of the trade.
+                const pl = storedPL !== 0 ? storedPL : win || loss ? payout - stake : 0;
                 return (
                   <li
                     key={t.id}
@@ -147,14 +155,18 @@ function DashboardHome() {
                     <div className="shrink-0 text-right font-mono">
                       <div
                         className={
-                          win ? "text-success" : loss ? "text-destructive" : "text-muted-foreground"
+                          pl > 0
+                            ? "text-success"
+                            : pl < 0
+                              ? "text-destructive"
+                              : "text-muted-foreground"
                         }
                       >
-                        {Number(t.profit_loss ?? 0) >= 0 ? "+" : ""}
-                        {Number(t.profit_loss ?? 0).toFixed(2)}
+                        {pl >= 0 ? "+" : ""}
+                        {pl.toFixed(2)}
                       </div>
                       <div className="text-[10px] text-muted-foreground">
-                        stake {Number(t.stake).toFixed(2)}
+                        stake {stake.toFixed(2)}
                       </div>
                     </div>
                   </li>
