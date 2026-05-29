@@ -87,6 +87,10 @@ interface TradePanelProps {
   initialStake?: number;
   /** AI-suggested contract family. Pre-selects the trade type once on mount; user can change freely. */
   initialTradeType?: TradeCategory;
+  /** Session take-profit the user entered before the AI scan. Pre-fills once on mount. */
+  initialTakeProfit?: number;
+  /** Session stop-loss the user entered before the AI scan. Pre-fills once on mount. */
+  initialStopLoss?: number;
   onAccumulatorBarriers?: (b: ChartOverlay) => void;
   onMarketChange?: (market: string) => void;
   onTradeTypeChange?: (tradeType: TradeCategory) => void;
@@ -153,6 +157,8 @@ export function TradePanel({
   lastPrice,
   initialStake,
   initialTradeType,
+  initialTakeProfit,
+  initialStopLoss,
   onAccumulatorBarriers,
   onMarketChange,
   onTradeTypeChange,
@@ -177,8 +183,16 @@ export function TradePanel({
   const [barrier, setBarrier] = useState("+0.10");
   const [selectedDigit, setSelectedDigit] = useState(5);
   const [multiplier, setMultiplier] = useState(100);
-  const [takeProfit, setTakeProfit] = useState<number>(0);
-  const [stopLoss, setStopLoss] = useState<number>(0);
+  const [takeProfit, setTakeProfit] = useState<number>(() =>
+    initialTakeProfit != null && Number.isFinite(initialTakeProfit) && initialTakeProfit > 0
+      ? initialTakeProfit
+      : 0,
+  );
+  const [stopLoss, setStopLoss] = useState<number>(() =>
+    initialStopLoss != null && Number.isFinite(initialStopLoss) && initialStopLoss > 0
+      ? initialStopLoss
+      : 0,
+  );
   // Session-level P/L tally for binary contracts (rise/fall, digits, etc.).
   // Deriv's `limit_order` only applies to multiplier/accumulator contracts;
   // for everything else we honor take-profit / stop-loss client-side by

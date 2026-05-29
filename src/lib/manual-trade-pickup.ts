@@ -9,8 +9,12 @@ import type { TradeCategory } from "@/lib/deriv";
 export type ManualTradePickup = {
   /** Recommended opening stake — manual trader pre-fills this in the panel. */
   stake: number;
+  /** Session stop-loss the user entered before the AI scan (0 = disabled). */
+  stopLoss?: number;
   /** Synthetic index symbol (e.g. "R_100", "1HZ10V"). */
   symbol: string;
+  /** Session take-profit the user entered before the AI scan (0 = disabled). */
+  takeProfit?: number;
   /** Contract family the user chose in the AI assistant. */
   tradeType: TradeCategory;
 };
@@ -41,9 +45,15 @@ export function consumeManualTradePickup(): ManualTradePickup | null {
     ) {
       return null;
     }
+    const sanitizeOptional = (value: unknown): number | undefined => {
+      const number = Number(value);
+      return Number.isFinite(number) && number > 0 ? number : undefined;
+    };
     return {
       stake: Math.max(0.35, parsed.stake),
+      stopLoss: sanitizeOptional(parsed.stopLoss),
       symbol: parsed.symbol,
+      takeProfit: sanitizeOptional(parsed.takeProfit),
       tradeType: parsed.tradeType as TradeCategory,
     };
   } catch {

@@ -9,6 +9,7 @@ import {
 } from "@/lib/bot-builder-state";
 import { writeRecentWorkspaceXml } from "@/external/bot-builder/recent-workspaces";
 import {
+  applyRunSettingsToBotXml,
   extractSettingsFromXmlText,
   sanitizeDbotXml,
   writeSavedWorkspaceXml,
@@ -22,6 +23,10 @@ export type BuilderMemoryImport = {
   /** Optional bot preset ID — when provided, previously saved user edits for this
    *  preset are restored instead of overwriting with the fresh deployment XML. */
   presetId?: string;
+  /** When true, the provided XML is authoritative: any previously saved user edits
+   *  for this preset are overwritten (used by the AI assistant so freshly-tuned
+   *  run-loop values are never shadowed by a stale saved workspace). */
+  force?: boolean;
 };
 
 function normalizeXml(xml: string): string {
@@ -49,7 +54,7 @@ export async function importBotXmlIntoBuilderMemory(
   // Sanitize the saved XML too so any structurally-broken older snapshot does
   // not prevent the workspace from loading.
   let workspaceXml = freshXml;
-  if (input.presetId && userId) {
+  if (input.presetId && userId && !input.force) {
     const savedUserXml = readPresetWorkspaceXml(userId, input.presetId);
     if (savedUserXml) {
       workspaceXml = sanitizeDbotXml(savedUserXml);
@@ -58,9 +63,10 @@ export async function importBotXmlIntoBuilderMemory(
 
   if (input.presetId) {
     persistCurrentBotPresetId(userId, input.presetId);
-    // Also seed the preset workspace store on first deploy so autosave can
-    // update it (the store may be empty if the user never deployed before).
-    if (!readPresetWorkspaceXml(userId, input.presetId)) {
+    // On a forced import the fresh XML is authoritative — overwrite any stale saved
+    // workspace so re-deploying the same preset keeps the new run-loop values.
+    // Otherwise only seed the store on first deploy so autosave can update it.
+    if (input.force || !readPresetWorkspaceXml(userId, input.presetId)) {
       persistPresetWorkspaceXml(userId, input.presetId, freshXml);
     }
   } else {
@@ -83,8 +89,11 @@ export async function importBotXmlIntoBuilderMemory(
  */
 export async function deployBotFromAiSuggestion(input: {
   martingale: number;
+  maxRuns?: number;
   presetId: string;
   stake: number;
+  stopLoss?: number;
+  takeProfit?: number;
   userId: string;
 }): Promise<{ name: string }> {
   const asset = TRADING_BOT_ASSETS.find((item) => item.id === input.presetId);
@@ -92,26 +101,39 @@ export async function deployBotFromAiSuggestion(input: {
     throw new Error(`Bot preset "${input.presetId}" is not registered as a deployable asset.`);
   }
 
-  const xml = await fetchBotXmlFromDatabase(input.presetId);
+  const martingale = Math.max(1, input.martingale);
+  const stake = Math.max(0.35, input.stake);
+  const stopLoss = input.stopLoss != null ? Math.max(0, input.stopLoss) : undefined;
+  const takeProfit = input.takeProfit != null ? Math.max(0, input.takeProfit) : undefined;
+  const maxRuns =
+    input.maxRuns != null ? Math.max(1, Math.round(input.maxRuns)) : undefined;
+
+  const rawXml = await fetchBotXmlFromDatabase(input.presetId);
+  // Inject the user's run-loop values into the XML's INITIALIZATION literals so
+  // the DBot runtime actually runs with them — the panel/run-loop re-read these
+  // variables, so setting `current-settings` alone is not enough (XML wins).
+  const xml = applyRunSettingsToBotXml(rawXml, { martingale, stake, stopLoss, takeProfit });
   await importBotXmlIntoBuilderMemory(input.userId, {
+    force: true,
     name: asset.name,
     presetId: input.presetId,
     xml,
   });
 
-  // Apply the AI-recommended stake & martingale on top of XML-derived defaults
-  // so the bot-builder panel + footer Run both pick them up immediately.
+  // Apply the user's stake & martingale on top of XML-derived defaults so the
+  // bot-builder panel + footer Run both pick them up immediately.
   const baseSettings: BotBuilderSettings =
     extractSettingsFromXmlText(xml) ?? { ...initialBotBuilderSettings };
-  const martingale = Math.max(1, input.martingale);
-  const stake = Math.max(0.35, input.stake);
   persistCurrentBotSettings(
     input.userId,
     {
       ...baseSettings,
       martingale,
+      maxRuns: maxRuns ?? baseSettings.maxRuns,
       maxStake: Math.max(baseSettings.maxStake, stake * Math.max(1, martingale) * 8),
       stake,
+      stopLoss: stopLoss ?? baseSettings.stopLoss,
+      takeProfit: takeProfit ?? baseSettings.takeProfit,
     },
     { presetId: input.presetId },
   );

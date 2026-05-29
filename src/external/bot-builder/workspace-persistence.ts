@@ -686,6 +686,95 @@ export function extractSettingsFromXmlText(
   };
 }
 
+/**
+ * Variable-name groups (normalized via {@link normalizeVariableName}) recognised
+ * as the bot's run-loop knobs. Mirrors the names {@link extractSettingsFromXmlText}
+ * reads so that whatever the panel/run-loop later reads back is exactly what we write.
+ */
+const RUN_SETTING_VARIABLE_GROUPS = {
+  stake: new Set(["stake", "initialstake", "amount", "initialamount", "winstake"]),
+  martingale: new Set(["martingale", "martigale", "martingalefactor", "martigalefactor"]),
+  stopLoss: new Set(["stoploss"]),
+  takeProfit: new Set(["takeprofit", "targetprofit", "expectedprofit", "profit"]),
+} as const;
+
+function formatXmlNumber(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  // Deriv rejects stakes with more than 2 decimal places; keep init literals tidy.
+  return String(Math.round(value * 100) / 100);
+}
+
+function setLiteralValueNum(block: Element | null, value: number): boolean {
+  if (!block) return false;
+  const valueBlock = xmlValueBlock(block, "VALUE");
+  // Only rewrite literal numeric initial assignments. Self-referential martingale
+  // formulas (Stake = Stake * factor) are math_arithmetic, and win-resets
+  // (Stake = Initial Stake) are variables_get — both are skipped here so we never
+  // corrupt the bot's recovery logic, only its starting values.
+  if (!valueBlock || valueBlock.getAttribute("type") !== "math_number") return false;
+  const numField = xmlFieldElement(valueBlock, "NUM");
+  if (!numField) return false;
+  numField.textContent = formatXmlNumber(value);
+  return true;
+}
+
+/**
+ * Rewrite the INITIALIZATION literals for stake, martingale, stop-loss and
+ * take-profit inside a DBot strategy XML so a deployed bot actually runs with
+ * the user's chosen values. The DBot runtime executes the XML's INITIALIZATION
+ * chain on every run (see `initBotState`/`getBotStakeVar`), and
+ * `extractSettingsFromXmlText` re-reads these same variables — so persisting the
+ * user's run-loop knobs in `current-settings` alone is not enough; the XML wins
+ * at run time unless these literals are updated too.
+ *
+ * Values are optional; omit a field to leave that variable untouched. Returns the
+ * original XML unchanged if the DOM APIs are unavailable or parsing fails.
+ */
+export function applyRunSettingsToBotXml(
+  xmlText: string,
+  values: {
+    martingale?: number | null;
+    stake?: number | null;
+    stopLoss?: number | null;
+    takeProfit?: number | null;
+  },
+): string {
+  if (typeof DOMParser === "undefined" || typeof XMLSerializer === "undefined") return xmlText;
+  const doc = parseBlocklyXml(xmlText);
+  if (!doc) return xmlText;
+  try {
+    for (const block of xmlBlocks(doc)) {
+      if (block.getAttribute("type") !== "variables_set") continue;
+      const name = normalizeVariableName(readXmlVariableField(block).name);
+      if (!name) continue;
+      if (values.stake != null && RUN_SETTING_VARIABLE_GROUPS.stake.has(name)) {
+        setLiteralValueNum(block, values.stake);
+      } else if (values.martingale != null && RUN_SETTING_VARIABLE_GROUPS.martingale.has(name)) {
+        setLiteralValueNum(block, values.martingale);
+      } else if (values.stopLoss != null && RUN_SETTING_VARIABLE_GROUPS.stopLoss.has(name)) {
+        setLiteralValueNum(block, values.stopLoss);
+      } else if (values.takeProfit != null && RUN_SETTING_VARIABLE_GROUPS.takeProfit.has(name)) {
+        setLiteralValueNum(block, values.takeProfit);
+      }
+    }
+
+    // Some bots wire the trade-options AMOUNT to a literal rather than a stake
+    // variable — keep it in sync so the very first proposal uses the new stake.
+    if (values.stake != null) {
+      const options = firstXmlBlock(doc, "trade_definition_tradeoptions");
+      const amountBlock = xmlValueBlock(options, "AMOUNT");
+      if (amountBlock && amountBlock.getAttribute("type") === "math_number") {
+        const numField = xmlFieldElement(amountBlock, "NUM");
+        if (numField) numField.textContent = formatXmlNumber(values.stake);
+      }
+    }
+
+    return new XMLSerializer().serializeToString(doc.documentElement);
+  } catch {
+    return xmlText;
+  }
+}
+
 export function persistWorkspaceSnapshot(
   userId: string | null | undefined,
   workspace: BlocklyWorkspaceLike | null | undefined,

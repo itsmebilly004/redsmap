@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { BrainCircuit, Info, Play, RefreshCw, Rocket, Sparkles, X } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useBotRunner } from "@/context/bot-runner-context";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import {
   persistAssistantButtonPosition,
@@ -21,13 +22,11 @@ import {
   analyzeBestBotOpportunities,
   analyzeBestMarketForContract,
   analyzeDigitsForSymbol,
-  recommendManualStake,
   recommendStakeAndMartingale,
   type BotOpportunity,
   type DigitMarketAnalysis,
   type ManualContractKind,
   type ManualMarketSuggestion,
-  type ManualStakeRecommendation,
   type StakeRecommendation,
 } from "@/lib/market-analysis";
 import { setManualTradePickup } from "@/lib/manual-trade-pickup";
@@ -45,6 +44,103 @@ const MANUAL_CONTRACT_OPTIONS: { kind: ManualContractKind; label: string; descri
 const ASSISTANT_BUTTON_SIZE_DESKTOP = 56;
 const ASSISTANT_BUTTON_SIZE_MOBILE = 40;
 
+/** Run-loop inputs the user fills in BEFORE launching the bot market scan. */
+type BotScanInputs = {
+  stake: string;
+  stopLoss: string;
+  takeProfit: string;
+  martingale: string;
+  maxRuns: string;
+};
+
+/** Manual-trade inputs — same as the bot, minus martingale and number of runs. */
+type ManualScanInputs = {
+  stake: string;
+  stopLoss: string;
+  takeProfit: string;
+};
+
+const DEFAULT_BOT_INPUTS: BotScanInputs = {
+  stake: "1",
+  stopLoss: "30",
+  takeProfit: "100",
+  martingale: "2",
+  maxRuns: "50",
+};
+
+const DEFAULT_MANUAL_INPUTS: ManualScanInputs = {
+  stake: "1",
+  stopLoss: "10",
+  takeProfit: "20",
+};
+
+type ParsedBotSettings = {
+  stake: number;
+  stopLoss: number;
+  takeProfit: number;
+  martingale: number;
+  maxRuns: number;
+};
+
+type ParsedManualSettings = {
+  stake: number;
+  stopLoss: number;
+  takeProfit: number;
+};
+
+function parsePositive(value: string): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function parseNonNegative(value: string): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+/** Validate the bot inputs; returns the parsed settings or a human error string. */
+function parseBotInputs(inputs: BotScanInputs): { settings: ParsedBotSettings } | { error: string } {
+  const stake = parsePositive(inputs.stake);
+  if (stake == null || stake < 0.35) return { error: "Enter a stake of at least 0.35." };
+  const martingale = parsePositive(inputs.martingale);
+  if (martingale == null || martingale < 1)
+    return { error: "Martingale must be 1 or greater (1 = no martingale)." };
+  const maxRuns = parsePositive(inputs.maxRuns);
+  if (maxRuns == null) return { error: "Enter the number of runs (1 or more)." };
+  const stopLoss = parseNonNegative(inputs.stopLoss);
+  if (stopLoss == null) return { error: "Stop loss must be 0 or a positive amount." };
+  const takeProfit = parseNonNegative(inputs.takeProfit);
+  if (takeProfit == null) return { error: "Take profit must be 0 or a positive amount." };
+  return {
+    settings: {
+      stake: Math.round(stake * 100) / 100,
+      stopLoss: Math.round(stopLoss * 100) / 100,
+      takeProfit: Math.round(takeProfit * 100) / 100,
+      martingale: Math.round(martingale * 100) / 100,
+      maxRuns: Math.max(1, Math.round(maxRuns)),
+    },
+  };
+}
+
+/** Validate the manual inputs; returns the parsed settings or a human error string. */
+function parseManualInputs(
+  inputs: ManualScanInputs,
+): { settings: ParsedManualSettings } | { error: string } {
+  const stake = parsePositive(inputs.stake);
+  if (stake == null || stake < 0.35) return { error: "Enter a stake of at least 0.35." };
+  const stopLoss = parseNonNegative(inputs.stopLoss);
+  if (stopLoss == null) return { error: "Stop loss must be 0 or a positive amount." };
+  const takeProfit = parseNonNegative(inputs.takeProfit);
+  if (takeProfit == null) return { error: "Take profit must be 0 or a positive amount." };
+  return {
+    settings: {
+      stake: Math.round(stake * 100) / 100,
+      stopLoss: Math.round(stopLoss * 100) / 100,
+      takeProfit: Math.round(takeProfit * 100) / 100,
+    },
+  };
+}
+
 export function AiAssistant({
   currentPath,
   showBotMonitor,
@@ -55,6 +151,7 @@ export function AiAssistant({
   const { user } = useAuth();
   const navigate = useNavigate();
   const { balance, currency } = useDerivBalanceContext();
+  const { toggleRun } = useBotRunner();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<AssistantView>("best-bot");
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
@@ -68,6 +165,14 @@ export function AiAssistant({
   const [refreshKey, setRefreshKey] = useState(0);
   const [launching, setLaunching] = useState(false);
   const [lastAnalysisAt, setLastAnalysisAt] = useState<Date | null>(null);
+  // User-entered run-loop settings, captured BEFORE the AI market scan. The scan
+  // is gated behind these being armed so the recommendation is sized to the
+  // user's own stake/risk, then carried into the deploy / manual handoff.
+  const [botInputs, setBotInputs] = useState<BotScanInputs>(DEFAULT_BOT_INPUTS);
+  const [manualInputs, setManualInputs] = useState<ManualScanInputs>(DEFAULT_MANUAL_INPUTS);
+  const [botScanArmed, setBotScanArmed] = useState(false);
+  const [manualScanArmed, setManualScanArmed] = useState(false);
+  const [inputError, setInputError] = useState<string | null>(null);
   const dragRef = useRef<{
     moved: boolean;
     originX: number;
@@ -111,7 +216,10 @@ export function AiAssistant({
   useEffect(() => {
     if (!open) return;
     if (view === "memory") return;
-    if (view === "manual" && !manualKind) return; // wait until user picks a contract family
+    // The scan only runs once the user has entered their settings and pressed
+    // "Run AI Market Scan" (and, for manual, picked a contract family).
+    if (view === "best-bot" && !botScanArmed) return;
+    if (view === "manual" && (!manualKind || !manualScanArmed)) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -167,7 +275,7 @@ export function AiAssistant({
     return () => {
       cancelled = true;
     };
-  }, [currentMarket, manualKind, open, refreshKey, user?.id, view]);
+  }, [botScanArmed, currentMarket, manualKind, manualScanArmed, open, refreshKey, user?.id, view]);
 
   const panelStyle = useMemo(() => {
     const panelWidth = Math.min(viewport.width - 16, viewport.width < 640 ? 340 : 380);
@@ -226,6 +334,12 @@ export function AiAssistant({
   }
 
   const bestBot = botOpportunities.find((item) => item.launchable) ?? botOpportunities[0] ?? null;
+
+  // Parsed + validated user inputs. The launch uses these directly; the AI's
+  // own risk-sizing (below) is shown only as guidance.
+  const parsedBot = useMemo(() => parseBotInputs(botInputs), [botInputs]);
+  const parsedManual = useMemo(() => parseManualInputs(manualInputs), [manualInputs]);
+
   const stakeRecommendation: StakeRecommendation | null = useMemo(() => {
     if (!bestBot) return null;
     return recommendStakeAndMartingale({
@@ -235,6 +349,22 @@ export function AiAssistant({
       presetStake: bestBot.presetStake,
     });
   }, [balance, bestBot]);
+
+  function handleRunBotScan() {
+    if ("error" in parsedBot) {
+      setInputError(parsedBot.error);
+      return;
+    }
+    setInputError(null);
+    setBotScanArmed(true);
+    setRefreshKey((value) => value + 1);
+  }
+
+  function handleEditBotInputs() {
+    setBotScanArmed(false);
+    setBotOpportunities([]);
+    setError(null);
+  }
 
   async function handleLaunchBestBot() {
     if (!bestBot || !user?.id) {
@@ -248,19 +378,44 @@ export function AiAssistant({
       toast.error("This bot isn't registered as a deployable preset.");
       return;
     }
-    if (!stakeRecommendation) return;
+    if ("error" in parsedBot) {
+      setInputError(parsedBot.error);
+      return;
+    }
+    const settings = parsedBot.settings;
     setLaunching(true);
     try {
       await deployBotFromAiSuggestion({
-        martingale: stakeRecommendation.martingale,
+        martingale: settings.martingale,
+        maxRuns: settings.maxRuns,
         presetId: bestBot.presetId,
-        stake: stakeRecommendation.stake,
+        stake: settings.stake,
+        stopLoss: settings.stopLoss,
+        takeProfit: settings.takeProfit,
         userId: user.id,
       });
       recordBotPresetActivity(user.id, "deployed", bestBot.name, bestBot.presetId);
-      toast.success(`Deployed ${bestBot.name} — ${bestBot.marketLabel} ready.`);
+      recordActivity(user.id, {
+        message: `AI launched ${bestBot.name} on ${bestBot.marketLabel} — stake ${settings.stake.toFixed(2)}, martingale ${settings.martingale}×, ${settings.maxRuns} runs.`,
+        meta: {
+          martingale: settings.martingale,
+          maxRuns: settings.maxRuns,
+          presetId: bestBot.presetId,
+          stake: settings.stake,
+          stopLoss: settings.stopLoss,
+          takeProfit: settings.takeProfit,
+        },
+        type: "assistant",
+      });
+      toast.success(`Deployed ${bestBot.name} — auto-running on ${bestBot.marketLabel}.`);
       setOpen(false);
       navigate({ to: "/bot-builder" });
+      // Auto-start the run once the deploy is persisted. The run loop lives in the
+      // root BotRunnerProvider (survives navigation); the brief delay lets the
+      // bot-builder workspace mount so block highlighting tracks the live run.
+      window.setTimeout(() => {
+        toggleRun();
+      }, 600);
     } catch (launchError) {
       const message =
         launchError instanceof Error ? launchError.message : "Could not launch this bot.";
@@ -279,30 +434,55 @@ export function AiAssistant({
     setManualSuggestions([]);
     setDigitAnalysis(null);
     setError(null);
+    // Re-arm required: the user must press scan again after switching family.
+    setManualScanArmed(false);
+  }
+
+  function handleRunManualScan() {
+    if (!manualKind) {
+      setInputError("Pick a contract type to scan.");
+      return;
+    }
+    if ("error" in parsedManual) {
+      setInputError(parsedManual.error);
+      return;
+    }
+    setInputError(null);
+    setManualScanArmed(true);
+    setRefreshKey((value) => value + 1);
+  }
+
+  function handleEditManualInputs() {
+    setManualScanArmed(false);
+    setManualSuggestions([]);
+    setDigitAnalysis(null);
+    setError(null);
   }
 
   const topManualSuggestion = manualSuggestions[0] ?? null;
-  const manualStakeAdvice: ManualStakeRecommendation | null = useMemo(() => {
-    if (!topManualSuggestion) return null;
-    return recommendManualStake({
-      balance,
-      edge: topManualSuggestion.edge,
-    });
-  }, [balance, topManualSuggestion]);
 
   function handleLaunchManualTrader() {
-    if (!topManualSuggestion || !manualKind || !manualStakeAdvice) return;
+    if (!topManualSuggestion || !manualKind) return;
+    if ("error" in parsedManual) {
+      setInputError(parsedManual.error);
+      return;
+    }
+    const settings = parsedManual.settings;
     setManualTradePickup({
-      stake: manualStakeAdvice.stake,
+      stake: settings.stake,
+      stopLoss: settings.stopLoss,
       symbol: topManualSuggestion.symbol,
+      takeProfit: settings.takeProfit,
       tradeType: manualKind,
     });
     recordActivity(user?.id, {
-      message: `AI handoff to manual trader: ${manualKind} on ${topManualSuggestion.symbol} @ ${manualStakeAdvice.stake.toFixed(2)} ${currency || "USD"}.`,
+      message: `AI handoff to manual trader: ${manualKind} on ${topManualSuggestion.symbol} @ ${settings.stake.toFixed(2)} ${currency || "USD"} (TP ${settings.takeProfit}, SL ${settings.stopLoss}).`,
       meta: {
         kind: manualKind,
-        stake: manualStakeAdvice.stake,
+        stake: settings.stake,
+        stopLoss: settings.stopLoss,
         symbol: topManualSuggestion.symbol,
+        takeProfit: settings.takeProfit,
       },
       type: "assistant",
     });
@@ -375,8 +555,30 @@ export function AiAssistant({
             {loading && <AssistantInfoCard title="Running analysis">Pulling the latest 500 ticks across every synthetic market for the recommendation.</AssistantInfoCard>}
             {!loading && error && <AssistantInfoCard tone="error" title="Analysis failed">{error}</AssistantInfoCard>}
 
-            {!loading && !error && view === "best-bot" && bestBot && (
+            {/* Step 1 (Best Bot): capture the user's run-loop settings BEFORE the scan. */}
+            {view === "best-bot" && !botScanArmed && (
+              <BotScanForm
+                currency={currency}
+                error={inputError}
+                inputs={botInputs}
+                onChange={setBotInputs}
+                onScan={handleRunBotScan}
+              />
+            )}
+
+            {!loading && !error && view === "best-bot" && botScanArmed && bestBot && (
               <div className="space-y-3">
+                <YourSettingsCard
+                  onEdit={handleEditBotInputs}
+                  rows={[
+                    ["Stake", `${botInputs.stake} ${currency || "USD"}`],
+                    ["Martingale", `${botInputs.martingale}×`],
+                    ["Take profit", `${botInputs.takeProfit} ${currency || "USD"}`],
+                    ["Stop loss", `${botInputs.stopLoss} ${currency || "USD"}`],
+                    ["Number of runs", botInputs.maxRuns],
+                  ]}
+                />
+
                 <AssistantInfoCard title={`Top pick: ${bestBot.name}`}>
                   Strongest empirical edge right now on <strong>{bestBot.marketLabel}</strong>. Win rate
                   in the last 500 ticks: <strong>{bestBot.actualProbability.toFixed(1)}%</strong> vs. a
@@ -390,7 +592,7 @@ export function AiAssistant({
                 {stakeRecommendation && (
                   <div className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]">
                     <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
-                      Risk-sized for your balance
+                      AI guidance (for reference — your settings above are used)
                     </div>
                     <div className="mt-2 grid grid-cols-2 gap-3 text-xs">
                       <RecommendationStat
@@ -437,7 +639,7 @@ export function AiAssistant({
                         ? "Sign in to launch"
                         : !bestBot.launchable
                           ? "Not deployable"
-                          : `Launch on ${bestBot.marketLabel}`}
+                          : `Launch & auto-run on ${bestBot.marketLabel}`}
                   </button>
                   <button
                     type="button"
@@ -485,7 +687,8 @@ export function AiAssistant({
               </div>
             )}
 
-            {!loading && !error && view === "manual" && (
+            {/* Step 1 (Manual): pick a contract family + enter settings, then scan. */}
+            {view === "manual" && !manualScanArmed && (
               <div className="space-y-3">
                 <div className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]">
                   <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
@@ -511,15 +714,30 @@ export function AiAssistant({
                   </div>
                 </div>
 
-                {!manualKind && (
-                  <AssistantInfoCard title="Pick a contract type to scan">
-                    The assistant will rank every synthetic market by recent statistical lean for the
-                    contract family you choose, so you can trade it manually with the strongest edge.
-                  </AssistantInfoCard>
-                )}
+                <ManualScanForm
+                  canScan={Boolean(manualKind)}
+                  currency={currency}
+                  error={inputError}
+                  inputs={manualInputs}
+                  onChange={setManualInputs}
+                  onScan={handleRunManualScan}
+                />
+              </div>
+            )}
 
+            {!loading && !error && view === "manual" && manualScanArmed && (
+              <div className="space-y-3">
                 {manualKind && manualSuggestions.length > 0 && (
                   <>
+                    <YourSettingsCard
+                      onEdit={handleEditManualInputs}
+                      rows={[
+                        ["Stake", `${manualInputs.stake} ${currency || "USD"}`],
+                        ["Take profit", `${manualInputs.takeProfit} ${currency || "USD"}`],
+                        ["Stop loss", `${manualInputs.stopLoss} ${currency || "USD"}`],
+                      ]}
+                    />
+
                     <AssistantInfoCard title={`Best market right now`}>
                       For <strong>{labelForKind(manualKind)}</strong>, the strongest setup is{" "}
                       <strong>{manualSuggestions[0].side}</strong> on{" "}
@@ -536,27 +754,6 @@ export function AiAssistant({
                       ).
                     </AssistantInfoCard>
 
-                    {manualStakeAdvice && (
-                      <div className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
-                          Stake advice for your balance
-                        </div>
-                        <div className="mt-2 grid grid-cols-2 gap-3 text-xs">
-                          <RecommendationStat
-                            label="Suggested stake"
-                            value={`${manualStakeAdvice.stake.toFixed(2)} ${currency || "USD"}`}
-                          />
-                          <RecommendationStat
-                            label="Risk band"
-                            value={capitalize(manualStakeAdvice.riskBand)}
-                          />
-                        </div>
-                        <div className="mt-2 text-[11px] leading-5 text-[#62707c] dark:text-[#aab1b8]">
-                          {manualStakeAdvice.rationale}
-                        </div>
-                      </div>
-                    )}
-
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -570,13 +767,7 @@ export function AiAssistant({
                       <button
                         type="button"
                         onClick={handleLaunchManualTrader}
-                        disabled={!manualStakeAdvice}
-                        className={cn(
-                          "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold text-white shadow transition",
-                          manualStakeAdvice
-                            ? "bg-[#4bb4b3] hover:bg-[#3aa19f]"
-                            : "bg-[#9ca3af] cursor-not-allowed",
-                        )}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#4bb4b3] px-3 py-2.5 text-sm font-bold text-white shadow transition hover:bg-[#3aa19f]"
                       >
                         <Play className="size-4" />
                         Launch on Manual Trader
@@ -792,6 +983,163 @@ function RecommendationStat({
       </div>
       <div className={cn("mt-0.5 text-sm font-bold text-[#172029] dark:text-[#f1f5f9]", valueClassName)}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+function NumberField({
+  label,
+  suffix,
+  value,
+  onChange,
+  step = "any",
+  min = "0",
+}: {
+  label: string;
+  suffix?: string;
+  value: string;
+  onChange: (value: string) => void;
+  step?: string;
+  min?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
+        {label}
+      </span>
+      <div className="mt-1 flex items-center rounded-lg border border-[#d7dce0] bg-white px-2 focus-within:border-[#4bb4b3] dark:border-[#2a2f35] dark:bg-[#101214]">
+        <input
+          type="number"
+          inputMode="decimal"
+          step={step}
+          min={min}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full bg-transparent py-2 text-sm font-semibold text-[#172029] outline-none dark:text-[#f1f5f9]"
+        />
+        {suffix && (
+          <span className="pl-1 text-[10px] font-semibold text-[#8a949d] dark:text-[#7c858c]">
+            {suffix}
+          </span>
+        )}
+      </div>
+    </label>
+  );
+}
+
+function BotScanForm({
+  currency,
+  error,
+  inputs,
+  onChange,
+  onScan,
+}: {
+  currency: string;
+  error: string | null;
+  inputs: BotScanInputs;
+  onChange: (next: BotScanInputs) => void;
+  onScan: () => void;
+}) {
+  const cur = currency || "USD";
+  return (
+    <div className="space-y-3">
+      <AssistantInfoCard title="Step 1 · Set your bot parameters">
+        Enter your stake, risk limits, martingale and number of runs. The AI scans for the best
+        market + bot, applies these to the bot builder, and auto-runs it on launch.
+      </AssistantInfoCard>
+      <div className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]">
+        <div className="grid grid-cols-2 gap-3">
+          <NumberField label="Stake" suffix={cur} value={inputs.stake} onChange={(v) => onChange({ ...inputs, stake: v })} min="0.35" />
+          <NumberField label="Martingale" suffix="×" value={inputs.martingale} onChange={(v) => onChange({ ...inputs, martingale: v })} min="1" />
+          <NumberField label="Take profit" suffix={cur} value={inputs.takeProfit} onChange={(v) => onChange({ ...inputs, takeProfit: v })} />
+          <NumberField label="Stop loss" suffix={cur} value={inputs.stopLoss} onChange={(v) => onChange({ ...inputs, stopLoss: v })} />
+          <NumberField label="Number of runs" value={inputs.maxRuns} onChange={(v) => onChange({ ...inputs, maxRuns: v })} step="1" min="1" />
+        </div>
+        {error && <div className="mt-2 text-[11px] font-medium text-[#cc2f39]">{error}</div>}
+      </div>
+      <button
+        type="button"
+        onClick={onScan}
+        className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#4bb4b3] px-3 py-2.5 text-sm font-bold text-white shadow transition hover:bg-[#3aa19f]"
+      >
+        <BrainCircuit className="size-4" />
+        Run AI Market Scan
+      </button>
+    </div>
+  );
+}
+
+function ManualScanForm({
+  canScan,
+  currency,
+  error,
+  inputs,
+  onChange,
+  onScan,
+}: {
+  canScan: boolean;
+  currency: string;
+  error: string | null;
+  inputs: ManualScanInputs;
+  onChange: (next: ManualScanInputs) => void;
+  onScan: () => void;
+}) {
+  const cur = currency || "USD";
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-[#e7eaee] bg-[#f7f9fa] p-3 dark:border-[#24282d] dark:bg-[#141719]">
+        <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
+          Step 2 · Set your trade parameters
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          <NumberField label="Stake" suffix={cur} value={inputs.stake} onChange={(v) => onChange({ ...inputs, stake: v })} min="0.35" />
+          <NumberField label="Take profit" suffix={cur} value={inputs.takeProfit} onChange={(v) => onChange({ ...inputs, takeProfit: v })} />
+          <NumberField label="Stop loss" suffix={cur} value={inputs.stopLoss} onChange={(v) => onChange({ ...inputs, stopLoss: v })} />
+        </div>
+        {error && <div className="mt-2 text-[11px] font-medium text-[#cc2f39]">{error}</div>}
+      </div>
+      <button
+        type="button"
+        onClick={onScan}
+        disabled={!canScan}
+        className={cn(
+          "flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-bold text-white shadow transition",
+          canScan ? "bg-[#4bb4b3] hover:bg-[#3aa19f]" : "bg-[#9ca3af] cursor-not-allowed",
+        )}
+      >
+        <BrainCircuit className="size-4" />
+        {canScan ? "Run AI Market Scan" : "Pick a contract type first"}
+      </button>
+    </div>
+  );
+}
+
+function YourSettingsCard({
+  onEdit,
+  rows,
+}: {
+  onEdit: () => void;
+  rows: [string, string | number][];
+}) {
+  return (
+    <div className="rounded-xl border border-[#d8e7e6] bg-[#eef9f8] p-3 dark:border-[#1f403f] dark:bg-[#102726]">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-semibold uppercase tracking-wide text-[#245a58] dark:text-[#9ee5e3]">
+          Your settings (applied to the bot)
+        </div>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="rounded-md border border-[#bfe0de] bg-white px-2 py-1 text-[10px] font-semibold text-[#247a77] transition hover:bg-[#e6f8f7] dark:border-[#2c4f4e] dark:bg-[#0c1e1d] dark:text-[#8be6e4]"
+        >
+          Edit
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+        {rows.map(([label, value]) => (
+          <RecommendationStat key={label} label={label} value={String(value)} />
+        ))}
       </div>
     </div>
   );
