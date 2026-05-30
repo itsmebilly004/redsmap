@@ -87,10 +87,16 @@ interface TradePanelProps {
   initialStake?: number;
   /** AI-suggested contract family. Pre-selects the trade type once on mount; user can change freely. */
   initialTradeType?: TradeCategory;
+  /** AI-suggested side value (e.g. "even", "over", "up"). Used for the auto-trade and pre-selection. */
+  initialSide?: string;
+  /** AI-suggested prediction digit (Over/Under threshold or Matches/Differs target). Pre-fills once. */
+  initialPredictionDigit?: number;
   /** Session take-profit the user entered before the AI scan. Pre-fills once on mount. */
   initialTakeProfit?: number;
   /** Session stop-loss the user entered before the AI scan. Pre-fills once on mount. */
   initialStopLoss?: number;
+  /** When true, fire ONE trade automatically on the AI-picked side once the proposal is ready. */
+  autoExecute?: boolean;
   onAccumulatorBarriers?: (b: ChartOverlay) => void;
   onMarketChange?: (market: string) => void;
   onTradeTypeChange?: (tradeType: TradeCategory) => void;
@@ -157,8 +163,11 @@ export function TradePanel({
   lastPrice,
   initialStake,
   initialTradeType,
+  initialSide,
+  initialPredictionDigit,
   initialTakeProfit,
   initialStopLoss,
+  autoExecute = false,
   onAccumulatorBarriers,
   onMarketChange,
   onTradeTypeChange,
@@ -181,7 +190,11 @@ export function TradePanel({
   const [duration, setDuration] = useState(5);
   const [durationUnit, setDurationUnit] = useState<"t" | "s" | "m">("t");
   const [barrier, setBarrier] = useState("+0.10");
-  const [selectedDigit, setSelectedDigit] = useState(5);
+  const [selectedDigit, setSelectedDigit] = useState(() =>
+    initialPredictionDigit != null && Number.isInteger(initialPredictionDigit)
+      ? initialPredictionDigit
+      : 5,
+  );
   const [multiplier, setMultiplier] = useState(100);
   const [takeProfit, setTakeProfit] = useState<number>(() =>
     initialTakeProfit != null && Number.isFinite(initialTakeProfit) && initialTakeProfit > 0
@@ -218,6 +231,8 @@ export function TradePanel({
   const pageLoadAuthorizationAttemptRef = useRef<string | null>(null);
   const closedRef = useRef(false);
   const autoSellInFlightRef = useRef(false);
+  // Guards the AI single auto-trade so it fires at most once per mount.
+  const autoExecutedRef = useRef(false);
 
   const config = tradeTypeConfig(selectedTradeType);
   const currentDigit =
@@ -527,6 +542,40 @@ export function TradePanel({
       void cleanupSubscription();
     }
   }, [account?.account_id, activeContract.status]);
+
+  // AI single auto-trade: once the panel is handed an AI pick (autoExecute) and a
+  // valid proposal for the recommended side has loaded, fire exactly one buy. We
+  // gate on a ready quote so the trade only goes out on a live, buyable proposal
+  // (this also implicitly waits for the trading connection + authorization).
+  useEffect(() => {
+    if (!autoExecute || autoExecutedRef.current) return;
+    if (selectedTradeType === "accumulator") return;
+    if (!token || !account || !user) return;
+    if (busy || buyInFlightRef.current || sessionLimitMessage) return;
+    const targetSide =
+      config.sides.find((side) => side.value === initialSide) ?? config.sides[0];
+    if (!targetSide) return;
+    const quote = quotes[targetSide.value];
+    if (!quote || !quote.id || quote.error) return;
+    autoExecutedRef.current = true;
+    toast.info(`AI auto-trade: placing ${targetSide.label} on ${market}.`);
+    void handleBuy(targetSide);
+    // handleBuy is a stable in-component declaration; excluded from deps on
+    // purpose so re-renders don't re-arm the (already one-shot) auto-trade.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    account,
+    autoExecute,
+    busy,
+    config.sides,
+    initialSide,
+    market,
+    quotes,
+    selectedTradeType,
+    sessionLimitMessage,
+    token,
+    user,
+  ]);
 
   function buildPayload(
     side: string,

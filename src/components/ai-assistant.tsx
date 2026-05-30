@@ -468,7 +468,13 @@ export function AiAssistant({
       return;
     }
     const settings = parsedManual.settings;
+    // Resolve the AI's suggested side into the concrete trade-panel side value
+    // (+ prediction digit) so the manual trader can auto-fire the trade.
+    const resolved = resolveManualSide(manualKind, topManualSuggestion.side);
     setManualTradePickup({
+      autoRun: true,
+      predictionDigit: resolved.predictionDigit,
+      side: resolved.side,
       stake: settings.stake,
       stopLoss: settings.stopLoss,
       symbol: topManualSuggestion.symbol,
@@ -476,9 +482,11 @@ export function AiAssistant({
       tradeType: manualKind,
     });
     recordActivity(user?.id, {
-      message: `AI handoff to manual trader: ${manualKind} on ${topManualSuggestion.symbol} @ ${settings.stake.toFixed(2)} ${currency || "USD"} (TP ${settings.takeProfit}, SL ${settings.stopLoss}).`,
+      message: `AI auto-trade handoff to manual trader: ${topManualSuggestion.side} on ${topManualSuggestion.symbol} @ ${settings.stake.toFixed(2)} ${currency || "USD"} (TP ${settings.takeProfit}, SL ${settings.stopLoss}).`,
       meta: {
         kind: manualKind,
+        predictionDigit: resolved.predictionDigit ?? null,
+        side: resolved.side,
         stake: settings.stake,
         stopLoss: settings.stopLoss,
         symbol: topManualSuggestion.symbol,
@@ -770,9 +778,15 @@ export function AiAssistant({
                         className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#4bb4b3] px-3 py-2.5 text-sm font-bold text-white shadow transition hover:bg-[#3aa19f]"
                       >
                         <Play className="size-4" />
-                        Launch on Manual Trader
+                        Launch &amp; auto-trade
                       </button>
                     </div>
+                    <p className="text-[11px] leading-5 text-[#62707c] dark:text-[#aab1b8]">
+                      Launch opens the manual trader with your stake, take-profit and stop-loss
+                      pre-filled on {manualSuggestions[0].marketLabel}, then places one trade
+                      automatically on the AI-picked side. Re-launch (or tap a buy button) for the
+                      next trade.
+                    </p>
 
                     <div className="space-y-2">
                       <div className="text-xs font-semibold uppercase tracking-wide text-[#64707c] dark:text-[#aab1b8]">
@@ -1160,6 +1174,31 @@ function AccuracyDisclaimer() {
 
 function labelForKind(kind: ManualContractKind): string {
   return MANUAL_CONTRACT_OPTIONS.find((option) => option.kind === kind)?.label ?? kind;
+}
+
+/**
+ * Translate a `ManualMarketSuggestion.side` label (e.g. "Over 5", "Differs 0",
+ * "Rise") into the trade-panel side `value` and prediction digit so the manual
+ * trader can auto-fire the exact trade the AI recommended.
+ */
+function resolveManualSide(
+  kind: ManualContractKind,
+  sideLabel: string,
+): { predictionDigit?: number; side: string } {
+  const normalized = sideLabel.trim().toLowerCase();
+  const digitMatch = normalized.match(/(\d+)/);
+  const predictionDigit = digitMatch ? Number(digitMatch[1]) : undefined;
+  if (kind === "even_odd") {
+    return { side: normalized.startsWith("odd") ? "odd" : "even" };
+  }
+  if (kind === "rise_fall") {
+    return { side: normalized.startsWith("fall") ? "down" : "up" };
+  }
+  if (kind === "over_under") {
+    return { predictionDigit, side: normalized.startsWith("under") ? "under" : "over" };
+  }
+  // matches_differs
+  return { predictionDigit, side: normalized.startsWith("matches") ? "matches" : "differs" };
 }
 
 function capitalize(value: string): string {

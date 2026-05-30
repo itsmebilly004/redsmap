@@ -7,6 +7,22 @@ import type { TradeCategory } from "@/lib/deriv";
  * page refresh doesn't keep re-applying stale suggestions.
  */
 export type ManualTradePickup = {
+  /**
+   * When true, the manual trader fires ONE trade automatically on the AI-picked
+   * side once the trading connection + proposal are ready (single auto-trade).
+   */
+  autoRun?: boolean;
+  /**
+   * Prediction digit for digit contracts — the Over/Under threshold or the
+   * Matches/Differs target digit the AI selected. Ignored for non-digit families.
+   */
+  predictionDigit?: number;
+  /**
+   * Resolved trade-type side VALUE for the auto-trade (e.g. "even"/"odd",
+   * "over"/"under", "matches"/"differs", "up"/"down"). Matches the trade-type
+   * config side `value`, not the human label.
+   */
+  side?: string;
   /** Recommended opening stake — manual trader pre-fills this in the panel. */
   stake: number;
   /** Session stop-loss the user entered before the AI scan (0 = disabled). */
@@ -49,7 +65,14 @@ export function consumeManualTradePickup(): ManualTradePickup | null {
       const number = Number(value);
       return Number.isFinite(number) && number > 0 ? number : undefined;
     };
+    const sanitizeDigit = (value: unknown): number | undefined => {
+      const number = Number(value);
+      return Number.isInteger(number) && number >= 0 && number <= 9 ? number : undefined;
+    };
     return {
+      autoRun: parsed.autoRun === true,
+      predictionDigit: sanitizeDigit(parsed.predictionDigit),
+      side: typeof parsed.side === "string" && parsed.side ? parsed.side : undefined,
       stake: Math.max(0.35, parsed.stake),
       stopLoss: sanitizeOptional(parsed.stopLoss),
       symbol: parsed.symbol,
