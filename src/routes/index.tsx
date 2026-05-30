@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Maximize2, Minimize2 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DerivChart } from "@/components/deriv-chart";
@@ -7,7 +7,11 @@ import { TopShell } from "@/components/top-shell";
 import { TradePanel } from "@/components/trade-panel";
 import { useAuth } from "@/hooks/use-auth";
 import { readRememberedMarket, rememberMarketSelection } from "@/lib/activity-memory";
-import { consumeManualTradePickup } from "@/lib/manual-trade-pickup";
+import {
+  consumeManualTradePickup,
+  MANUAL_TRADE_PICKUP_EVENT,
+  type ManualTradePickup,
+} from "@/lib/manual-trade-pickup";
 import {
   DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE,
   recordDerivOAuthTrace,
@@ -36,7 +40,14 @@ function Index() {
   // Consume the AI assistant's one-shot pickup BEFORE initialising state so the
   // suggested symbol/tradeType/stake apply on first render. The pickup is
   // cleared inside `consumeManualTradePickup` so a later refresh starts clean.
-  const aiPickup = useMemo(() => consumeManualTradePickup(), []);
+  // It lives in state (not a useMemo) so a live hand-off from the AI assistant
+  // while this page is already mounted can replace it — see the event listener
+  // below. `pickupVersion` is used as the TradePanel key so a fresh pickup
+  // remounts the panel and re-arms the auto-trade.
+  const [aiPickup, setAiPickup] = useState<ManualTradePickup | null>(() =>
+    consumeManualTradePickup(),
+  );
+  const [pickupVersion, setPickupVersion] = useState(0);
   const [symbol, setSymbol] = useState(
     () =>
       aiPickup?.symbol ??
@@ -88,6 +99,26 @@ function Index() {
     if (!remembered) return;
     setSymbol((current) => (current === remembered ? current : remembered));
   }, [aiPickup?.symbol, user?.id]);
+
+  // Live hand-off: the AI assistant floats over every page, so a user can launch
+  // from the manual trader itself — where navigate("/") does NOT remount this
+  // route. Consume the freshly-written pickup, apply it, and bump the version so
+  // the TradePanel remounts with the new presets and re-fires the auto-trade.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handlePickup = () => {
+      const next = consumeManualTradePickup();
+      if (!next) return;
+      setAiPickup(next);
+      setSymbol(next.symbol);
+      setTradeType(next.tradeType);
+      setTickPrices([]);
+      rememberMarketSelection(user?.id, "manual", next.symbol);
+      setPickupVersion((value) => value + 1);
+    };
+    window.addEventListener(MANUAL_TRADE_PICKUP_EVENT, handlePickup);
+    return () => window.removeEventListener(MANUAL_TRADE_PICKUP_EVENT, handlePickup);
+  }, [user?.id]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -278,12 +309,14 @@ function Index() {
             </section>
             <aside className="flex min-h-0 min-w-0 flex-col gap-1.5 overflow-y-auto bg-[oklch(0.97_0.003_240)] p-3 pb-3 dark:bg-[#0e0e0e]">
               <TradePanel
+                key={`trade-panel-${pickupVersion}`}
                 market={symbol}
                 lastPrice={price}
                 initialStake={aiPickup?.stake}
                 initialTradeType={aiPickup?.tradeType}
                 initialSide={aiPickup?.side}
                 initialPredictionDigit={aiPickup?.predictionDigit}
+                initialDuration={aiPickup?.durationTicks}
                 initialTakeProfit={aiPickup?.takeProfit}
                 initialStopLoss={aiPickup?.stopLoss}
                 autoExecute={aiPickup?.autoRun}
@@ -344,12 +377,14 @@ function Index() {
           <div className="min-h-0 flex-1 overflow-y-auto pb-20 bg-[oklch(0.97_0.003_240)] dark:bg-[#0e0e0e]">
             <div className="p-2 pb-0">
               <TradePanel
+                key={`trade-panel-${pickupVersion}`}
                 market={symbol}
                 lastPrice={price}
                 initialStake={aiPickup?.stake}
                 initialTradeType={aiPickup?.tradeType}
                 initialSide={aiPickup?.side}
                 initialPredictionDigit={aiPickup?.predictionDigit}
+                initialDuration={aiPickup?.durationTicks}
                 initialTakeProfit={aiPickup?.takeProfit}
                 initialStopLoss={aiPickup?.stopLoss}
                 autoExecute={aiPickup?.autoRun}

@@ -12,6 +12,8 @@ export type ManualTradePickup = {
    * side once the trading connection + proposal are ready (single auto-trade).
    */
   autoRun?: boolean;
+  /** Contract duration in ticks the user chose before the AI scan. Pre-fills the panel. */
+  durationTicks?: number;
   /**
    * Prediction digit for digit contracts — the Over/Under threshold or the
    * Matches/Differs target digit the AI selected. Ignored for non-digit families.
@@ -37,12 +39,28 @@ export type ManualTradePickup = {
 
 const STORAGE_KEY = "arktrader:ai-manual-pickup";
 
+/**
+ * Fired right after a pickup is written so a manual-trader page that is ALREADY
+ * mounted (the AI assistant can be launched from `/` itself, where navigating to
+ * `/` does not remount the route) can consume it live instead of waiting for a
+ * remount that never happens.
+ */
+export const MANUAL_TRADE_PICKUP_EVENT = "arktrader:ai-manual-pickup";
+
 export function setManualTradePickup(pickup: ManualTradePickup): void {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pickup));
   } catch {
     /* sessionStorage may be blocked in privacy mode — ignore */
+  }
+  // Notify an already-mounted manual trader. Defer so the navigate() that
+  // typically follows has a chance to mount the page first when coming from
+  // another route (the mounted-page case is handled by the listener).
+  try {
+    window.dispatchEvent(new CustomEvent(MANUAL_TRADE_PICKUP_EVENT));
+  } catch {
+    /* CustomEvent unsupported — the mount-time consume path still applies */
   }
 }
 
@@ -69,8 +87,13 @@ export function consumeManualTradePickup(): ManualTradePickup | null {
       const number = Number(value);
       return Number.isInteger(number) && number >= 0 && number <= 9 ? number : undefined;
     };
+    const sanitizeTicks = (value: unknown): number | undefined => {
+      const number = Number(value);
+      return Number.isInteger(number) && number >= 1 && number <= 10 ? number : undefined;
+    };
     return {
       autoRun: parsed.autoRun === true,
+      durationTicks: sanitizeTicks(parsed.durationTicks),
       predictionDigit: sanitizeDigit(parsed.predictionDigit),
       side: typeof parsed.side === "string" && parsed.side ? parsed.side : undefined,
       stake: Math.max(0.35, parsed.stake),

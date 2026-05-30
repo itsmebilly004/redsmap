@@ -58,6 +58,8 @@ type ManualScanInputs = {
   stake: string;
   stopLoss: string;
   takeProfit: string;
+  /** Contract duration in ticks, chosen before the scan and applied to the auto-trade. */
+  ticks: string;
 };
 
 const DEFAULT_BOT_INPUTS: BotScanInputs = {
@@ -72,6 +74,7 @@ const DEFAULT_MANUAL_INPUTS: ManualScanInputs = {
   stake: "1",
   stopLoss: "10",
   takeProfit: "20",
+  ticks: "5",
 };
 
 type ParsedBotSettings = {
@@ -86,6 +89,7 @@ type ParsedManualSettings = {
   stake: number;
   stopLoss: number;
   takeProfit: number;
+  ticks: number;
 };
 
 function parsePositive(value: string): number | null {
@@ -128,6 +132,9 @@ function parseManualInputs(
 ): { settings: ParsedManualSettings } | { error: string } {
   const stake = parsePositive(inputs.stake);
   if (stake == null || stake < 0.35) return { error: "Enter a stake of at least 0.35." };
+  const ticks = parsePositive(inputs.ticks);
+  if (ticks == null || ticks < 1 || ticks > 10)
+    return { error: "Number of ticks must be between 1 and 10." };
   const stopLoss = parseNonNegative(inputs.stopLoss);
   if (stopLoss == null) return { error: "Stop loss must be 0 or a positive amount." };
   const takeProfit = parseNonNegative(inputs.takeProfit);
@@ -137,6 +144,7 @@ function parseManualInputs(
       stake: Math.round(stake * 100) / 100,
       stopLoss: Math.round(stopLoss * 100) / 100,
       takeProfit: Math.round(takeProfit * 100) / 100,
+      ticks: Math.max(1, Math.min(10, Math.round(ticks))),
     },
   };
 }
@@ -473,6 +481,7 @@ export function AiAssistant({
     const resolved = resolveManualSide(manualKind, topManualSuggestion.side);
     setManualTradePickup({
       autoRun: true,
+      durationTicks: settings.ticks,
       predictionDigit: resolved.predictionDigit,
       side: resolved.side,
       stake: settings.stake,
@@ -482,8 +491,9 @@ export function AiAssistant({
       tradeType: manualKind,
     });
     recordActivity(user?.id, {
-      message: `AI auto-trade handoff to manual trader: ${topManualSuggestion.side} on ${topManualSuggestion.symbol} @ ${settings.stake.toFixed(2)} ${currency || "USD"} (TP ${settings.takeProfit}, SL ${settings.stopLoss}).`,
+      message: `AI auto-trade handoff to manual trader: ${topManualSuggestion.side} on ${topManualSuggestion.symbol} @ ${settings.stake.toFixed(2)} ${currency || "USD"} for ${settings.ticks} ticks (TP ${settings.takeProfit}, SL ${settings.stopLoss}).`,
       meta: {
+        durationTicks: settings.ticks,
         kind: manualKind,
         predictionDigit: resolved.predictionDigit ?? null,
         side: resolved.side,
@@ -741,6 +751,7 @@ export function AiAssistant({
                       onEdit={handleEditManualInputs}
                       rows={[
                         ["Stake", `${manualInputs.stake} ${currency || "USD"}`],
+                        ["Ticks", `${manualInputs.ticks}`],
                         ["Take profit", `${manualInputs.takeProfit} ${currency || "USD"}`],
                         ["Stop loss", `${manualInputs.stopLoss} ${currency || "USD"}`],
                       ]}
@@ -1108,6 +1119,7 @@ function ManualScanForm({
         </div>
         <div className="mt-2 grid grid-cols-2 gap-3">
           <NumberField label="Stake" suffix={cur} value={inputs.stake} onChange={(v) => onChange({ ...inputs, stake: v })} min="0.35" />
+          <NumberField label="Ticks" suffix="ticks" value={inputs.ticks} onChange={(v) => onChange({ ...inputs, ticks: v })} step="1" min="1" />
           <NumberField label="Take profit" suffix={cur} value={inputs.takeProfit} onChange={(v) => onChange({ ...inputs, takeProfit: v })} />
           <NumberField label="Stop loss" suffix={cur} value={inputs.stopLoss} onChange={(v) => onChange({ ...inputs, stopLoss: v })} />
         </div>

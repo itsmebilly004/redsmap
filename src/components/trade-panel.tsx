@@ -91,6 +91,8 @@ interface TradePanelProps {
   initialSide?: string;
   /** AI-suggested prediction digit (Over/Under threshold or Matches/Differs target). Pre-fills once. */
   initialPredictionDigit?: number;
+  /** AI-chosen tick duration the user set before the scan. Pre-fills the duration once on mount. */
+  initialDuration?: number;
   /** Session take-profit the user entered before the AI scan. Pre-fills once on mount. */
   initialTakeProfit?: number;
   /** Session stop-loss the user entered before the AI scan. Pre-fills once on mount. */
@@ -165,6 +167,7 @@ export function TradePanel({
   initialTradeType,
   initialSide,
   initialPredictionDigit,
+  initialDuration,
   initialTakeProfit,
   initialStopLoss,
   autoExecute = false,
@@ -187,7 +190,11 @@ export function TradePanel({
     initialStake != null && Number.isFinite(initialStake) && initialStake > 0 ? initialStake : 10,
   );
   const [payoutMode, setPayoutMode] = useState<"stake" | "payout">("stake");
-  const [duration, setDuration] = useState(5);
+  const [duration, setDuration] = useState(() =>
+    initialDuration != null && Number.isFinite(initialDuration) && initialDuration > 0
+      ? Math.round(initialDuration)
+      : 5,
+  );
   const [durationUnit, setDurationUnit] = useState<"t" | "s" | "m">("t");
   const [barrier, setBarrier] = useState("+0.10");
   const [selectedDigit, setSelectedDigit] = useState(() =>
@@ -233,6 +240,9 @@ export function TradePanel({
   const autoSellInFlightRef = useRef(false);
   // Guards the AI single auto-trade so it fires at most once per mount.
   const autoExecutedRef = useRef(false);
+  // Fallback timer that fires the AI auto-trade even if the proposal-quote
+  // pipeline is slow or erroring (handleBuy then requests its own fresh proposal).
+  const autoFireTimerRef = useRef<number | null>(null);
 
   const config = tradeTypeConfig(selectedTradeType);
   const currentDigit =
@@ -543,23 +553,51 @@ export function TradePanel({
     }
   }, [account?.account_id, activeContract.status]);
 
-  // AI single auto-trade: once the panel is handed an AI pick (autoExecute) and a
-  // valid proposal for the recommended side has loaded, fire exactly one buy. We
-  // gate on a ready quote so the trade only goes out on a live, buyable proposal
-  // (this also implicitly waits for the trading connection + authorization).
+  // AI single auto-trade: when the panel is handed an AI pick (autoExecute), fire
+  // exactly one buy on the recommended side. Fast path fires as soon as a live
+  // proposal quote is ready; a fallback timer guarantees the trade still goes out
+  // if the quote pipeline is slow or errors (handleBuy requests a fresh proposal).
   useEffect(() => {
     if (!autoExecute || autoExecutedRef.current) return;
     if (selectedTradeType === "accumulator") return;
     if (!token || !account || !user) return;
-    if (busy || buyInFlightRef.current || sessionLimitMessage) return;
     const targetSide =
       config.sides.find((side) => side.value === initialSide) ?? config.sides[0];
     if (!targetSide) return;
+
+    const fire = (reason: "quote-ready" | "fallback-timer") => {
+      if (autoExecutedRef.current || buyInFlightRef.current || busy) return;
+      if (sessionLimitMessage) return;
+      autoExecutedRef.current = true;
+      if (autoFireTimerRef.current != null) {
+        window.clearTimeout(autoFireTimerRef.current);
+        autoFireTimerRef.current = null;
+      }
+      console.info("[Manual Trader] AI auto-trade firing", {
+        reason,
+        market,
+        side: targetSide.value,
+        tradeType: selectedTradeType,
+        duration,
+        durationUnit,
+        selectedDigit,
+      });
+      toast.info(`AI auto-trade: placing ${targetSide.label} on ${market}.`);
+      void handleBuy(targetSide);
+    };
+
     const quote = quotes[targetSide.value];
-    if (!quote || !quote.id || quote.error) return;
-    autoExecutedRef.current = true;
-    toast.info(`AI auto-trade: placing ${targetSide.label} on ${market}.`);
-    void handleBuy(targetSide);
+    if (quote && quote.id && !quote.error && !busy && !sessionLimitMessage) {
+      fire("quote-ready");
+      return;
+    }
+    // Arm the fallback once; it fires even without a cached quote.
+    if (autoFireTimerRef.current == null) {
+      autoFireTimerRef.current = window.setTimeout(() => {
+        autoFireTimerRef.current = null;
+        fire("fallback-timer");
+      }, 2500);
+    }
     // handleBuy is a stable in-component declaration; excluded from deps on
     // purpose so re-renders don't re-arm the (already one-shot) auto-trade.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -568,14 +606,26 @@ export function TradePanel({
     autoExecute,
     busy,
     config.sides,
+    duration,
+    durationUnit,
     initialSide,
     market,
     quotes,
+    selectedDigit,
     selectedTradeType,
     sessionLimitMessage,
     token,
     user,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (autoFireTimerRef.current != null) {
+        window.clearTimeout(autoFireTimerRef.current);
+        autoFireTimerRef.current = null;
+      }
+    };
+  }, []);
 
   function buildPayload(
     side: string,
