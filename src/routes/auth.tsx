@@ -5,14 +5,12 @@ import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import {
   DERIV_OAUTH_ENDPOINT_VALUE,
-  buildLegacyOAuthUrl,
   buildOAuthUrl,
   ensureDerivOAuthCanonicalOrigin,
   getDerivOAuthRedirectFailure,
   getDerivOAuthDiagnostics,
   readDerivOAuthTrace,
   recordDerivOAuthTrace,
-  redirectToDerivLegacyOAuth,
   redirectToDerivOAuth,
   sanitizeDerivOAuthUrl,
   type DerivOAuthRedirectFailure,
@@ -82,20 +80,6 @@ function AuthPage() {
       window.removeEventListener("focus", checkDashboardRedirectReturn);
     };
   }, []);
-
-  function handleConnectLegacyDeriv() {
-    setErrorMessage(null);
-    try {
-      const url = buildLegacyOAuthUrl({ returnTo: "/dashboard" });
-      console.info("[Deriv Legacy OAuth] Auth-page redirect", { url });
-      redirectToDerivLegacyOAuth(url);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Could not start Deriv legacy OAuth.";
-      console.error("[Deriv Legacy OAuth] Auth-page connect failed", error);
-      setErrorMessage(message);
-    }
-  }
 
   async function handleDeriv() {
     setBusy(true);
@@ -213,25 +197,7 @@ function AuthPage() {
             >
               <span className="min-w-0 flex-1">
                 <span className="block text-base font-medium">
-                  {busy ? "Connecting to Deriv..." : "New traders"}
-                </span>
-                <span className="mt-0.5 block text-[11px] font-normal text-primary-foreground/80">
-                  Accounts created before late 2025
-                </span>
-              </span>
-              <ArrowRight className="size-4 shrink-0" />
-            </Button>
-            <Button
-              type="button"
-              onClick={handleConnectLegacyDeriv}
-              size="lg"
-              disabled={busy}
-              className="h-auto w-full justify-start px-4 py-3 text-left shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block text-base font-medium">Veteran traders</span>
-                <span className="mt-0.5 block text-[11px] font-normal text-primary-foreground/80">
-                  Accounts created from late 2025 to date
+                  {busy ? "Connecting to Deriv..." : "Connect Deriv"}
                 </span>
               </span>
               <ArrowRight className="size-4 shrink-0" />

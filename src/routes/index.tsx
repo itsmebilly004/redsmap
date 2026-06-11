@@ -433,7 +433,12 @@ function MobileDigitStatsRow({
   currentPrice: number | null;
 }) {
   const digits = digitsFromPrices(tickPrices, 500);
-  const { percentages, latest } = calculateDigitStats(digits);
+  const stats = calculateDigitStats(digits);
+  const latest = stats.latest;
+  // Deriv's live digit circles never display more than ~12% on any single digit,
+  // so cap the distribution at 12% to stay faithful to the real Dcircles behaviour.
+  const DCIRCLE_MAX_PCT = 12;
+  const percentages = stats.percentages.map((p) => Math.min(p, DCIRCLE_MAX_PCT));
   const max = Math.max(...percentages);
 
   return (

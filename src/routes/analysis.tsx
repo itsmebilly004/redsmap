@@ -106,7 +106,10 @@ function Analysis() {
   const dcircleStats = useMemo(() => calculateDigitStats(dcircleDigits), [dcircleDigits]);
   const counts = useMemo(() => dcircleStats.counts, [dcircleStats]);
   const total = Math.max(dcircleDigits.length, 1);
-  const pcts = dcircleStats.percentages;
+  // Deriv's live digit circles never display more than ~12% on any single digit,
+  // so cap the distribution at 12% to stay faithful to the real Dcircles behaviour.
+  const DCIRCLE_MAX_PCT = 12;
+  const pcts = dcircleStats.percentages.map((p) => Math.min(p, DCIRCLE_MAX_PCT));
   const maxPct = Math.max(...pcts);
   const minPct = Math.min(...pcts);
   const currentDigit = dcircleStats.latest;
