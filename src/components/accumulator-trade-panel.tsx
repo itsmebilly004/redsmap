@@ -264,18 +264,6 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       toast.error(sessionLimitMessage);
       return;
     }
-    // Safety guard: confirm before placing a real-money accumulator so a user
-    // who wanted demo but the dashboard is on real doesn't fire by accident.
-    if (account && !selectedAccountIsDemo) {
-      const accountLabel = account.loginid || account.account_id || "real";
-      const confirmed = window.confirm(
-        `You are about to place a REAL-money accumulator on ${accountLabel}. Continue?`,
-      );
-      if (!confirmed) {
-        toast.info("Trade cancelled.");
-        return;
-      }
-    }
     buyInFlightRef.current = true;
     setBusy(true);
     setState({ ...EMPTY_ACCUMULATOR_CONTRACT, status: "proposing" });
