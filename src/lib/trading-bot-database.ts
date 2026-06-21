@@ -41,7 +41,7 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
     name: "Under Destroyer v2 🤖",
     iconKey: "target",
     desc: "Advanced Under strategy for precision digit trading.",
-    fileMatch: "Under_Destroyer v2",
+    fileMatch: "Under_Destroyer_v2",
     market: "1HZ100V",
     tradeType: "Over/Under",
     contractType: "Under",
