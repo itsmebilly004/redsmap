@@ -37,6 +37,16 @@ const assetXmlModules = import.meta.glob<string>("/src/assets/*.xml", {
 
 export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
   {
+    id: "under-destroyer-v2",
+    name: "Under Destroyer v2 🤖",
+    iconKey: "target",
+    desc: "Advanced Under strategy for precision digit trading.",
+    fileMatch: "Under_Destroyer v2",
+    market: "1HZ100V",
+    tradeType: "Over/Under",
+    contractType: "Under",
+  },
+  {
     id: "nova-v6",
     name: "ArkTraders Nova Stalker",
     iconKey: "cpu",
