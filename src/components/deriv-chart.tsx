@@ -750,6 +750,17 @@ export function DerivChart({
         secondsVisible: granularity < 60,
       },
       crosshair: { mode: CrosshairMode.Magnet },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
+      },
     });
 
     if (chartType === "candle") {
@@ -889,12 +900,12 @@ export function DerivChart({
       0,
       Math.max(0, width - 12),
     );
-    const top = clamp(Math.min(upperY, lowerY), 0, height);
-    const bottom = clamp(Math.max(upperY, lowerY), 0, height);
+    const top = Math.min(upperY, lowerY);
+    const bottom = Math.max(upperY, lowerY);
 
     setAccumulatorBand({
       bottom,
-      entryY: entryY == null ? null : clamp(entryY, 0, height),
+      entryY: entryY ?? null,
       left,
       lowerLabel: signedBarrierLabel(lowBarrier, entryPrice),
       right: width,
@@ -903,17 +914,16 @@ export function DerivChart({
     });
   }, [baseSeriesGetter, entryPrice, highBarrier, lowBarrier]);
 
+  // Continuous sync for barriers so they track seamlessly during any zoom/pan
   useEffect(() => {
-    updateAccumulatorBand();
-  }, [barrierBreached, updateAccumulatorBand]);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    const handler = () => updateAccumulatorBand();
-    chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
-    return () => chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
-  }, [chartType, updateAccumulatorBand]);
+    let frameId: number;
+    const loop = () => {
+      updateAccumulatorBand();
+      frameId = requestAnimationFrame(loop);
+    };
+    frameId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frameId);
+  }, [updateAccumulatorBand]);
 
   const handleDrawingPointerDown = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
