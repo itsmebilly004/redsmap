@@ -15,6 +15,7 @@ import {
 import {
   DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE,
   recordDerivOAuthTrace,
+  fetchTicks,
   type TradeCategory,
 } from "@/lib/deriv";
 import { isDigitTrade } from "@/lib/trade-types";
@@ -54,8 +55,30 @@ function Index() {
       readRememberedMarket(undefined, "manual", "1HZ100V") ??
       "1HZ100V",
   );
-  const [price, setPrice] = useState<number | null>(null);
   const [tickPrices, setTickPrices] = useState<number[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchTicks(symbol, 500)
+      .then((ticks) => {
+        if (!cancelled) {
+          setTickPrices((prev) => {
+            // Only use historical ticks if we haven't already accumulated a lot
+            if (prev.length < 500) {
+              return ticks.map((t) => t.value);
+            }
+            return prev;
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to prefetch history for DCircles:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+  const [price, setPrice] = useState<number | null>(null);
   const [tradeType, setTradeType] = useState<TradeCategory>(aiPickup?.tradeType ?? "accumulator");
   const [barriers, setBarriers] = useState<{
     breached?: boolean;
@@ -435,17 +458,17 @@ function MobileDigitStatsRow({
   const digits = digitsFromPrices(tickPrices, 500);
   const stats = calculateDigitStats(digits);
   const latest = stats.latest;
-  // Deriv's live digit circles never display more than ~12% on any single digit,
-  // so cap the distribution at 12% to stay faithful to the real Dcircles behaviour.
+  // Deriv's live digit circles never display more than ~12% on any single digit visually,
+  // so cap the visual distribution at 12% to stay faithful to the real Dcircles behaviour.
   const DCIRCLE_MAX_PCT = 12;
-  const percentages = stats.percentages.map((p) => Math.min(p, DCIRCLE_MAX_PCT));
-  const max = Math.max(...percentages);
+  const max = Math.max(...stats.percentages);
 
   return (
     <div className="shrink-0 overflow-x-auto border-b border-[#e5e5e5] bg-white px-2 py-2 dark:border-[#242424] dark:bg-[#151515]">
       <div className="flex min-w-max items-end justify-center gap-1.5 px-1">
-        {percentages.map((pct, digit) => {
-          const highlighted = pct === max && max > 0;
+        {stats.percentages.map((realPct, digit) => {
+          const cappedPct = Math.min(realPct, DCIRCLE_MAX_PCT);
+          const highlighted = realPct === max && max > 0;
           const isCurrent = latest === digit;
           return (
             <div key={digit} className="flex w-9 flex-col items-center">
@@ -462,14 +485,14 @@ function MobileDigitStatsRow({
                 <span
                   className="absolute inset-0 rounded-full"
                   style={{
-                    background: `conic-gradient(${highlighted ? "#4bb4b3" : "#d6d6d6"} ${Math.min(100, pct) * 3.6}deg, transparent 0deg)`,
+                    background: `conic-gradient(${highlighted ? "#4bb4b3" : "#d6d6d6"} ${Math.min(100, cappedPct) * 3.6}deg, transparent 0deg)`,
                     mask: "radial-gradient(circle, transparent 58%, black 60%)",
                     WebkitMask: "radial-gradient(circle, transparent 58%, black 60%)",
                   }}
                 />
               </div>
               <div className="mt-0.5 text-[9px] font-semibold text-[#646464] dark:text-[#d8d8d8]">
-                {pct.toFixed(0)}%
+                {realPct.toFixed(1)}%
               </div>
               <div
                 className={cn(

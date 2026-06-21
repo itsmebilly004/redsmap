@@ -222,6 +222,7 @@ function Analysis() {
             <div className="mt-6 grid grid-cols-5 gap-y-8 sm:grid-cols-10">
               {counts.map((_c, i) => {
                 const pct = pcts[i];
+                const realPct = dcircleStats.percentages[i];
                 const isMax = pct === maxPct && total > 1;
                 const isMin = pct === minPct && total > 1 && !isMax;
                 const isCurrent = currentDigit === i;
@@ -242,7 +243,7 @@ function Analysis() {
                       {i}
                     </div>
                     <div className="mt-1 text-xs font-semibold">{counts[i]}</div>
-                    <div className="text-xs text-muted-foreground">{pct.toFixed(1)}%</div>
+                    <div className="text-xs text-muted-foreground">{realPct.toFixed(1)}%</div>
                     {isMax && (
                       <div className="mt-0.5 text-[9px] font-semibold text-blue-600">↑ most</div>
                     )}
