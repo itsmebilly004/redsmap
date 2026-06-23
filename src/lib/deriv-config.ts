@@ -1,4 +1,4 @@
-export const DERIV_OAUTH_CLIENT_ID = "33dF8d2wwjIpeFDBvNkln";
+export const DERIV_OAUTH_CLIENT_ID = "33CeB7Wn2wZ9XUOHEdkSX";
 export const DERIV_REDIRECT_URI = "https://www.arktradershub.com/deriv-callback";
 export const DERIV_OAUTH_AUTHORIZE_ENDPOINT = "https://auth.deriv.com/oauth2/auth";
 export const DERIV_OAUTH_TOKEN_ENDPOINT = "https://auth.deriv.com/oauth2/token";
