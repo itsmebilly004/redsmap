@@ -266,8 +266,14 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     try {
       validateAccount();
       if (!account || !token) throw new Error("Connect and select your Deriv account first.");
+      let tradingSession: any = {
+        adapter: "browser",
+        account_id: account.account_id,
+        normalizedType: account.normalizedType,
+        websocketMode: "browser",
+      };
       if (!isSimulated) {
-        const tradingSession = await ensureDerivTradingConnection(account, {
+        tradingSession = await ensureDerivTradingConnection(account, {
           context: "accumulator-buy",
         });
         console.info("[Accumulator] Trading session prepared", {

@@ -441,9 +441,17 @@ export function TradePanel({
       setQuotesLoading(true);
       const next: Record<string, ProposalQuote> = {};
       try {
-        const tradingSession = await ensureDerivTradingConnection(account, {
-          context: "proposal-quotes",
-        });
+        let tradingSession: any = {
+          adapter: "browser",
+          account_id: account.account_id,
+          normalizedType: account.normalizedType,
+          websocketMode: "browser",
+        };
+        if (!isSimulated) {
+          tradingSession = await ensureDerivTradingConnection(account, {
+            context: "proposal-quotes",
+          });
+        }
         console.info("[Deriv Trade] Proposal trading session prepared", {
           selectedAccountId: account.account_id,
           selectedLoginId: account.loginid,
@@ -742,8 +750,14 @@ export function TradePanel({
       validateAccount();
       if (!account || !token || !user)
         throw new Error("Connect and select your Deriv account first.");
+      let tradingSession: any = {
+        adapter: "browser",
+        account_id: account.account_id,
+        normalizedType: account.normalizedType,
+        websocketMode: "browser",
+      };
       if (!isSimulated) {
-        const tradingSession = await ensureDerivTradingConnection(account, {
+        tradingSession = await ensureDerivTradingConnection(account, {
           context: "trade-execute",
         });
         console.info("[Deriv Trade] Trading session prepared", {
