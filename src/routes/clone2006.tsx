@@ -36,9 +36,5 @@ export const Route = createFileRoute("/clone2006")({
 });
 
 function TradingLayout() {
-  return (
-    <SimulatedTradingProvider>
-      <Outlet />
-    </SimulatedTradingProvider>
-  );
+  return <Outlet />;
 }

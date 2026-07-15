@@ -301,7 +301,7 @@ export function TopShell({
                     <div className="px-4 pb-2 pt-4">
                       <div className="mb-2 flex items-center justify-between">
                         <span className="text-sm font-bold text-[#333333] dark:text-[#f2f2f2]">
-                          {isCloneSandbox ? "Simulated accounts" : "Deriv accounts"}
+                          Deriv accounts
                         </span>
                         <ChevronUp className="size-4 text-[#333333] dark:text-[#f2f2f2]" />
                       </div>
@@ -339,7 +339,7 @@ export function TopShell({
                           {totalAssetsLabel(visibleAccounts)}
                         </div>
                         <div className="mt-0.5 text-xs text-[#777777] dark:text-[#b7b7b7]">
-                          Total assets in your {isCloneSandbox ? "Simulated" : "Deriv"} accounts.
+                          Total assets in your Deriv accounts.
                         </div>
                       </div>
                     </div>

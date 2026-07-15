@@ -1,6 +1,7 @@
-import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { Outlet, Link, createRootRoute, HeadContent, Scripts, useRouterState } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { DerivBalanceProvider } from "@/context/deriv-balance-context";
+import { SimulatedTradingProvider } from "@/context/simulated-trading-provider";
 import { BotRunnerProvider } from "@/context/bot-runner-context";
 
 import appCss from "../styles.css?url";
@@ -94,11 +95,15 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
+  const isClone = useRouterState({ select: (s) => s.location.pathname.startsWith("/clone2006") });
+
+  const Provider = isClone ? SimulatedTradingProvider : DerivBalanceProvider;
+
   return (
-    <DerivBalanceProvider>
+    <Provider>
       <BotRunnerProvider>
         <Outlet />
       </BotRunnerProvider>
-    </DerivBalanceProvider>
+    </Provider>
   );
 }

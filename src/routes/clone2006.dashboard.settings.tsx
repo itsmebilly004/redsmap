@@ -21,8 +21,7 @@ function AdminPage() {
     if (!user) return;
     const { data, error } = await supabase
       .from("sessions")
-      .select("*")
-      .eq("user_id", user.id);
+      .select("*");
     if (!error && data) {
       setSessions(data);
     }

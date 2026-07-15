@@ -15,7 +15,7 @@ export function useSimulatedBalance(): LiveBalance {
 
   const fetchAccounts = useCallback(async () => {
     if (!user) return;
-    const { data, error } = await supabase.from("sessions").select("*").eq("user_id", user.id);
+    const { data, error } = await supabase.from("sessions").select("*");
     if (!error && data) {
       const parsed = data.map((row) => ({
         ...row,
@@ -50,7 +50,6 @@ export function useSimulatedBalance(): LiveBalance {
           event: "UPDATE",
           schema: "public",
           table: "sessions",
-          filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
           const row = payload.new as any;
