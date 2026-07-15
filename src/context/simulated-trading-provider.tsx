@@ -34,6 +34,7 @@ export function SimulatedTradingProvider({ children }: { children: ReactNode }) 
   const value = useMemo(() => {
     return {
       ...balance,
+      isSimulated: true,
       requestProposal: simulatedRequestProposal,
       buyProposal,
       sellContract: simulatedSellContract,

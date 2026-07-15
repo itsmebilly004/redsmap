@@ -139,7 +139,7 @@ export function useBotRunner(): BotRunnerContextValue {
 export function BotRunnerProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { account, balance, currency, refreshBalances, requestProposal, buyProposal, sellContract, subscribeOpenContract } = useDerivBalanceContext();
+  const { isSimulated, account, balance, currency, refreshBalances, requestProposal, buyProposal, sellContract, subscribeOpenContract } = useDerivBalanceContext();
 
   const [status, setStatus] = useState<BotMonitorStatus>("stopped");
   const [stats, setStats] = useState<BotMonitorStats>(EMPTY_BOT_MONITOR_STATS);
@@ -1008,7 +1008,18 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
           );
         }
       }, 8000);
-      const session = await ensureDerivTradingConnection(currentAccount, { context: "footer-bot-run" });
+      let websocketMode = "browser";
+      if (!isSimulated) {
+        const session = await ensureDerivTradingConnection(currentAccount, { context: "footer-bot-run" });
+        websocketMode = session.websocketMode;
+      }
+      
+      const newBotId = crypto.randomUUID();
+      
+      const sessionData = {
+        id: newBotId,
+        bot_id: workspaceId || undefined,
+      };
       window.clearTimeout(connectionSlowTimer);
 
       // Subscribe to the Deriv balance stream on the live trading WS so every

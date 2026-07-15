@@ -46,7 +46,7 @@ type Props = {
 
 export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketChange }: Props) {
   const { user } = useAuth();
-  const { account, balance: accountBalance, currency, requestProposal, buyProposal, subscribeOpenContract, sellContract } = useDerivBalanceContext();
+  const { isSimulated, account, balance: accountBalance, currency, requestProposal, buyProposal, subscribeOpenContract, sellContract } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
   const selectedAccountIsDemo = account ? isDemoAccount(account) : false;
@@ -266,20 +266,22 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     try {
       validateAccount();
       if (!account || !token) throw new Error("Connect and select your Deriv account first.");
-      const tradingSession = await ensureDerivTradingConnection(account, {
-        context: "accumulator-buy",
-      });
-      console.info("[Accumulator] Trading session prepared", {
-        selectedAccountId: account.account_id,
-        selectedLoginId: account.loginid,
-        normalizedType: account.normalizedType,
-        sessionAccountId: tradingSession.sessionAccountId,
-        tokenExists: Boolean(tradingSession.token),
-        tokenExpiry: tradingSession.expiresAt,
-        tokenSource: tradingSession.tokenSource,
-        adapter: tradingSession.adapter,
-        websocketMode: tradingSession.websocketMode,
-      });
+      if (!isSimulated) {
+        const tradingSession = await ensureDerivTradingConnection(account, {
+          context: "accumulator-buy",
+        });
+        console.info("[Accumulator] Trading session prepared", {
+          selectedAccountId: account.account_id,
+          selectedLoginId: account.loginid,
+          normalizedType: account.normalizedType,
+          sessionAccountId: tradingSession.sessionAccountId,
+          tokenExists: Boolean(tradingSession.token),
+          tokenExpiry: tradingSession.expiresAt,
+          tokenSource: tradingSession.tokenSource,
+          adapter: tradingSession.adapter,
+          websocketMode: tradingSession.websocketMode,
+        });
+      }
       await cleanupSubscription();
 
       const payload = buildAccumulatorProposalPayload(
@@ -477,7 +479,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     }
     setBusy(true);
     try {
-      if (account) {
+      if (!isSimulated) {
         await ensureDerivTradingConnection(account, { context: "accumulator-sell" });
       }
       const response = await sellContract(state.contractId, state.sellPrice);

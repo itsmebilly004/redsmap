@@ -4,6 +4,7 @@ import { type TradeRequestContext } from "@/lib/deriv-trading-service";
 import { type DerivMessage } from "@/lib/deriv";
 
 export interface ITradingContext extends LiveBalance {
+  isSimulated?: boolean;
   requestProposal: (payload: Record<string, unknown>, context?: TradeRequestContext) => Promise<DerivMessage>;
   buyProposal: (proposalId: string, price: number, context?: TradeRequestContext) => Promise<DerivMessage>;
   sellContract: (contractId: string, price: number) => Promise<DerivMessage>;

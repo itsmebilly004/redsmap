@@ -178,7 +178,7 @@ export function TradePanel({
   stickyActions = false,
 }: TradePanelProps) {
   const { user } = useAuth();
-  const { account, balance: accountBalance, currency, requestProposal, buyProposal, subscribeOpenContract, sellContract } = useDerivBalanceContext();
+  const { isSimulated, account, balance: accountBalance, currency, requestProposal, buyProposal, subscribeOpenContract, sellContract } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
 
@@ -329,54 +329,56 @@ export function TradePanel({
       return;
     }
     pageLoadAuthorizationAttemptRef.current = pageLoadAttemptKey;
-    ensureDerivTradingConnection(account, { context: "manual-trader-page-load" })
-      .then((tradingSession) => {
-        if (cancelled) return;
-        setTradingConnectionError(null);
-        console.info("[Manual Trader] active trading account ready", {
-          activeDashboardAccount: {
-            account_id: account.account_id,
+    if (!isSimulated) {
+      ensureDerivTradingConnection(account, { context: "manual-trader-page-load" })
+        .then((tradingSession) => {
+          if (cancelled) return;
+          setTradingConnectionError(null);
+          console.info("[Manual Trader] active trading account ready", {
+            activeDashboardAccount: {
+              account_id: account.account_id,
+              loginid: account.loginid,
+              normalizedType: account.normalizedType,
+              token_source: account.token_source ?? null,
+            },
+            activeTradingAccount: {
+              account_id: tradingSession.account_id,
+              loginid: tradingSession.loginid,
+              normalizedType: tradingSession.normalizedType,
+              token_source: tradingSession.token_source,
+              adapter: tradingSession.adapter,
+              websocketMode: tradingSession.websocketMode,
+              expires_at: tradingSession.expires_at,
+            },
+            websocketMode: tradingSession.websocketMode,
+            connectionStatus: getStatus(),
+            websocketAccountId: getTradingSocketAccountId(),
+          });
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          const message = getDerivTradingErrorMessage(error);
+          if (isDerivTradingAuthorizationFailure(error)) {
+            setTradingConnectionStatus("connected");
+            setTradingConnectionError(DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE);
+          } else {
+            setTradingConnectionStatus("disconnected");
+            setTradingConnectionError(message);
+          }
+          console.warn("[Manual Trader] trading connection check failed", {
+            selectedAccountId: account.account_id,
             loginid: account.loginid,
             normalizedType: account.normalizedType,
             token_source: account.token_source ?? null,
-          },
-          activeTradingAccount: {
-            account_id: tradingSession.account_id,
-            loginid: tradingSession.loginid,
-            normalizedType: tradingSession.normalizedType,
-            token_source: tradingSession.token_source,
-            adapter: tradingSession.adapter,
-            websocketMode: tradingSession.websocketMode,
-            expires_at: tradingSession.expires_at,
-          },
-          websocketMode: tradingSession.websocketMode,
-          connectionStatus: getStatus(),
-          websocketAccountId: getTradingSocketAccountId(),
+            connectionStatus: getStatus(),
+            failureReason: message,
+            displayMessage: isDerivTradingAuthorizationFailure(error)
+              ? DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE
+              : message,
+            error,
+          });
         });
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        const message = getDerivTradingErrorMessage(error);
-        if (isDerivTradingAuthorizationFailure(error)) {
-          setTradingConnectionStatus("connected");
-          setTradingConnectionError(DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE);
-        } else {
-          setTradingConnectionStatus("disconnected");
-          setTradingConnectionError(message);
-        }
-        console.warn("[Manual Trader] trading connection check failed", {
-          selectedAccountId: account.account_id,
-          loginid: account.loginid,
-          normalizedType: account.normalizedType,
-          token_source: account.token_source ?? null,
-          connectionStatus: getStatus(),
-          failureReason: message,
-          displayMessage: isDerivTradingAuthorizationFailure(error)
-            ? DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE
-            : message,
-          error,
-        });
-      });
+    }
     return () => {
       cancelled = true;
     };
@@ -740,20 +742,22 @@ export function TradePanel({
       validateAccount();
       if (!account || !token || !user)
         throw new Error("Connect and select your Deriv account first.");
-      const tradingSession = await ensureDerivTradingConnection(account, {
-        context: "standard-buy",
-      });
-      console.info("[Deriv Trade] Trading session prepared", {
-        selectedAccountId: account.account_id,
-        selectedLoginId: account.loginid,
-        normalizedType: account.normalizedType,
-        sessionAccountId: tradingSession.sessionAccountId,
-        tokenExists: Boolean(tradingSession.token),
-        tokenExpiry: tradingSession.expiresAt,
-        tokenSource: tradingSession.tokenSource,
-        adapter: tradingSession.adapter,
-        websocketMode: tradingSession.websocketMode,
-      });
+      if (!isSimulated) {
+        const tradingSession = await ensureDerivTradingConnection(account, {
+          context: "trade-execute",
+        });
+        console.info("[Deriv Trade] Trading session prepared", {
+          selectedAccountId: account.account_id,
+          selectedLoginId: account.loginid,
+          normalizedType: account.normalizedType,
+          sessionAccountId: tradingSession.sessionAccountId,
+          tokenExists: Boolean(tradingSession.token),
+          tokenExpiry: tradingSession.expiresAt,
+          tokenSource: tradingSession.tokenSource,
+          adapter: tradingSession.adapter,
+          websocketMode: tradingSession.websocketMode,
+        });
+      }
       await cleanupSubscription();
 
       const quote = quotes[side.value];
@@ -955,7 +959,7 @@ export function TradePanel({
     }
     setBusy(true);
     try {
-      if (account) {
+      if (!isSimulated) {
         await ensureDerivTradingConnection(account, { context: "standard-sell" });
       }
       const response = await sellContract(activeContract.contractId, activeContract.sellPrice);
