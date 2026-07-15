@@ -39,6 +39,7 @@ function AnalyticsPage() {
           .from("trades")
           .select("*")
           .eq("user_id", userId)
+          .or("deriv_contract_id.is.null,deriv_contract_id.not.like.SIM_%")
           // Newest-first so the 1000-row cap can't strand recent trades behind
           // days of older history. We reverse in JS to keep the equity curve
           // chronological.
@@ -47,16 +48,19 @@ function AnalyticsPage() {
         supabase
           .from("trades")
           .select("*", { count: "exact", head: true })
-          .eq("user_id", userId),
+          .eq("user_id", userId)
+          .or("deriv_contract_id.is.null,deriv_contract_id.not.like.SIM_%"),
         supabase
           .from("trades")
           .select("*", { count: "exact", head: true })
           .eq("user_id", userId)
+          .or("deriv_contract_id.is.null,deriv_contract_id.not.like.SIM_%")
           .eq("status", "won"),
         supabase
           .from("trades")
           .select("*", { count: "exact", head: true })
           .eq("user_id", userId)
+          .or("deriv_contract_id.is.null,deriv_contract_id.not.like.SIM_%")
           .eq("status", "lost"),
       ]);
       if (cancelled) return;

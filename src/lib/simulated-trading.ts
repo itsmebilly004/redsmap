@@ -80,7 +80,12 @@ const activeProposals = new Map<string, any>();
 const activeContracts = new Map<string, any>();
 
 export async function simulatedRequestProposal(payload: Record<string, unknown>, context?: TradeRequestContext): Promise<DerivMessage> {
-  const response = await sendFreeWs(payload);
+  const requestPayload = { ...payload };
+  if ("underlying_symbol" in requestPayload) {
+    requestPayload.symbol = requestPayload.underlying_symbol;
+    delete requestPayload.underlying_symbol;
+  }
+  const response = await sendFreeWs(requestPayload);
   if (response.proposal?.id) {
     activeProposals.set(response.proposal.id, payload);
   }
@@ -128,6 +133,7 @@ export async function simulatedBuyProposal(
       symbol: payload.underlying_symbol ?? payload.symbol ?? "",
       trade_type: payload.contract_type ?? "",
       status: "open",
+      deriv_contract_id: `SIM_${contractId}`,
     });
 
   if (tradeErr) throw new Error("Could not create simulated trade record");

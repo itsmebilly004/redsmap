@@ -39,6 +39,7 @@ function AnalyticsPage() {
           .from("trades")
           .select("*")
           .eq("user_id", userId)
+          .like("deriv_contract_id", "SIM_%")
           // Newest-first so the 1000-row cap can't strand recent trades behind
           // days of older history. We reverse in JS to keep the equity curve
           // chronological.
@@ -47,16 +48,19 @@ function AnalyticsPage() {
         supabase
           .from("trades")
           .select("*", { count: "exact", head: true })
-          .eq("user_id", userId),
+          .eq("user_id", userId)
+          .like("deriv_contract_id", "SIM_%"),
         supabase
           .from("trades")
           .select("*", { count: "exact", head: true })
           .eq("user_id", userId)
+          .like("deriv_contract_id", "SIM_%")
           .eq("status", "won"),
         supabase
           .from("trades")
           .select("*", { count: "exact", head: true })
           .eq("user_id", userId)
+          .like("deriv_contract_id", "SIM_%")
           .eq("status", "lost"),
       ]);
       if (cancelled) return;
@@ -79,7 +83,7 @@ function AnalyticsPage() {
       .channel(`analytics-trades-${userId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "trades", filter: `user_id=eq.${userId}` },
+        { event: "*", schema: "public", table: "trades", filter: `user_id=eq.${userId}` }, // Realtime filters cannot use LIKE directly for deriv_contract_id on the client without complex setup, so we fetch and filter in JS if needed, but since we just refetch everything, it's fine.
         () => {
           void loadTrades();
         },

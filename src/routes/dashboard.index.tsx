@@ -40,6 +40,7 @@ function DashboardHome() {
         .from("trades")
         .select("*")
         .eq("user_id", userId)
+        .or("deriv_contract_id.is.null,deriv_contract_id.not.like.SIM_%")
         .order("created_at", { ascending: false })
         .limit(5)
         .then(({ data, error }) => {

@@ -40,6 +40,7 @@ function DashboardHome() {
         .from("trades")
         .select("*")
         .eq("user_id", userId)
+        .like("deriv_contract_id", "SIM_%")
         .order("created_at", { ascending: false })
         .limit(5)
         .then(({ data, error }) => {
