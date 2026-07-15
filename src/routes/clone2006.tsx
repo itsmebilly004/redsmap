@@ -39,9 +39,6 @@ function TradingLayout() {
   return (
     <SimulatedTradingProvider>
       <div className="min-h-screen bg-background text-foreground dark">
-        <header className="border-b p-4 text-center">
-          <h1 className="text-xl font-bold text-red-500">ADMINISTRATIVE SANDBOX (Simulated)</h1>
-        </header>
         <Outlet />
       </div>
     </SimulatedTradingProvider>

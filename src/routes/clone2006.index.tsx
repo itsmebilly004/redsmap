@@ -252,12 +252,6 @@ function Index() {
                     {price !== null ? price.toFixed(4) : "-"}
                   </div>
                 </div>
-                <Link
-                  to="/clone2006/admin"
-                  className="rounded-md border border-red-500/30 px-3 py-1 text-xs font-medium text-red-500 hover:bg-red-500/10"
-                >
-                  Manage Balances
-                </Link>
               </div>
               <div className="relative min-h-0 flex-1">
                 <DerivChart
