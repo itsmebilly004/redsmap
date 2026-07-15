@@ -1609,9 +1609,15 @@ async function waitForSettlement(
         ? String((contract.transaction_ids as Record<string, unknown>).sell ?? "") || null : null;
       resolve({ entrySpot, exitSpot, payout, profit, status: won ? "won" : "lost", transactionIdSell, entryTickTime, exitTickTime, barrierValue });
       void unsubscribe?.();
-    })
-      .then((off) => { unsubscribe = off; })
-      .catch((error) => { window.clearTimeout(timeout); reject(error); });
+    });
+      } catch (err) {
+        if (!settled) {
+          console.error("[Bot] Failed to subscribe to contract settlement:", err);
+        }
+      }
+    };
+    
+    void doSubscribe();
   });
 }
 
