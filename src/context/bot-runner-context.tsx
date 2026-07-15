@@ -1012,9 +1012,17 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
         }
       }, 8000);
       let websocketMode = "browser";
+      let session: any;
       if (!isSimulated) {
-        const session = await ensureDerivTradingConnection(currentAccount, { context: "footer-bot-run" });
+        session = await ensureDerivTradingConnection(currentAccount, { context: "footer-bot-run" });
         websocketMode = session.websocketMode;
+      } else {
+        session = {
+          account_id: currentAccount.account_id,
+          normalizedType: currentAccount.is_virtual ? "demo" : "real",
+          adapter: null,
+          websocketMode: "browser"
+        };
       }
       
       const newBotId = crypto.randomUUID();
