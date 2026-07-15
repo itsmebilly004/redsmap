@@ -105,7 +105,8 @@ export function TopShell({
   const { user } = useAuth();
   const navigate = useNavigate();
   const { location } = useRouterState();
-  const isCloneSandbox = location.pathname.startsWith("/clone2006");
+  const pathname = location.pathname;
+  const isCloneSandbox = pathname.startsWith("/clone2006");
   const { account, accounts, balance, currency, refreshing, refreshBalances, switchAccount } =
     useDerivBalanceContext();
   const { theme, toggleTheme } = useTheme();
