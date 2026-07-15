@@ -1,15 +1,29 @@
-import { createContext, useContext, type ReactNode } from "react";
-import { useDerivBalance, type LiveBalance } from "@/hooks/use-deriv-balance";
-
-const DerivBalanceContext = createContext<LiveBalance | null>(null);
+import { type ReactNode, useMemo } from "react";
+import { useDerivBalance } from "@/hooks/use-deriv-balance";
+import { TradingProvider, useTradingContext } from "./trading-context";
+import {
+  requestProposal,
+  buyProposal,
+  sellContract,
+  subscribeOpenContract,
+} from "@/lib/deriv-trading-service";
 
 export function DerivBalanceProvider({ children }: { children: ReactNode }) {
   const balance = useDerivBalance();
-  return <DerivBalanceContext.Provider value={balance}>{children}</DerivBalanceContext.Provider>;
+
+  const value = useMemo(() => {
+    return {
+      ...balance,
+      requestProposal,
+      buyProposal,
+      sellContract,
+      subscribeOpenContract,
+    };
+  }, [balance]);
+
+  return <TradingProvider value={value}>{children}</TradingProvider>;
 }
 
-export function useDerivBalanceContext(): LiveBalance {
-  const ctx = useContext(DerivBalanceContext);
-  if (!ctx) throw new Error("useDerivBalanceContext must be used inside DerivBalanceProvider");
-  return ctx;
+export function useDerivBalanceContext() {
+  return useTradingContext();
 }

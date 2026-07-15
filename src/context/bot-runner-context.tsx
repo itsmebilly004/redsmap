@@ -31,7 +31,7 @@ import {
   persistWorkspaceSnapshot,
   readSavedWorkspaceXml,
 } from "@/external/bot-builder/workspace-persistence";
-import { buyProposal, requestProposal, sellContract, subscribeOpenContract } from "@/lib/deriv-trading-service";
+// Trading functions now come from context
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import {
   initBotState,
@@ -139,7 +139,7 @@ export function useBotRunner(): BotRunnerContextValue {
 export function BotRunnerProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { account, balance, currency, refreshBalances } = useDerivBalanceContext();
+  const { account, balance, currency, refreshBalances, requestProposal, buyProposal, sellContract, subscribeOpenContract } = useDerivBalanceContext();
 
   const [status, setStatus] = useState<BotMonitorStatus>("stopped");
   const [stats, setStats] = useState<BotMonitorStats>(EMPTY_BOT_MONITOR_STATS);
@@ -1229,6 +1229,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             settlement = await waitForSettlement(
               contractId,
               (abort) => { settlementAbortRef.current = abort; },
+              subscribeOpenContract,
               onContractUpdate,
             );
             settlementAbortRef.current = null;
@@ -1553,6 +1554,7 @@ function proposalInput(settings: BotBuilderSettings, stake: number): ProposalInp
 async function waitForSettlement(
   contractId: string,
   registerAbort: (abort: () => void) => void,
+  subscribeOpenContractFn: any,
   onContractUpdate?: (contract: Record<string, unknown>) => void,
 ): Promise<Settlement> {
   return new Promise((resolve, reject) => {
@@ -1576,7 +1578,9 @@ async function waitForSettlement(
       resolve(emptySettlement);
     });
 
-    subscribeOpenContract(contractId, (contract) => {
+    const doSubscribe = async () => {
+      try {
+        unsubscribe = await subscribeOpenContractFn(contractId, (contract: any) => {
       onContractUpdate?.(contract);
       const statusText = String(contract.status ?? "").toLowerCase();
       const isSold =

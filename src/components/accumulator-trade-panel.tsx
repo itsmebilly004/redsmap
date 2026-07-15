@@ -24,12 +24,7 @@ import {
   normalizeAccumulatorContract,
   type AccumulatorContractState,
 } from "@/lib/accumulator-engine";
-import {
-  buyProposal,
-  requestProposal,
-  sellContract,
-  subscribeOpenContract,
-} from "@/lib/deriv-trading-service";
+// Trading functions come from context
 import { cn } from "@/lib/utils";
 
 type BarrierUpdate = {
@@ -51,7 +46,7 @@ type Props = {
 
 export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketChange }: Props) {
   const { user } = useAuth();
-  const { account, balance: accountBalance, currency } = useDerivBalanceContext();
+  const { account, balance: accountBalance, currency, requestProposal, buyProposal, subscribeOpenContract, sellContract } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
   const selectedAccountIsDemo = account ? isDemoAccount(account) : false;

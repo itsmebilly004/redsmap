@@ -53,12 +53,7 @@ import {
   TRADE_TYPE_CONFIGS,
   type TradeSide,
 } from "@/lib/trade-types";
-import {
-  buyProposal,
-  requestProposal,
-  sellContract,
-  subscribeOpenContract,
-} from "@/lib/deriv-trading-service";
+// Trading functions now come from context
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -178,7 +173,7 @@ export function TradePanel({
   stickyActions = false,
 }: TradePanelProps) {
   const { user } = useAuth();
-  const { account, balance: accountBalance, currency } = useDerivBalanceContext();
+  const { account, balance: accountBalance, currency, requestProposal, buyProposal, subscribeOpenContract, sellContract } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
 
