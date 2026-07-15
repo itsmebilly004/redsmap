@@ -840,7 +840,7 @@ export function TradePanel({
         .from("trades")
         .insert({
           user_id: user.id,
-          deriv_contract_id: contractId,
+          deriv_contract_id: isSimulated ? `SIM_${contractId}` : contractId,
           symbol: market,
           trade_type: contractType,
           stake,
@@ -976,7 +976,7 @@ export function TradePanel({
       if (!isSimulated) {
         await ensureDerivTradingConnection(account, { context: "standard-sell" });
       }
-      const response = await sellContract(activeContract.contractId, activeContract.sellPrice);
+      const response = await sellContract(activeContract.contractId, (activeContract.buyPrice ?? 0) + (activeContract.currentProfit ?? 0));
       const sold = response.sell ?? {};
       const profit = numberFrom(sold.profit) ?? activeContract.currentProfit ?? 0;
       const next: ActiveContractState = {

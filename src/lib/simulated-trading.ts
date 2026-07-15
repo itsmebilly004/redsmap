@@ -122,21 +122,10 @@ export async function simulatedBuyProposal(
 
   if (updateErr) throw new Error("Could not deduct balance");
 
-  // Create trade in trades table
+  // We do NOT insert into 'trades' table here. 
+  // The UI (trade-panel / bot-runner) is responsible for syncing to Supabase, 
+  // just like it does for real Deriv trades. This prevents duplicates.
   const contractId = crypto.randomUUID();
-  const { error: tradeErr } = await supabase
-    .from("trades")
-    .insert({
-      id: contractId,
-      user_id: userId,
-      stake: price,
-      symbol: payload.underlying_symbol ?? payload.symbol ?? "",
-      trade_type: payload.contract_type ?? "",
-      status: "open",
-      deriv_contract_id: `SIM_${contractId}`,
-    });
-
-  if (tradeErr) throw new Error("Could not create simulated trade record");
 
   activeContracts.set(contractId, payload);
   activeSimulatedContractsState.set(contractId, { status: "open", stake: price } as any);
@@ -169,10 +158,15 @@ export async function simulatedSubscribeOpenContract(
   onUpdate: (contract: Record<string, unknown>, message: DerivMessage) => void
 ): Promise<() => Promise<void>> {
   
-  const { data: trade } = await supabase.from("trades").select("*").eq("id", contractId).single();
-  if (!trade) throw new Error("Simulated trade not found");
+  // We do NOT fetch the trade from 'trades' table here, because the UI inserted it with a different ID.
+  // Instead, we get the state directly from activeSimulatedContractsState.
+  const state = activeSimulatedContractsState.get(contractId);
+  if (!state) throw new Error("Simulated trade not found in memory");
 
-  const symbol = trade.symbol;
+  const payload = activeContracts.get(contractId);
+  if (!payload) throw new Error("Simulated trade payload not found in memory");
+
+  const symbol = payload.underlying_symbol ?? payload.symbol ?? "";
   let isActive = true;
   let entrySpot: number | null = null;
   let startTime = Date.now() / 1000;
@@ -184,7 +178,6 @@ export async function simulatedSubscribeOpenContract(
   let growthRate = 0.03;
   let ticksPassed = 0;
   
-  const payload = activeContracts.get(contractId);
   if (payload) {
     if (payload.contract_type === 'ACCU' || String(payload.contract_type).includes("ACCU")) {
       isAccumulator = true;
@@ -238,22 +231,23 @@ export async function simulatedSubscribeOpenContract(
       
       if (isManuallySold) {
          won = true;
-         payout = state?.sellPrice ?? (Number(trade.stake) + (isAccumulator ? (Number(trade.stake) * Math.pow(1 + growthRate, ticksPassed) - Number(trade.stake)) : (Number(trade.stake) * 0.5)));
+         payout = state?.sellPrice ?? (Number(state.stake) + (isAccumulator ? (Number(state.stake) * Math.pow(1 + growthRate, ticksPassed) - Number(state.stake)) : (Number(state.stake) * 0.5)));
       } else if (isAccumulator) {
          won = false;
          payout = 0;
       } else {
-        if (trade.trade_type === "CALL" || trade.trade_type === "UPORDOWN") {
+        const tradeType = payload.contract_type ?? "";
+        if (tradeType === "CALL" || tradeType === "UPORDOWN") {
           won = currentSpot > entrySpot;
-        } else if (trade.trade_type === "PUT" || trade.trade_type === "EXPIRYMISS") {
+        } else if (tradeType === "PUT" || tradeType === "EXPIRYMISS") {
           won = currentSpot < entrySpot;
         } else {
           won = Math.random() > 0.5;
         }
-        payout = won ? Number(trade.stake) * 1.95 : 0;
+        payout = won ? Number(state.stake) * 1.95 : 0;
       }
 
-      const profit = payout - Number(trade.stake);
+      const profit = payout - Number(state.stake);
 
       if (payout > 0) {
          const { data: sessionData } = await supabase
@@ -264,24 +258,18 @@ export async function simulatedSubscribeOpenContract(
           .single();
           
          if (sessionData) {
-            await supabase
+            const { error: sessErr } = await supabase
               .from("sessions")
               .update({ balance: Number(sessionData.balance) + payout })
               .eq("user_id", userId)
               .eq("account_id", accountId);
+            if (sessErr) console.error("[Simulated] Failed to update balance:", sessErr);
          }
       }
 
-      await supabase
-        .from("trades")
-        .update({
-          status: won ? "won" : "lost",
-          profit_loss: profit,
-          payout: payout,
-          exit_spot: currentSpot,
-          closed_at: new Date().toISOString()
-        })
-        .eq("id", contractId);
+      // We do NOT update the 'trades' table here.
+      // The UI (trade-panel / bot-runner) will update it when it receives the 'is_sold' event.
+      // This prevents duplicates and sync issues.
 
       const contractState = {
         contract_id: contractId,
@@ -290,7 +278,7 @@ export async function simulatedSubscribeOpenContract(
         profit,
         payout,
         sell_price: payout,
-        buy_price: trade.stake,
+        buy_price: state.stake,
         entry_spot: entrySpot,
         exit_tick: currentSpot,
         currency: "USD"
