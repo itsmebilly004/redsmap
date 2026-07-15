@@ -3,7 +3,12 @@ import { SimulatedTradingProvider } from "@/context/simulated-trading-provider";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/clone2006")({
-  beforeLoad: async () => {
+  beforeLoad: async ({ location }) => {
+    // Allow access to the auth page without session
+    if (location.pathname === "/clone2006/auth") {
+      return;
+    }
+
     // Check if user is logged in and is admin
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
