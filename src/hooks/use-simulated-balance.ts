@@ -23,6 +23,7 @@ export function useSimulatedBalance(): LiveBalance {
           account_id: row.account_id,
           is_virtual: row.is_demo ? 1 : 0,
           currency: row.currency,
+          balance: row.balance,
         } as any),
       })) as DerivAccount[];
       setAccounts(parsed);
