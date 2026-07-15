@@ -12,6 +12,17 @@ export function useSimulatedBalance(): LiveBalance {
   const [currency, setCurrency] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [optimisticBalance, setOptimisticBalance] = useState<number | null>(null);
+
+  const onDbotBalance = useCallback((event: Event) => {
+    const customEvent = event as CustomEvent<{ balance: number }>;
+    setOptimisticBalance(customEvent.detail.balance);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("deriv:dbot-balance", onDbotBalance);
+    return () => window.removeEventListener("deriv:dbot-balance", onDbotBalance);
+  }, [onDbotBalance]);
 
   const fetchAccounts = useCallback(async () => {
     if (!user) return;
@@ -65,6 +76,7 @@ export function useSimulatedBalance(): LiveBalance {
             if (row.account_id === currentActiveId) {
               setBalance(row.balance);
               setCurrency(row.currency || "USD");
+              setOptimisticBalance(null);
             }
             return currentActiveId;
           });
@@ -90,6 +102,7 @@ export function useSimulatedBalance(): LiveBalance {
       if (target) {
         setBalance(target.balance != null ? Number(target.balance) : null);
         setCurrency(target.currency ?? "USD");
+        setOptimisticBalance(null);
       }
     },
     [accounts]
@@ -103,7 +116,7 @@ export function useSimulatedBalance(): LiveBalance {
   return {
     account: active,
     accounts,
-    balance,
+    balance: optimisticBalance ?? balance,
     currency,
     loading,
     refreshing,

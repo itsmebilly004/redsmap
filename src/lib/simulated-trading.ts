@@ -139,6 +139,7 @@ export async function simulatedBuyProposal(
   if (tradeErr) throw new Error("Could not create simulated trade record");
 
   activeContracts.set(contractId, payload);
+  activeSimulatedContractsState.set(contractId, { status: "open", stake: price } as any);
 
   return {
     buy: {
@@ -149,8 +150,16 @@ export async function simulatedBuyProposal(
   } as DerivMessage;
 }
 
+export const activeSimulatedContractsState = new Map<string, { status: "open" | "sold", sellPrice?: number }>();
+
 export async function simulatedSellContract(contractId: string, price: number): Promise<DerivMessage> {
-  throw new Error("Early sell is not supported in the simulated environment.");
+  const state = activeSimulatedContractsState.get(contractId);
+  if (state) {
+    state.status = "sold";
+    state.sellPrice = price;
+    return { sell: { contract_id: Number(contractId), sold_for: price, profit: price - (state as any).stake } } as any;
+  }
+  throw new Error("Early sell is not supported or trade is not active.");
 }
 
 export async function simulatedSubscribeOpenContract(
@@ -168,14 +177,20 @@ export async function simulatedSubscribeOpenContract(
   let entrySpot: number | null = null;
   let startTime = Date.now() / 1000;
   
-  // Default duration for simulation if we can't parse it
   let ticksLeft = 5; 
   let durationInSeconds = 5;
   let isTickBased = true;
+  let isAccumulator = false;
+  let growthRate = 0.03;
+  let ticksPassed = 0;
   
   const payload = activeContracts.get(contractId);
   if (payload) {
-    if (payload.duration_unit === 't') {
+    if (payload.contract_type === 'ACCU' || String(payload.contract_type).includes("ACCU")) {
+      isAccumulator = true;
+      isTickBased = false;
+      growthRate = Number(payload.growth_rate) || 0.03;
+    } else if (payload.duration_unit === 't') {
       isTickBased = true;
       ticksLeft = Number(payload.duration) || 5;
     } else {
@@ -200,27 +215,47 @@ export async function simulatedSubscribeOpenContract(
       if (isTickBased) {
         ticksLeft--;
       }
+      ticksPassed++;
     }
 
-    const isExpired = isTickBased ? (ticksLeft <= 0) : ((Date.now() / 1000 - startTime) >= durationInSeconds);
+    const state = activeSimulatedContractsState.get(contractId);
+    const isManuallySold = state?.status === "sold";
+
+    let isExpired = false;
+    if (isAccumulator) {
+      if (isManuallySold) isExpired = true;
+      else if (ticksPassed > 0 && Math.random() < 0.02) isExpired = true; // 2% crash chance per tick
+    } else {
+      isExpired = isTickBased ? (ticksLeft <= 0) : ((Date.now() / 1000 - startTime) >= durationInSeconds);
+      if (isManuallySold) isExpired = true;
+    }
 
     if (isExpired) {
       isActive = false;
       
       let won = false;
-      if (trade.trade_type === "CALL" || trade.trade_type === "UPORDOWN") {
-        won = currentSpot > entrySpot;
-      } else if (trade.trade_type === "PUT" || trade.trade_type === "EXPIRYMISS") {
-        won = currentSpot < entrySpot;
+      let payout = 0;
+      
+      if (isManuallySold) {
+         won = true;
+         payout = state?.sellPrice ?? (Number(trade.stake) + (isAccumulator ? (Number(trade.stake) * Math.pow(1 + growthRate, ticksPassed) - Number(trade.stake)) : (Number(trade.stake) * 0.5)));
+      } else if (isAccumulator) {
+         won = false;
+         payout = 0;
       } else {
-        won = Math.random() > 0.5;
+        if (trade.trade_type === "CALL" || trade.trade_type === "UPORDOWN") {
+          won = currentSpot > entrySpot;
+        } else if (trade.trade_type === "PUT" || trade.trade_type === "EXPIRYMISS") {
+          won = currentSpot < entrySpot;
+        } else {
+          won = Math.random() > 0.5;
+        }
+        payout = won ? Number(trade.stake) * 1.95 : 0;
       }
 
-      const payout = won ? Number(trade.stake) * 1.95 : 0; // Simulated 95% payout
       const profit = payout - Number(trade.stake);
 
-      // Update balance if won
-      if (won) {
+      if (payout > 0) {
          const { data: sessionData } = await supabase
           .from("sessions")
           .select("balance")
@@ -237,7 +272,6 @@ export async function simulatedSubscribeOpenContract(
          }
       }
 
-      // Update trade
       await supabase
         .from("trades")
         .update({
@@ -249,7 +283,6 @@ export async function simulatedSubscribeOpenContract(
         })
         .eq("id", contractId);
 
-      // Emit final status
       const contractState = {
         contract_id: contractId,
         is_sold: 1,
@@ -269,13 +302,23 @@ export async function simulatedSubscribeOpenContract(
         await sendFreeWs({ forget: subscriptionId }).catch(()=>null);
       }
     } else {
-      // Emit active status
-      const profit = (currentSpot - entrySpot) > 0 ? (trade.stake * 0.5) : -(trade.stake * 0.5); // fake unrealized profit
+      let profit = (currentSpot - entrySpot) > 0 ? (Number(trade.stake) * 0.5) : -(Number(trade.stake) * 0.5);
+      let isValidToSell = 0;
+      let bidPrice = Number(trade.stake);
+      
+      if (isAccumulator) {
+         profit = Number(trade.stake) * Math.pow(1 + growthRate, ticksPassed) - Number(trade.stake);
+         bidPrice = Number(trade.stake) + profit;
+         isValidToSell = 1;
+      }
+
       const contractState = {
         contract_id: contractId,
         is_sold: 0,
         status: "open",
         profit,
+        bid_price: bidPrice,
+        is_valid_to_sell: isValidToSell,
         buy_price: trade.stake,
         entry_spot: entrySpot,
         current_spot: currentSpot,
