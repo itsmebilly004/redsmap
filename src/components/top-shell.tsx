@@ -393,11 +393,8 @@ export function TopShell({
           {user && !account && (
             <div className="flex flex-col items-end gap-0.5">
               {isCloneSandbox ? (
-                <Button
-                  asChild
-                  className="h-9 rounded-md bg-[#ff444f] px-3 text-sm text-white hover:bg-[#eb3e48] sm:px-4"
-                >
-                  <Link to="/clone2006/admin">Initialize Sandbox</Link>
+                <Button asChild variant="outline" className="h-9">
+                  <Link to="/clone2006/admin">Clone Settings</Link>
                 </Button>
               ) : (
                 <>
@@ -436,12 +433,24 @@ export function TopShell({
       <nav className="border-b border-[#e5e5e5] bg-white dark:border-[#242424] dark:bg-[#151515]">
         <div className="flex min-w-0 items-center overflow-x-auto px-1 sm:px-2">
           {TOP_TABS.map((t) => {
-            const active = t.to === "/" ? pathname === "/" : pathname.startsWith(t.to);
+            let targetPath = t.to;
+            if (isCloneSandbox) {
+              if (t.to === "/") {
+                targetPath = "/clone2006";
+              } else {
+                targetPath = `/clone2006${t.to}`;
+              }
+            }
+
+            const active =
+              targetPath === "/" || targetPath === "/clone2006"
+                ? pathname === targetPath || pathname === `${targetPath}/`
+                : pathname.startsWith(targetPath);
             const Icon = t.icon;
             return (
               <Link
                 key={t.to}
-                to={t.to}
+                to={targetPath}
                 aria-label={t.label}
                 className={cn(
                   "flex min-w-max shrink-0 items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] font-medium transition-colors sm:gap-2 sm:px-4 sm:py-3 sm:text-sm",

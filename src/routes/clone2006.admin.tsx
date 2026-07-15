@@ -53,44 +53,21 @@ function AdminPage() {
     }
   };
 
-  const createDummyAccount = async (isDemo: boolean) => {
-    if (!user) return;
-    const accountId = isDemo ? `VRTC${Math.floor(Math.random() * 100000)}` : `CR${Math.floor(Math.random() * 1000000)}`;
-    const { error } = await supabase.from("sessions").insert({
-      user_id: user.id,
-      account_id: accountId,
-      deriv_token: "simulated_token",
-      is_demo: isDemo,
-      currency: "USD",
-      balance: isDemo ? 10000 : 0,
-      token_source: "manual",
-    });
-
-    if (error) {
-      toast.error("Failed to create simulated account");
-    } else {
-      toast.success("Simulated account created");
-      void loadSessions();
-    }
-  };
+  // Functionality to create fake accounts is removed. The clone now purely reads existing accounts.
 
   return (
     <TopShell>
       <div className="mx-auto max-w-4xl p-6">
-        <h1 className="mb-6 text-2xl font-bold">Admin Sandbox Management</h1>
+        <h1 className="mb-6 text-2xl font-bold">Clone Settings</h1>
         
-        <div className="mb-6 flex gap-4">
-          <Button onClick={() => createDummyAccount(true)} variant="outline">
-            + Create Simulated Demo Account
-          </Button>
-          <Button onClick={() => createDummyAccount(false)} variant="outline">
-            + Create Simulated Real Account
-          </Button>
-        </div>
+        <p className="mb-6 text-sm text-muted-foreground">
+          Use this page to adjust the balances of your connected database accounts for the simulation. 
+          To connect more real Deriv accounts, please log into the main platform.
+        </p>
 
         <div className="rounded-xl border bg-card text-card-foreground shadow">
           <div className="p-6">
-            <h2 className="text-xl font-semibold">Your Simulated Accounts</h2>
+            <h2 className="text-xl font-semibold">Your Accounts</h2>
             <div className="mt-4 space-y-4">
               {sessions.map((session) => (
                 <div key={session.id} className="flex items-center justify-between rounded-lg border p-4">

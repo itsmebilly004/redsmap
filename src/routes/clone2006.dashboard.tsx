@@ -16,7 +16,7 @@ import { TopShell } from "@/components/top-shell";
 import { disconnectAll, getActiveDerivTradingSession } from "@/lib/deriv";
 import { isDemoAccount } from "@/lib/deriv-account";
 
-export const Route = createFileRoute("/dashboard")({
+export const Route = createFileRoute("/clone2006/dashboard")({
   component: DashboardLayout,
 });
 

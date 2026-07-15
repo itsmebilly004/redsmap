@@ -38,9 +38,7 @@ export const Route = createFileRoute("/clone2006")({
 function TradingLayout() {
   return (
     <SimulatedTradingProvider>
-      <div className="min-h-screen bg-background text-foreground">
-        <Outlet />
-      </div>
+      <Outlet />
     </SimulatedTradingProvider>
   );
 }
