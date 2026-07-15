@@ -15,13 +15,14 @@ export function useSimulatedBalance(): LiveBalance {
 
   const fetchAccounts = useCallback(async () => {
     if (!user) return;
-    const { data, error } = await supabase.from("sessions").select("*");
+    const { data, error } = await supabase.from("sessions").select("*").eq("user_id", user.id);
     if (!error && data) {
       const parsed = data.map((row) => ({
         ...row,
         ...normalizeDerivAccount({
           account_id: row.account_id,
           is_virtual: row.is_demo ? 1 : 0,
+          currency: row.currency,
         } as any),
       })) as DerivAccount[];
       setAccounts(parsed);
@@ -50,6 +51,7 @@ export function useSimulatedBalance(): LiveBalance {
           event: "UPDATE",
           schema: "public",
           table: "sessions",
+          filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
           const row = payload.new as any;

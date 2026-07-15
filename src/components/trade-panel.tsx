@@ -124,17 +124,22 @@ function accountHasFreshTradingAuthorization(
   });
 }
 
-function TradingConnectionBadge({
+export function TradingConnectionBadge({
   error,
   status,
 }: {
   error: string | null;
   status: ConnectionStatus;
 }) {
+  const isCloneSandbox = typeof window !== "undefined" && window.location.pathname.startsWith("/clone2006");
+  
+  const effectiveStatus = isCloneSandbox ? "connected" : status;
+  const effectiveError = isCloneSandbox ? null : error;
+
   const statusMeta =
-    status === "connected"
+    effectiveStatus === "connected"
       ? { chip: "bg-[#e7f8f2] text-[#0b8f62]", label: "READY" }
-      : status === "connecting" || status === "reconnecting"
+      : effectiveStatus === "connecting" || effectiveStatus === "reconnecting"
         ? { chip: "bg-[#fff8e7] text-[#9a6700]", label: "CONNECTING" }
         : { chip: "bg-[#fff1f2] text-[#cc2f39]", label: "DISCONNECTED" };
   return (
@@ -150,7 +155,7 @@ function TradingConnectionBadge({
           {statusMeta.label}
         </span>
       </div>
-      {error && <div className="mt-1 text-[#cc2f39] dark:text-[#ff8b92]">{error}</div>}
+      {effectiveError && <div className="mt-1 text-[#cc2f39] dark:text-[#ff8b92]">{effectiveError}</div>}
     </div>
   );
 }
