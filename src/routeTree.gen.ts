@@ -34,7 +34,6 @@ import { Route as Clone2006ChartsRouteImport } from './routes/clone2006.charts'
 import { Route as Clone2006BotBuilderRouteImport } from './routes/clone2006.bot-builder'
 import { Route as Clone2006AuthRouteImport } from './routes/clone2006.auth'
 import { Route as Clone2006AnalysisRouteImport } from './routes/clone2006.analysis'
-import { Route as Clone2006AdminRouteImport } from './routes/clone2006.admin'
 import { Route as ApiDerivTokenExchangeRouteImport } from './routes/api/deriv-token-exchange'
 import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-accounts'
 import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
@@ -42,6 +41,7 @@ import { Route as ApiBotOrphanCheckRouteImport } from './routes/api/bot-orphan-c
 import { Route as ApiBotHandoffRouteImport } from './routes/api/bot-handoff'
 import { Route as Clone2006DashboardIndexRouteImport } from './routes/clone2006.dashboard.index'
 import { Route as Clone2006StrategySlugRouteImport } from './routes/clone2006.strategy.$slug'
+import { Route as Clone2006DashboardSettingsRouteImport } from './routes/clone2006.dashboard.settings'
 import { Route as Clone2006DashboardAnalyticsRouteImport } from './routes/clone2006.dashboard.analytics'
 
 const TradingBotsRoute = TradingBotsRouteImport.update({
@@ -169,11 +169,6 @@ const Clone2006AnalysisRoute = Clone2006AnalysisRouteImport.update({
   path: '/analysis',
   getParentRoute: () => Clone2006Route,
 } as any)
-const Clone2006AdminRoute = Clone2006AdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => Clone2006Route,
-} as any)
 const ApiDerivTokenExchangeRoute = ApiDerivTokenExchangeRouteImport.update({
   id: '/api/deriv-token-exchange',
   path: '/api/deriv-token-exchange',
@@ -209,6 +204,12 @@ const Clone2006StrategySlugRoute = Clone2006StrategySlugRouteImport.update({
   path: '/strategy/$slug',
   getParentRoute: () => Clone2006Route,
 } as any)
+const Clone2006DashboardSettingsRoute =
+  Clone2006DashboardSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => Clone2006DashboardRoute,
+  } as any)
 const Clone2006DashboardAnalyticsRoute =
   Clone2006DashboardAnalyticsRouteImport.update({
     id: '/analytics',
@@ -234,7 +235,6 @@ export interface FileRoutesByFullPath {
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
-  '/clone2006/admin': typeof Clone2006AdminRoute
   '/clone2006/analysis': typeof Clone2006AnalysisRoute
   '/clone2006/auth': typeof Clone2006AuthRoute
   '/clone2006/bot-builder': typeof Clone2006BotBuilderRoute
@@ -249,6 +249,7 @@ export interface FileRoutesByFullPath {
   '/clone2006/': typeof Clone2006IndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/clone2006/dashboard/analytics': typeof Clone2006DashboardAnalyticsRoute
+  '/clone2006/dashboard/settings': typeof Clone2006DashboardSettingsRoute
   '/clone2006/strategy/$slug': typeof Clone2006StrategySlugRoute
   '/clone2006/dashboard/': typeof Clone2006DashboardIndexRoute
 }
@@ -268,7 +269,6 @@ export interface FileRoutesByTo {
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
-  '/clone2006/admin': typeof Clone2006AdminRoute
   '/clone2006/analysis': typeof Clone2006AnalysisRoute
   '/clone2006/auth': typeof Clone2006AuthRoute
   '/clone2006/bot-builder': typeof Clone2006BotBuilderRoute
@@ -282,6 +282,7 @@ export interface FileRoutesByTo {
   '/clone2006': typeof Clone2006IndexRoute
   '/dashboard': typeof DashboardIndexRoute
   '/clone2006/dashboard/analytics': typeof Clone2006DashboardAnalyticsRoute
+  '/clone2006/dashboard/settings': typeof Clone2006DashboardSettingsRoute
   '/clone2006/strategy/$slug': typeof Clone2006StrategySlugRoute
   '/clone2006/dashboard': typeof Clone2006DashboardIndexRoute
 }
@@ -304,7 +305,6 @@ export interface FileRoutesById {
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
-  '/clone2006/admin': typeof Clone2006AdminRoute
   '/clone2006/analysis': typeof Clone2006AnalysisRoute
   '/clone2006/auth': typeof Clone2006AuthRoute
   '/clone2006/bot-builder': typeof Clone2006BotBuilderRoute
@@ -319,6 +319,7 @@ export interface FileRoutesById {
   '/clone2006/': typeof Clone2006IndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/clone2006/dashboard/analytics': typeof Clone2006DashboardAnalyticsRoute
+  '/clone2006/dashboard/settings': typeof Clone2006DashboardSettingsRoute
   '/clone2006/strategy/$slug': typeof Clone2006StrategySlugRoute
   '/clone2006/dashboard/': typeof Clone2006DashboardIndexRoute
 }
@@ -342,7 +343,6 @@ export interface FileRouteTypes {
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
-    | '/clone2006/admin'
     | '/clone2006/analysis'
     | '/clone2006/auth'
     | '/clone2006/bot-builder'
@@ -357,6 +357,7 @@ export interface FileRouteTypes {
     | '/clone2006/'
     | '/dashboard/'
     | '/clone2006/dashboard/analytics'
+    | '/clone2006/dashboard/settings'
     | '/clone2006/strategy/$slug'
     | '/clone2006/dashboard/'
   fileRoutesByTo: FileRoutesByTo
@@ -376,7 +377,6 @@ export interface FileRouteTypes {
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
-    | '/clone2006/admin'
     | '/clone2006/analysis'
     | '/clone2006/auth'
     | '/clone2006/bot-builder'
@@ -390,6 +390,7 @@ export interface FileRouteTypes {
     | '/clone2006'
     | '/dashboard'
     | '/clone2006/dashboard/analytics'
+    | '/clone2006/dashboard/settings'
     | '/clone2006/strategy/$slug'
     | '/clone2006/dashboard'
   id:
@@ -411,7 +412,6 @@ export interface FileRouteTypes {
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
-    | '/clone2006/admin'
     | '/clone2006/analysis'
     | '/clone2006/auth'
     | '/clone2006/bot-builder'
@@ -426,6 +426,7 @@ export interface FileRouteTypes {
     | '/clone2006/'
     | '/dashboard/'
     | '/clone2006/dashboard/analytics'
+    | '/clone2006/dashboard/settings'
     | '/clone2006/strategy/$slug'
     | '/clone2006/dashboard/'
   fileRoutesById: FileRoutesById
@@ -628,13 +629,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Clone2006AnalysisRouteImport
       parentRoute: typeof Clone2006Route
     }
-    '/clone2006/admin': {
-      id: '/clone2006/admin'
-      path: '/admin'
-      fullPath: '/clone2006/admin'
-      preLoaderRoute: typeof Clone2006AdminRouteImport
-      parentRoute: typeof Clone2006Route
-    }
     '/api/deriv-token-exchange': {
       id: '/api/deriv-token-exchange'
       path: '/api/deriv-token-exchange'
@@ -684,6 +678,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Clone2006StrategySlugRouteImport
       parentRoute: typeof Clone2006Route
     }
+    '/clone2006/dashboard/settings': {
+      id: '/clone2006/dashboard/settings'
+      path: '/settings'
+      fullPath: '/clone2006/dashboard/settings'
+      preLoaderRoute: typeof Clone2006DashboardSettingsRouteImport
+      parentRoute: typeof Clone2006DashboardRoute
+    }
     '/clone2006/dashboard/analytics': {
       id: '/clone2006/dashboard/analytics'
       path: '/analytics'
@@ -696,11 +697,13 @@ declare module '@tanstack/react-router' {
 
 interface Clone2006DashboardRouteChildren {
   Clone2006DashboardAnalyticsRoute: typeof Clone2006DashboardAnalyticsRoute
+  Clone2006DashboardSettingsRoute: typeof Clone2006DashboardSettingsRoute
   Clone2006DashboardIndexRoute: typeof Clone2006DashboardIndexRoute
 }
 
 const Clone2006DashboardRouteChildren: Clone2006DashboardRouteChildren = {
   Clone2006DashboardAnalyticsRoute: Clone2006DashboardAnalyticsRoute,
+  Clone2006DashboardSettingsRoute: Clone2006DashboardSettingsRoute,
   Clone2006DashboardIndexRoute: Clone2006DashboardIndexRoute,
 }
 
@@ -708,7 +711,6 @@ const Clone2006DashboardRouteWithChildren =
   Clone2006DashboardRoute._addFileChildren(Clone2006DashboardRouteChildren)
 
 interface Clone2006RouteChildren {
-  Clone2006AdminRoute: typeof Clone2006AdminRoute
   Clone2006AnalysisRoute: typeof Clone2006AnalysisRoute
   Clone2006AuthRoute: typeof Clone2006AuthRoute
   Clone2006BotBuilderRoute: typeof Clone2006BotBuilderRoute
@@ -722,7 +724,6 @@ interface Clone2006RouteChildren {
 }
 
 const Clone2006RouteChildren: Clone2006RouteChildren = {
-  Clone2006AdminRoute: Clone2006AdminRoute,
   Clone2006AnalysisRoute: Clone2006AnalysisRoute,
   Clone2006AuthRoute: Clone2006AuthRoute,
   Clone2006BotBuilderRoute: Clone2006BotBuilderRoute,

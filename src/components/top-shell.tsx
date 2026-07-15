@@ -394,7 +394,7 @@ export function TopShell({
             <div className="flex flex-col items-end gap-0.5">
               {isCloneSandbox ? (
                 <Button asChild variant="outline" className="h-9">
-                  <Link to="/clone2006/admin">Clone Settings</Link>
+                  <Link to="/clone2006/dashboard/settings">Clone Settings</Link>
                 </Button>
               ) : (
                 <>
