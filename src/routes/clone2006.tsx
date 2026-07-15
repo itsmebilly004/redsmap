@@ -29,7 +29,7 @@ export const Route = createFileRoute("/clone2006")({
     const isAdmin = true; // Temporary bypass or implement actual check
 
     if (!isAdmin) {
-      throw redirect({ to: "/dashboard" });
+      throw redirect({ to: "/clone2006" });
     }
   },
   component: TradingLayout,

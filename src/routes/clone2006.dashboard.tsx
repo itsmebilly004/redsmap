@@ -38,7 +38,7 @@ function DashboardLayout() {
   const selectedAccountIsDemo = account ? isDemoAccount(account) : false;
 
   useEffect(() => {
-    if (!loading && !user) navigate({ to: "/auth", search: { mode: "signin" } });
+    if (!loading && !user) navigate({ to: "/clone2006/auth", search: { mode: "signin" } });
   }, [user, loading, navigate]);
 
   useEffect(() => {
@@ -105,7 +105,7 @@ function DashboardLayout() {
     }
     disconnectAll();
     await supabase.auth.signOut();
-    navigate({ to: "/auth", search: { mode: "signin" } });
+    navigate({ to: "/clone2006/auth", search: { mode: "signin" } });
   }
 
   if (loading || !user) return null;

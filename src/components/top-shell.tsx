@@ -420,10 +420,10 @@ export function TopShell({
           {!user && (
             <div className="flex gap-1 sm:gap-2">
               <Button variant="ghost" asChild className="h-9 px-3 text-sm font-medium sm:px-4">
-                <Link to="/auth" search={{ mode: "signin" }}>Log in</Link>
+                <Link to={(isCloneSandbox ? "/clone2006/auth" : "/auth") as any} search={{ mode: "signin" }}>Log in</Link>
               </Button>
               <Button asChild className="h-9 bg-[#3e3e3e] px-3 text-sm font-medium text-white shadow-sm sm:px-4">
-                <Link to="/auth" search={{ mode: "signup" }}>Sign up</Link>
+                <Link to={(isCloneSandbox ? "/clone2006/auth" : "/auth") as any} search={{ mode: "signup" }}>Sign up</Link>
               </Button>
             </div>
           )}

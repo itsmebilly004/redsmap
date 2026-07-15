@@ -67,7 +67,7 @@ function TradingBots() {
 
   async function handleDeployBot(bot: TradingBotAsset) {
     if (!user?.id) {
-      navigate({ to: "/auth", search: { mode: "signin" } });
+      navigate({ to: "/clone2006/auth", search: { mode: "signin" } });
       return;
     }
     setDeployingId(bot.id);
@@ -76,7 +76,7 @@ function TradingBots() {
       await importBotXmlIntoBuilderMemory(user.id, { name: bot.name, xml, presetId: bot.id });
       recordBotPresetActivity(user.id, "deployed", bot.name, bot.id);
       toast.success(`Imported "${bot.name}" into the bot builder.`);
-      navigate({ to: "/bot-builder" });
+      navigate({ to: "/clone2006/bot-builder" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not deploy this bot preset.";
       toast.error(message);
