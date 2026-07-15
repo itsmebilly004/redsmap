@@ -234,157 +234,164 @@ export function TopShell({
           >
             {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </button>
-          {isCloneSandbox && user ? (
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                asChild
-                className="h-9 rounded-md border-red-500/50 text-red-500 hover:bg-red-500/10 dark:border-red-500/30 dark:hover:bg-red-500/20"
-              >
-                <Link to="/clone2006/admin">Settings</Link>
-              </Button>
-              <button
-                onClick={handleLogout}
-                className="text-xs font-medium text-muted-foreground hover:text-red-500 dark:text-zinc-400 dark:hover:text-red-400"
-              >
-                Logout
-              </button>
-            </div>
-          ) : (
+          {user && account && (
             <>
-              {user && account && (
-                <>
-                  <Button
-                    onClick={handleDeposit}
-                    className="hidden h-9 rounded-md bg-[#ff444f] px-5 text-sm font-bold text-white hover:bg-[#eb3e48] sm:inline-flex"
-                  >
-                    Deposit
-                  </Button>
-                  <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
-                    <DropdownMenuTrigger asChild>
-                      <button className="flex min-w-0 max-w-[min(58vw,17rem)] items-center gap-1.5 rounded-full border border-[#d6d6d6] bg-white px-2 py-1.5 transition hover:bg-[#f2f3f4] sm:max-w-full sm:gap-2 sm:px-3 dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:hover:bg-[#222]">
-                        <AccountIcon account={account} size="sm" />
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <span className="truncate text-xs font-bold tabular-nums text-[#333333] sm:text-sm dark:text-[#e6e6e6]">
-                            {formatBalance(balance ?? account.balance, "").trim()}
-                          </span>
-                          <span className="shrink-0 text-[11px] font-bold text-[#646464] dark:text-[#b7b7b7]">
-                            {currency || account.currency}
-                          </span>
-                        </div>
-                        <ChevronDown
-                          className={cn(
-                            "size-4 text-[#999999] transition-transform duration-200 dark:text-[#b7b7b7]",
-                            dropdownOpen && "rotate-180",
-                          )}
-                        />
-                      </button>
-                    </DropdownMenuTrigger>
-
-                    <DropdownMenuContent
-                      align="end"
-                      className="w-[min(calc(100vw-1.5rem),380px)] overflow-hidden rounded-lg border border-[#d6d6d6] bg-white p-0 text-[#333333] shadow-xl dark:border-[#2b2b2b] dark:bg-[#151515] dark:text-[#e6e6e6]"
-                    >
-                      <Tabs
-                        value={activeAccountTab}
-                        onValueChange={(value) => setActiveAccountTab(value as "real" | "demo")}
-                        className="w-full"
-                      >
-                        <TabsList className="grid h-12 w-full grid-cols-2 rounded-none border-b border-[#eeeeee] bg-white p-0 dark:border-[#2b2b2b] dark:bg-[#151515]">
-                          <TabsTrigger
-                            value="real"
-                            className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none dark:text-[#b7b7b7] dark:data-[state=active]:text-[#f2f2f2]"
-                          >
-                            Real
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="demo"
-                            className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none dark:text-[#b7b7b7] dark:data-[state=active]:text-[#f2f2f2]"
-                          >
-                            Demo
-                          </TabsTrigger>
-                        </TabsList>
-
-                        <div className="px-4 pb-2 pt-4">
-                          <div className="mb-2 flex items-center justify-between">
-                            <span className="text-sm font-bold text-[#333333] dark:text-[#f2f2f2]">
-                              Deriv accounts
-                            </span>
-                            <ChevronUp className="size-4 text-[#333333] dark:text-[#f2f2f2]" />
-                          </div>
-
-                          <TabsContent value="real" className="mt-0 space-y-1">
-                            <AccountList
-                              accounts={realAccounts}
-                              activeAccountId={account.account_id}
-                              emptyText="No real accounts linked."
-                              onSelect={(accountId) => {
-                                switchAccount(accountId);
-                                setDropdownOpen(false);
-                              }}
-                            />
-                          </TabsContent>
-
-                          <TabsContent value="demo" className="mt-0 space-y-1">
-                            <AccountList
-                              accounts={demoAccounts}
-                              activeAccountId={account.account_id}
-                              emptyText="No demo accounts linked."
-                              onSelect={(accountId) => {
-                                switchAccount(accountId);
-                                setDropdownOpen(false);
-                              }}
-                            />
-                          </TabsContent>
-                        </div>
-                      </Tabs>
-
-                      <div className="border-t border-[#eeeeee] bg-white px-4 py-3 dark:border-[#2b2b2b] dark:bg-[#151515]">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="text-sm font-bold text-[#333333] dark:text-[#f2f2f2]">
-                              {totalAssetsLabel(visibleAccounts)}
-                            </div>
-                            <div className="mt-0.5 text-xs text-[#777777] dark:text-[#b7b7b7]">
-                              Total assets in your Deriv accounts.
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="border-t border-[#eeeeee] bg-[#f9f9f9] px-4 py-3 text-center dark:border-[#2b2b2b] dark:bg-[#101010]">
-                        <p className="text-[13px] text-[#333333] dark:text-[#d8d8d8]">
-                          Looking for CFD accounts?{" "}
-                          <a href="#" className="font-bold text-[#333333] hover:underline dark:text-[#f2f2f2]">
-                            Go to Trader&apos;s Hub
-                          </a>
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-4 py-3 dark:bg-[#151515]">
-                        <Button
-                          variant="outline"
-                          className="h-9 rounded-md border-[#999999] px-4 text-sm font-bold text-[#333333] hover:bg-[#f2f3f4] dark:border-[#3a3a3a] dark:bg-[#101010] dark:text-[#e6e6e6] dark:hover:bg-[#202020]"
-                          onClick={handleRefreshBalances}
-                          disabled={refreshing}
-                        >
-                          <RefreshCw className={cn("mr-2 size-4", refreshing && "animate-spin")} />
-                          Refresh balances
-                        </Button>
-                        <button
-                          onClick={handleLogout}
-                          className="flex items-center gap-2 text-sm font-medium text-[#333333] hover:text-[#ff444f] dark:text-[#e6e6e6] dark:hover:text-[#ff6b73]"
-                        >
-                          Logout <LogOut className="size-4" />
-                        </button>
-                      </div>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </>
+              {!isCloneSandbox && (
+                <Button
+                  onClick={handleDeposit}
+                  className="hidden h-9 rounded-md bg-[#ff444f] px-5 text-sm font-bold text-white hover:bg-[#eb3e48] sm:inline-flex"
+                >
+                  Deposit
+                </Button>
               )}
+              <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex min-w-0 max-w-[min(58vw,17rem)] items-center gap-1.5 rounded-full border border-[#d6d6d6] bg-white px-2 py-1.5 transition hover:bg-[#f2f3f4] sm:max-w-full sm:gap-2 sm:px-3 dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:hover:bg-[#222]">
+                    <AccountIcon account={account} size="sm" />
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-xs font-bold tabular-nums text-[#333333] sm:text-sm dark:text-[#e6e6e6]">
+                        {formatBalance(balance ?? account.balance, "").trim()}
+                      </span>
+                      <span className="shrink-0 text-[11px] font-bold text-[#646464] dark:text-[#b7b7b7]">
+                        {currency || account.currency}
+                      </span>
+                    </div>
+                    <ChevronDown
+                      className={cn(
+                        "size-4 text-[#999999] transition-transform duration-200 dark:text-[#b7b7b7]",
+                        dropdownOpen && "rotate-180",
+                      )}
+                    />
+                  </button>
+                </DropdownMenuTrigger>
 
-              {user && !account && (
-                <div className="flex flex-col items-end gap-0.5">
+                <DropdownMenuContent
+                  align="end"
+                  className="w-[min(calc(100vw-1.5rem),380px)] overflow-hidden rounded-lg border border-[#d6d6d6] bg-white p-0 text-[#333333] shadow-xl dark:border-[#2b2b2b] dark:bg-[#151515] dark:text-[#e6e6e6]"
+                >
+                  <Tabs
+                    value={activeAccountTab}
+                    onValueChange={(value) => setActiveAccountTab(value as "real" | "demo")}
+                    className="w-full"
+                  >
+                    <TabsList className="grid h-12 w-full grid-cols-2 rounded-none border-b border-[#eeeeee] bg-white p-0 dark:border-[#2b2b2b] dark:bg-[#151515]">
+                      <TabsTrigger
+                        value="real"
+                        className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none dark:text-[#b7b7b7] dark:data-[state=active]:text-[#f2f2f2]"
+                      >
+                        Real
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="demo"
+                        className="h-full rounded-none border-b-2 border-transparent text-sm font-bold text-[#646464] shadow-none data-[state=active]:border-[#ff444f] data-[state=active]:bg-transparent data-[state=active]:text-[#333333] data-[state=active]:shadow-none dark:text-[#b7b7b7] dark:data-[state=active]:text-[#f2f2f2]"
+                      >
+                        Demo
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <div className="px-4 pb-2 pt-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-bold text-[#333333] dark:text-[#f2f2f2]">
+                          {isCloneSandbox ? "Simulated accounts" : "Deriv accounts"}
+                        </span>
+                        <ChevronUp className="size-4 text-[#333333] dark:text-[#f2f2f2]" />
+                      </div>
+
+                      <TabsContent value="real" className="mt-0 space-y-1">
+                        <AccountList
+                          accounts={realAccounts}
+                          activeAccountId={account.account_id}
+                          emptyText="No real accounts linked."
+                          onSelect={(accountId) => {
+                            switchAccount(accountId);
+                            setDropdownOpen(false);
+                          }}
+                        />
+                      </TabsContent>
+
+                      <TabsContent value="demo" className="mt-0 space-y-1">
+                        <AccountList
+                          accounts={demoAccounts}
+                          activeAccountId={account.account_id}
+                          emptyText="No demo accounts linked."
+                          onSelect={(accountId) => {
+                            switchAccount(accountId);
+                            setDropdownOpen(false);
+                          }}
+                        />
+                      </TabsContent>
+                    </div>
+                  </Tabs>
+
+                  <div className="border-t border-[#eeeeee] bg-white px-4 py-3 dark:border-[#2b2b2b] dark:bg-[#151515]">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-bold text-[#333333] dark:text-[#f2f2f2]">
+                          {totalAssetsLabel(visibleAccounts)}
+                        </div>
+                        <div className="mt-0.5 text-xs text-[#777777] dark:text-[#b7b7b7]">
+                          Total assets in your {isCloneSandbox ? "Simulated" : "Deriv"} accounts.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {!isCloneSandbox && (
+                    <div className="border-t border-[#eeeeee] bg-[#f9f9f9] px-4 py-3 text-center dark:border-[#2b2b2b] dark:bg-[#101010]">
+                      <p className="text-[13px] text-[#333333] dark:text-[#d8d8d8]">
+                        Looking for CFD accounts?{" "}
+                        <a href="#" className="font-bold text-[#333333] hover:underline dark:text-[#f2f2f2]">
+                          Go to Trader&apos;s Hub
+                        </a>
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-4 py-3 dark:bg-[#151515]">
+                    <Button
+                      variant="outline"
+                      className="h-9 rounded-md border-[#999999] px-4 text-sm font-bold text-[#333333] hover:bg-[#f2f3f4] dark:border-[#3a3a3a] dark:bg-[#101010] dark:text-[#e6e6e6] dark:hover:bg-[#202020]"
+                      onClick={handleRefreshBalances}
+                      disabled={refreshing}
+                    >
+                      <RefreshCw className={cn("mr-2 size-4", refreshing && "animate-spin")} />
+                      Refresh balances
+                    </Button>
+                    
+                    <div className="flex items-center gap-3">
+                      {isCloneSandbox && (
+                        <Link
+                          to="/clone2006/admin"
+                          className="text-sm font-medium text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
+                          onClick={() => setDropdownOpen(false)}
+                        >
+                          Settings
+                        </Link>
+                      )}
+                      <button
+                        onClick={handleLogout}
+                        className="flex items-center gap-2 text-sm font-medium text-[#333333] hover:text-[#ff444f] dark:text-[#e6e6e6] dark:hover:text-[#ff6b73]"
+                      >
+                        Logout <LogOut className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
+
+          {user && !account && (
+            <div className="flex flex-col items-end gap-0.5">
+              {isCloneSandbox ? (
+                <Button
+                  asChild
+                  className="h-9 rounded-md bg-[#ff444f] px-3 text-sm text-white hover:bg-[#eb3e48] sm:px-4"
+                >
+                  <Link to="/clone2006/admin">Initialize Sandbox</Link>
+                </Button>
+              ) : (
+                <>
                   <Button
                     onClick={handleConnectDeriv}
                     className="h-9 rounded-md bg-[#ff444f] px-3 text-sm text-white hover:bg-[#eb3e48] sm:px-4"
@@ -399,20 +406,20 @@ export function TopShell({
                   >
                     Have an older Deriv API token? Connect here.
                   </button>
-                </div>
+                </>
               )}
+            </div>
+          )}
 
-              {!user && (
-                <div className="flex gap-1 sm:gap-2">
-                  <Button variant="ghost" asChild className="h-9 px-3 text-sm font-medium sm:px-4">
-                    <Link to="/auth" search={{ mode: "signin" }}>Log in</Link>
-                  </Button>
-                  <Button asChild className="h-9 bg-[#3e3e3e] px-3 text-sm font-medium text-white shadow-sm sm:px-4">
-                    <Link to="/auth" search={{ mode: "signup" }}>Sign up</Link>
-                  </Button>
-                </div>
-              )}
-            </>
+          {!user && (
+            <div className="flex gap-1 sm:gap-2">
+              <Button variant="ghost" asChild className="h-9 px-3 text-sm font-medium sm:px-4">
+                <Link to="/auth" search={{ mode: "signin" }}>Log in</Link>
+              </Button>
+              <Button asChild className="h-9 bg-[#3e3e3e] px-3 text-sm font-medium text-white shadow-sm sm:px-4">
+                <Link to="/auth" search={{ mode: "signup" }}>Sign up</Link>
+              </Button>
+            </div>
           )}
         </div>
       </header>
