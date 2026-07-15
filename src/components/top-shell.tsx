@@ -170,9 +170,17 @@ export function TopShell({
     if (user) {
       await supabase.from("sessions").update({ is_active: false }).eq("user_id", user.id);
     }
-    disconnectAll();
-    await supabase.auth.signOut();
-    navigate({ to: "/auth", search: { mode: "signin" } });
+    
+    if (isCloneSandbox) {
+      // For the clone admin, do not touch Deriv accounts.
+      await supabase.auth.signOut();
+      navigate({ to: "/" });
+    } else {
+      // For the main platform, disconnect from Deriv.
+      disconnectAll();
+      await supabase.auth.signOut();
+      navigate({ to: "/auth", search: { mode: "signin" } });
+    }
   }
 
   async function handleConnectDeriv() {
