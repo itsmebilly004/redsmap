@@ -88,7 +88,7 @@ export async function simulatedRequestProposal(payload: Record<string, unknown>,
   try {
     const response = await sendFreeWs(requestPayload);
     if (response.proposal?.id) {
-      activeProposals.set(response.proposal.id, payload);
+      activeProposals.set(response.proposal.id, { payload, proposal: response.proposal });
     }
     return response as DerivMessage;
   } catch (error) {
@@ -103,8 +103,9 @@ export async function simulatedBuyProposal(
   userId: string,
   accountId: string
 ): Promise<DerivMessage> {
-  const payload = activeProposals.get(proposalId);
-  if (!payload) throw new Error("Proposal expired or invalid in simulated environment.");
+  const proposalData = activeProposals.get(proposalId);
+  if (!proposalData) throw new Error("Proposal expired or invalid in simulated environment.");
+  const { payload, proposal } = proposalData;
 
   // Deduct balance from sessions
   const { data: sessionData, error: sessionErr } = await supabase
@@ -133,7 +134,7 @@ export async function simulatedBuyProposal(
   const contractId = crypto.randomUUID();
 
   activeContracts.set(contractId, payload);
-  activeSimulatedContractsState.set(contractId, { status: "open", stake: price } as any);
+  activeSimulatedContractsState.set(contractId, { status: "open", stake: price, payout: proposal.payout } as any);
 
   return {
     buy: {
@@ -144,7 +145,7 @@ export async function simulatedBuyProposal(
   } as DerivMessage;
 }
 
-export const activeSimulatedContractsState = new Map<string, { status: "open" | "sold", sellPrice?: number }>();
+export const activeSimulatedContractsState = new Map<string, { status: "open" | "sold", stake: number, payout?: number, sellPrice?: number }>();
 
 export async function simulatedSellContract(contractId: string, price: number): Promise<DerivMessage> {
   const state = activeSimulatedContractsState.get(contractId);
@@ -249,7 +250,7 @@ export async function simulatedSubscribeOpenContract(
         } else {
           won = Math.random() > 0.5;
         }
-        payout = won ? Number(state.stake) * 1.95 : 0;
+        payout = won ? (Number(state.payout) || Number(state.stake) * 1.95) : 0;
       }
 
       const profit = payout - Number(state.stake);
