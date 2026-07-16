@@ -20,6 +20,7 @@ import { Route as ChartsRouteImport } from './routes/charts'
 import { Route as BotBuilderRouteImport } from './routes/bot-builder'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AnalysisRouteImport } from './routes/analysis'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as Clone2006IndexRouteImport } from './routes/clone2006.index'
@@ -39,7 +40,6 @@ import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-account
 import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
 import { Route as ApiBotOrphanCheckRouteImport } from './routes/api/bot-orphan-check'
 import { Route as ApiBotHandoffRouteImport } from './routes/api/bot-handoff'
-import { Route as AdminProfitsRouteImport } from './routes/admin.profits'
 import { Route as Clone2006DashboardIndexRouteImport } from './routes/clone2006.dashboard.index'
 import { Route as Clone2006StrategySlugRouteImport } from './routes/clone2006.strategy.$slug'
 import { Route as Clone2006DashboardSettingsRouteImport } from './routes/clone2006.dashboard.settings'
@@ -98,6 +98,11 @@ const AuthRoute = AuthRouteImport.update({
 const AnalysisRoute = AnalysisRouteImport.update({
   id: '/analysis',
   path: '/analysis',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -195,11 +200,6 @@ const ApiBotHandoffRoute = ApiBotHandoffRouteImport.update({
   path: '/api/bot-handoff',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminProfitsRoute = AdminProfitsRouteImport.update({
-  id: '/admin/profits',
-  path: '/admin/profits',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const Clone2006DashboardIndexRoute = Clone2006DashboardIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -225,6 +225,7 @@ const Clone2006DashboardAnalyticsRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/analysis': typeof AnalysisRoute
   '/auth': typeof AuthRoute
   '/bot-builder': typeof BotBuilderRoute
@@ -236,7 +237,6 @@ export interface FileRoutesByFullPath {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
-  '/admin/profits': typeof AdminProfitsRoute
   '/api/bot-handoff': typeof ApiBotHandoffRoute
   '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
@@ -262,6 +262,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/analysis': typeof AnalysisRoute
   '/auth': typeof AuthRoute
   '/bot-builder': typeof BotBuilderRoute
@@ -271,7 +272,6 @@ export interface FileRoutesByTo {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
-  '/admin/profits': typeof AdminProfitsRoute
   '/api/bot-handoff': typeof ApiBotHandoffRoute
   '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
@@ -297,6 +297,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/analysis': typeof AnalysisRoute
   '/auth': typeof AuthRoute
   '/bot-builder': typeof BotBuilderRoute
@@ -308,7 +309,6 @@ export interface FileRoutesById {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
-  '/admin/profits': typeof AdminProfitsRoute
   '/api/bot-handoff': typeof ApiBotHandoffRoute
   '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
@@ -336,6 +336,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/analysis'
     | '/auth'
     | '/bot-builder'
@@ -347,7 +348,6 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
-    | '/admin/profits'
     | '/api/bot-handoff'
     | '/api/bot-orphan-check'
     | '/api/deriv-account-otp'
@@ -373,6 +373,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/analysis'
     | '/auth'
     | '/bot-builder'
@@ -382,7 +383,6 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
-    | '/admin/profits'
     | '/api/bot-handoff'
     | '/api/bot-orphan-check'
     | '/api/deriv-account-otp'
@@ -407,6 +407,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/analysis'
     | '/auth'
     | '/bot-builder'
@@ -418,7 +419,6 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
-    | '/admin/profits'
     | '/api/bot-handoff'
     | '/api/bot-orphan-check'
     | '/api/deriv-account-otp'
@@ -445,6 +445,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   AnalysisRoute: typeof AnalysisRoute
   AuthRoute: typeof AuthRoute
   BotBuilderRoute: typeof BotBuilderRoute
@@ -456,7 +457,6 @@ export interface RootRouteChildren {
   RedirectRoute: typeof RedirectRoute
   StrategiesRoute: typeof StrategiesRoute
   TradingBotsRoute: typeof TradingBotsRoute
-  AdminProfitsRoute: typeof AdminProfitsRoute
   ApiBotHandoffRoute: typeof ApiBotHandoffRoute
   ApiBotOrphanCheckRoute: typeof ApiBotOrphanCheckRoute
   ApiDerivAccountOtpRoute: typeof ApiDerivAccountOtpRoute
@@ -542,6 +542,13 @@ declare module '@tanstack/react-router' {
       path: '/analysis'
       fullPath: '/analysis'
       preLoaderRoute: typeof AnalysisRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -677,13 +684,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBotHandoffRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/profits': {
-      id: '/admin/profits'
-      path: '/admin/profits'
-      fullPath: '/admin/profits'
-      preLoaderRoute: typeof AdminProfitsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/clone2006/dashboard/': {
       id: '/clone2006/dashboard/'
       path: '/'
@@ -778,6 +778,7 @@ const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   AnalysisRoute: AnalysisRoute,
   AuthRoute: AuthRoute,
   BotBuilderRoute: BotBuilderRoute,
@@ -789,7 +790,6 @@ const rootRouteChildren: RootRouteChildren = {
   RedirectRoute: RedirectRoute,
   StrategiesRoute: StrategiesRoute,
   TradingBotsRoute: TradingBotsRoute,
-  AdminProfitsRoute: AdminProfitsRoute,
   ApiBotHandoffRoute: ApiBotHandoffRoute,
   ApiBotOrphanCheckRoute: ApiBotOrphanCheckRoute,
   ApiDerivAccountOtpRoute: ApiDerivAccountOtpRoute,

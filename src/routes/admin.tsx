@@ -4,8 +4,7 @@ import { TopShell } from "@/components/top-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, TrendingUp, Users, DollarSign } from "lucide-react";
-
-export const Route = createFileRoute("/admin/profits")({
+export const Route = createFileRoute("/admin")({
   beforeLoad: async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {

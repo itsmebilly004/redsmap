@@ -153,7 +153,7 @@ export function TopShell({
 
   const tabsToRender = useMemo(() => {
     if (isAdmin) {
-      return [...TOP_TABS, { to: "/admin/profits", label: "Admin Dashboard", icon: Shield }];
+      return [...TOP_TABS, { to: "/admin", label: "Admin Dashboard", icon: Shield }];
     }
     return TOP_TABS;
   }, [isAdmin]);
