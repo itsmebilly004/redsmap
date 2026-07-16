@@ -139,7 +139,12 @@ export function useBotRunner(): BotRunnerContextValue {
 export function BotRunnerProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { isSimulated, account, balance, currency, refreshBalances, requestProposal, buyProposal, sellContract, subscribeOpenContract } = useDerivBalanceContext();
+  const derivContext = useDerivBalanceContext();
+  const derivContextRef = useRef(derivContext);
+  useEffect(() => {
+    derivContextRef.current = derivContext;
+  }, [derivContext]);
+  const { isSimulated, account, balance, currency, refreshBalances } = derivContext;
 
   const [status, setStatus] = useState<BotMonitorStatus>("stopped");
   const [stats, setStats] = useState<BotMonitorStats>(EMPTY_BOT_MONITOR_STATS);
@@ -1085,7 +1090,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             selectedDigit: botPrediction != null ? Math.max(0, Math.min(9, Math.round(botPrediction))) : baseOverride.selectedDigit,
           };
           const payload = buildStandardProposalPayload(finalInput, session.adapter as TradingAdapter);
-          preflightProposal = requestProposal(payload, {
+          preflightProposal = derivContextRef.current.requestProposal(payload, {
             ...context,
             contractType: String(payload.contract_type ?? context.contractType),
           }).catch(() => null);
@@ -1158,7 +1163,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
               addJournal(
                 `Requesting proposal for ${contractTypeLabel(snapshot)} with ${stake.toFixed(2)} ${snapshot.currency}.`,
               );
-              proposal = await requestProposal(payload, {
+              proposal = await derivContextRef.current.requestProposal(payload, {
                 ...context,
                 contractType: String(payload.contract_type ?? context.contractType),
               });
@@ -1172,7 +1177,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
               tradeError = null;
               break;
             }
-            const buy = await buyProposal(proposalId, askPrice, {
+            const buy = await derivContextRef.current.buyProposal(proposalId, askPrice, {
               ...context,
               contractType: String(payload.contract_type ?? context.contractType),
             });
@@ -1203,7 +1208,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
               drainNotifyQueue(botState, addJournal);
               if (botState.sellAtMarketRequested && !sellExecuted) {
                 sellExecuted = true;
-                sellContract(contractId, botState.currentSellPrice).catch((err) => {
+                derivContextRef.current.sellContract(contractId, botState.currentSellPrice).catch((err) => {
                   console.warn("[Bot] sell_at_market failed", err);
                 });
               }
@@ -1251,7 +1256,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             settlement = await waitForSettlement(
               contractId,
               (abort) => { settlementAbortRef.current = abort; },
-              subscribeOpenContract,
+              (cid, cb) => derivContextRef.current.subscribeOpenContract(cid, cb),
               onContractUpdate,
             );
             settlementAbortRef.current = null;
