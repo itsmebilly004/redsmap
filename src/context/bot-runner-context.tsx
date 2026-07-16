@@ -1217,6 +1217,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             const record: BotMonitorTransaction = {
               contractId, entrySpot: null, exitSpot: null,
               id: crypto.randomUUID(), payout: 0, profit: 0, stake, status: "open", time: formatTime(),
+              symbol: snapshot.symbol, contractType: contractTypeLabel(snapshot),
             };
             // Show "open" trade immediately — don't wait for DB before displaying it
             setTransactions((items) => [record, ...items]);

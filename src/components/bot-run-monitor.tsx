@@ -34,6 +34,8 @@ export type BotMonitorTransaction = {
   profit: number;
   stake: number;
   status: "lost" | "open" | "won";
+  symbol?: string;
+  contractType?: string;
   time: string;
 };
 
@@ -278,7 +280,7 @@ export function BotRunMonitorPanel({
                           <TableCell className="px-3 py-3">
                             <div className="min-w-0">
                               <div className="truncate font-semibold text-[#333] dark:text-[#eeeeee]">
-                                Contract {transaction.contractId}
+                                {transaction.symbol ? `${transaction.contractType} / ${transaction.symbol}` : `Contract ${transaction.contractId}`}
                               </div>
                               <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-[#777] dark:text-[#b7b7b7]">
                                 <span
@@ -294,6 +296,15 @@ export function BotRunMonitorPanel({
                                 </span>
                                 <span className="truncate normal-case tracking-normal">
                                   {transaction.time}
+                                </span>
+                                <span className="truncate normal-case tracking-normal text-right ml-auto font-mono font-medium">
+                                  {transaction.status !== "open" ? (
+                                    <span className={transaction.profit > 0 ? "text-[#078a5b] dark:text-[#42d48c]" : transaction.profit < 0 ? "text-[#cc2f39] dark:text-[#ff6b73]" : ""}>
+                                      {transaction.profit > 0 ? "+" : ""}{transaction.profit.toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground">--</span>
+                                  )}
                                 </span>
                               </div>
                             </div>
