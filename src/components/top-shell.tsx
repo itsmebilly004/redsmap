@@ -146,7 +146,7 @@ export function TopShell({
       setIsAdmin(false);
       return;
     }
-    supabase.from("profiles").select("is_admin").eq("id", user.id).single().then(({ data }) => {
+    supabase.from("users").select("is_admin").eq("id", user.id).single().then(({ data }) => {
       setIsAdmin(!!data?.is_admin);
     });
   }, [user]);

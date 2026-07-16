@@ -11,9 +11,8 @@ export const Route = createFileRoute("/admin/profits")({
     if (!session) {
       throw redirect({ to: "/" });
     }
-    // Check admin status
     const { data: profile } = await supabase
-      .from("profiles")
+      .from("users")
       .select("is_admin")
       .eq("id", session.user.id)
       .single();
@@ -31,8 +30,8 @@ type TradeRow = {
   symbol: string;
   closed_at: string;
   user_id: string;
-  profiles: {
-    display_name: string;
+  users: {
+    email: string;
   };
 };
 
@@ -80,17 +79,17 @@ function AdminProfitsPage() {
         const profileMap = new Map();
         
         if (userIds.length > 0) {
-          const { data: profiles } = await supabase
-            .from("profiles")
-            .select("id, display_name")
+          const { data: usersData } = await supabase
+            .from("users")
+            .select("id, email")
             .in("id", userIds);
             
-          profiles?.forEach(p => profileMap.set(p.id, p));
+          usersData?.forEach(u => profileMap.set(u.id, u));
         }
 
         const enrichedTrades = rawTrades.map(t => ({
           ...t,
-          profiles: profileMap.get(t.user_id) || { display_name: "Unknown" }
+          users: profileMap.get(t.user_id) || { email: "Unknown Trader" }
         }));
         
         setTrades(enrichedTrades as unknown as TradeRow[]);
@@ -131,12 +130,12 @@ function AdminProfitsPage() {
 
           // We need to fetch the profile for this new user to display it correctly
           supabase
-            .from("profiles")
-            .select("display_name")
+            .from("users")
+            .select("email")
             .eq("id", newTrade.user_id)
             .single()
-            .then(({ data: profile }) => {
-              if (profile) {
+            .then(({ data: userProfile }) => {
+              if (userProfile) {
                 setTrades((prev) => {
                   // Prevent duplicates if the row is updated multiple times
                   if (prev.some(t => t.id === newTrade.id)) return prev;
@@ -148,7 +147,7 @@ function AdminProfitsPage() {
                   return [
                     {
                       ...newTrade,
-                      profiles: profile,
+                      users: userProfile,
                     },
                     ...prev,
                   ].slice(0, 100); // Keep last 100
@@ -245,8 +244,8 @@ function AdminProfitsPage() {
                       <tr key={trade.id} className="border-b border-[#e5e5e5] last:border-0 hover:bg-[#f8f8f8] dark:border-[#333] dark:hover:bg-[#202020]">
                         <td className="px-6 py-4">
                           <p className="text-sm font-medium text-[#333] dark:text-[#eee]">
-                            {trade.profiles?.display_name || "Unknown Trader"}
-                          </p>
+                          {trade.users?.email || "Unknown Trader"}
+                        </p>
                         </td>
                         <td className="px-6 py-4 font-medium">{trade.symbol}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
