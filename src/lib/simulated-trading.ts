@@ -85,11 +85,16 @@ export async function simulatedRequestProposal(payload: Record<string, unknown>,
     requestPayload.symbol = requestPayload.underlying_symbol;
     delete requestPayload.underlying_symbol;
   }
-  const response = await sendFreeWs(requestPayload);
-  if (response.proposal?.id) {
-    activeProposals.set(response.proposal.id, payload);
+  try {
+    const response = await sendFreeWs(requestPayload);
+    if (response.proposal?.id) {
+      activeProposals.set(response.proposal.id, payload);
+    }
+    return response as DerivMessage;
+  } catch (error) {
+    console.error("[SimulatedTrading] Request Proposal failed:", error);
+    throw error;
   }
-  return response as DerivMessage;
 }
 
 export async function simulatedBuyProposal(

@@ -375,6 +375,9 @@ export function getDerivTradingErrorMessage(error: unknown) {
     }
     return error.message;
   }
+  if (error && typeof error === "object" && "message" in error && typeof (error as any).message === "string") {
+    return (error as any).message;
+  }
   return "Trade failed.";
 }
 
