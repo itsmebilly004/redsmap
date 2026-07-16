@@ -73,6 +73,7 @@ function AdminProfitsPage() {
           user_id
         `)
         .not("deriv_contract_id", "like", "SIM_%")
+        .not("deriv_contract_id", "like", "DEMO_%")
         .gt("profit_loss", 0)
         .order("closed_at", { ascending: false })
         .limit(100);
@@ -82,6 +83,7 @@ function AdminProfitsPage() {
         .from("trades")
         .select("profit_loss, user_id")
         .not("deriv_contract_id", "like", "SIM_%")
+        .not("deriv_contract_id", "like", "DEMO_%")
         .gt("profit_loss", 0);
 
       const [feedRes, statsRes] = await Promise.all([feedPromise, statsPromise]);
@@ -134,11 +136,11 @@ function AdminProfitsPage() {
           filter: "profit_loss=gt.0",
         },
         (payload) => {
-          // If it's a simulated trade, ignore it.
+          // If it's a simulated or demo trade, ignore it.
           const newTrade = payload.new as any;
           const oldTrade = payload.old as any;
           
-          if (newTrade.deriv_contract_id?.startsWith("SIM_")) return;
+          if (newTrade.deriv_contract_id?.startsWith("SIM_") || newTrade.deriv_contract_id?.startsWith("DEMO_")) return;
           
           // Only process if it just became a winning trade (was open or 0 before)
           if (oldTrade && oldTrade.profit_loss > 0) return;

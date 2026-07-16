@@ -1234,7 +1234,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             // rejection doesn't silently drop the bot's history off the dashboard.
             const dbInsertPromise: Promise<string | null> = userRef.current?.id
               ? supabase.from("trades").insert({
-                  user_id: userRef.current.id, deriv_contract_id: isSimulated ? `SIM_${contractId}` : contractId,
+                  user_id: userRef.current.id, deriv_contract_id: isSimulated ? `SIM_${contractId}` : currentAccount.is_virtual ? `DEMO_${contractId}` : contractId,
                   symbol: snapshot.symbol, trade_type: contractType,
                   stake, payout: Number(buy.buy?.payout ?? 0), status: "open",
                 })

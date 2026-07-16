@@ -840,7 +840,7 @@ export function TradePanel({
         .from("trades")
         .insert({
           user_id: user.id,
-          deriv_contract_id: isSimulated ? `SIM_${contractId}` : contractId,
+          deriv_contract_id: isSimulated ? `SIM_${contractId}` : account?.normalizedType === "demo" ? `DEMO_${contractId}` : contractId,
           symbol: market,
           trade_type: contractType,
           stake,
