@@ -298,6 +298,8 @@ export type Database = {
           deriv_user_id: string | null;
           email: string | null;
           id: string;
+          is_admin: boolean | null;
+          is_clone_user: boolean | null;
           referee_id: string | null;
           referee_selected: boolean | null;
           updated_at: string;
@@ -309,6 +311,8 @@ export type Database = {
           deriv_user_id?: string | null;
           email?: string | null;
           id: string;
+          is_admin?: boolean | null;
+          is_clone_user?: boolean | null;
           referee_id?: string | null;
           referee_selected?: boolean | null;
           updated_at?: string;
@@ -320,6 +324,8 @@ export type Database = {
           deriv_user_id?: string | null;
           email?: string | null;
           id?: string;
+          is_admin?: boolean | null;
+          is_clone_user?: boolean | null;
           referee_id?: string | null;
           referee_selected?: boolean | null;
           updated_at?: string;

@@ -192,8 +192,8 @@ export function TopShell({
       await supabase.from("sessions").update({ is_active: false }).eq("user_id", user.id);
     }
     
-    if (isCloneSandbox) {
-      // For the clone admin, do not touch Deriv accounts.
+    if (isCloneSandbox || isAdmin) {
+      // For the clone users and admins, do not touch Deriv accounts.
       await supabase.auth.signOut();
       navigate({ to: "/" });
     } else {

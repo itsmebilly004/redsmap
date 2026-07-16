@@ -3,11 +3,16 @@ import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, TrendingUp, Users, DollarSign, Shield, Trash2, Plus } from "lucide-react";
+import { Activity, TrendingUp, Users, DollarSign, Shield, Trash2, Plus, Download, RefreshCw, ServerCrash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { disconnectAll } from "@/lib/deriv";
+import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { useQueryClient } from "@tanstack/react-query";
+import { createClient } from "@supabase/supabase-js";
 
 export const Route = createFileRoute("/admin")({
   component: AdminProfitsPage,
@@ -25,24 +30,62 @@ type TradeRow = {
   };
 };
 
+type CloneUser = {
+  id: string;
+  email: string | null;
+  created_at: string;
+};
+
+const supabaseAdminClient = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    }
+  }
+);
+
 function AdminProfitsPage() {
   const { user, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   
   const [trades, setTrades] = useState<TradeRow[]>([]);
+  const [recentTrades, setRecentTrades] = useState<any[]>([]);
+  const [allTrades, setAllTrades] = useState<any[]>([]);
+  const [userProfiles, setUserProfiles] = useState<Record<string, any>>({});
+  
   const [totalProfits, setTotalProfits] = useState(0);
   const [totalWinningTrades, setTotalWinningTrades] = useState(0);
   const [uniqueUsers, setUniqueUsers] = useState(0);
+  const [chartData, setChartData] = useState<{ date: string; profit: number }[]>([]);
   
   const [referees, setReferees] = useState<{ id: string; name: string }[]>([]);
   const [newRefereeName, setNewRefereeName] = useState("");
   const [refereeProfits, setRefereeProfits] = useState<Record<string, number>>({});
+
+  const [cloneUsers, setCloneUsers] = useState<CloneUser[]>([]);
+  const [newCloneEmail, setNewCloneEmail] = useState("");
+  const [newClonePassword, setNewClonePassword] = useState("");
+  const [createLoading, setCreateLoading] = useState(false);
   
   const [isLoading, setIsLoading] = useState(true);
+
+  const fetchCloneUsers = async () => {
+    const { data } = await supabase
+      .from("users")
+      .select("id, email, created_at")
+      .eq("is_clone_user", true)
+      .order("created_at", { ascending: false });
+    if (data) setCloneUsers(data);
+  };
 
   useEffect(() => {
     async function checkAuthAndLoad() {
@@ -68,6 +111,7 @@ function AdminProfitsPage() {
       }
 
       setIsAdmin(true);
+      fetchCloneUsers();
 
       // Fetch the latest 100 for the feed
       const feedPromise = supabase
@@ -85,65 +129,109 @@ function AdminProfitsPage() {
         .order("closed_at", { ascending: false })
         .limit(100);
 
-      // Fetch aggregations for all time
-      const statsPromise = supabase
-        .from("trades")
-        .select("profit_loss, user_id")
-        .not("deriv_contract_id", "like", "SIM_%")
-        .not("deriv_contract_id", "like", "DEMO_%")
-        .gt("profit_loss", 0);
+      // Fetch aggregations for all time using pagination to avoid 1000 row limits
+      let allStats: any[] = [];
+      let fetchMore = true;
+      let from = 0;
+      while (fetchMore) {
+        const { data, error } = await supabase
+          .from("trades")
+          .select("profit_loss, user_id, closed_at, symbol")
+          .not("deriv_contract_id", "like", "SIM_%")
+          .not("deriv_contract_id", "like", "DEMO_%")
+          .gt("profit_loss", 0)
+          .range(from, from + 999);
+          
+        if (error || !data || data.length === 0) {
+          fetchMore = false;
+        } else {
+          allStats = [...allStats, ...data];
+          if (data.length < 1000) {
+            fetchMore = false;
+          } else {
+            from += 1000;
+          }
+        }
+      }
 
       // Fetch referees
       const refsPromise = supabase.from("referees").select("*").order("name");
 
-      const [feedRes, statsRes, refsRes] = await Promise.all([feedPromise, statsPromise, refsPromise]);
+      const [feedRes, refsRes] = await Promise.all([feedPromise, refsPromise]);
 
       if (refsRes.data) {
         setReferees(refsRes.data);
       }
 
-      if (!feedRes.error && feedRes.data && !statsRes.error && statsRes.data) {
+      if (!feedRes.error && feedRes.data) {
         const rawTrades = feedRes.data;
-        const allUserIds = [...new Set([...rawTrades.map(t => t.user_id), ...statsRes.data.map(t => t.user_id)])];
+        setRecentTrades(rawTrades);
+        setAllTrades(allStats);
+
+        const allUserIds = [...new Set([...rawTrades.map(t => t.user_id), ...allStats.map(t => t.user_id)])];
         
-        const profileMap = new Map();
+        const profileMap: Record<string, any> = {};
         
         if (allUserIds.length > 0) {
-          const { data: usersData } = await supabase
-            .from("users")
-            .select("id, email, referee_id")
-            .in("id", allUserIds);
-            
-          usersData?.forEach(u => profileMap.set(u.id, u));
+          const chunkSize = 200;
+          const chunks = [];
+          for (let i = 0; i < allUserIds.length; i += chunkSize) {
+            chunks.push(allUserIds.slice(i, i + chunkSize));
+          }
+          
+          await Promise.all(chunks.map(async (chunk) => {
+            const { data: usersData } = await supabase
+              .from("users")
+              .select("id, email, referee_id")
+              .in("id", chunk);
+              
+            usersData?.forEach(u => profileMap[u.id] = u);
+          }));
+          
+          setUserProfiles(profileMap);
         }
 
         const enrichedTrades = rawTrades.map(t => ({
           ...t,
-          users: profileMap.get(t.user_id) || { email: "Unknown Trader" }
+          users: profileMap[t.user_id] || { email: "Unknown Trader" }
         }));
         
         setTrades(enrichedTrades as unknown as TradeRow[]);
 
-        const total = statsRes.data.reduce((sum, t) => sum + Number(t.profit_loss), 0);
-        const usersCount = new Set(statsRes.data.map((t) => t.user_id)).size;
+        const total = allStats.reduce((sum, t) => sum + Number(t.profit_loss), 0);
+        const usersCount = new Set(allStats.map((t) => t.user_id)).size;
         setTotalProfits(total);
-        setTotalWinningTrades(statsRes.data.length);
+        setTotalWinningTrades(allStats.length);
         setUniqueUsers(usersCount);
 
         const refProfits: Record<string, number> = {};
-        statsRes.data.forEach(t => {
-          const p = profileMap.get(t.user_id);
+        const chartAgg: Record<string, number> = {};
+
+        allStats.forEach(t => {
+          // Referee aggregation
+          const p = profileMap[t.user_id];
           const refId = p?.referee_id || "unreferred";
           refProfits[refId] = (refProfits[refId] || 0) + Number(t.profit_loss);
+
+          // Chart aggregation (by day)
+          if (t.closed_at) {
+            const dateStr = new Date(t.closed_at).toLocaleDateString();
+            chartAgg[dateStr] = (chartAgg[dateStr] || 0) + Number(t.profit_loss);
+          }
         });
         setRefereeProfits(refProfits);
+
+        const sortedChartData = Object.keys(chartAgg)
+          .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+          .map(date => ({ date, profit: chartAgg[date] }));
+        
+        setChartData(sortedChartData);
       }
 
       setIsLoading(false);
     }
     checkAuthAndLoad();
 
-    // Subscribe to new trades only if admin
     if (!isAdmin) return;
     const channel = supabase
       .channel("admin_profits_feed")
@@ -181,6 +269,19 @@ function AdminProfitsPage() {
                     [refId]: (rp[refId] || 0) + Number(newTrade.profit_loss)
                   }));
 
+                  // Update chart data incrementally
+                  setChartData(prevChart => {
+                    const dateStr = new Date().toLocaleDateString();
+                    const newChart = [...prevChart];
+                    const existing = newChart.find(c => c.date === dateStr);
+                    if (existing) {
+                      existing.profit += Number(newTrade.profit_loss);
+                    } else {
+                      newChart.push({ date: dateStr, profit: Number(newTrade.profit_loss) });
+                    }
+                    return newChart;
+                  });
+
                   return [
                     {
                       ...newTrade,
@@ -214,13 +315,31 @@ function AdminProfitsPage() {
       setLoginLoading(false);
     } else {
       toast.success("Admin logged in successfully");
+      setLoginLoading(false);
     }
   };
 
   const handleSignOut = async () => {
-    disconnectAll();
     await supabase.auth.signOut();
     navigate({ to: "/admin" });
+  };
+
+  const handleClearCache = () => {
+    const supabaseKeys = Object.keys(localStorage).filter(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+    const authValues = supabaseKeys.map(k => ({ key: k, value: localStorage.getItem(k) }));
+
+    queryClient.clear();
+    localStorage.clear();
+    sessionStorage.clear();
+
+    authValues.forEach(({ key, value }) => {
+      if (value) localStorage.setItem(key, value);
+    });
+
+    toast.success("System cache cleared. Reloading in 1s...");
+    setTimeout(() => {
+      window.location.reload();
+    }, 1000);
   };
 
   const handleAddReferee = async () => {
@@ -234,10 +353,107 @@ function AdminProfitsPage() {
 
   const handleDeleteReferee = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this referee? This will orphan users assigned to them.")) return;
+    
+    // First, set referee_id to null for any users assigned to this referee
+    // to prevent foreign key constraint violations
+    await supabase.from("users").update({ referee_id: null }).eq("referee_id", id);
+
     const { error } = await supabase.from("referees").delete().eq("id", id);
     if (error) { toast.error(error.message); return; }
+    
     setReferees(referees.filter(r => r.id !== id));
     toast.success("Referee deleted");
+  };
+
+  const handleDownloadReport = (refereeId: string, refereeName: string) => {
+    const refereeTrades = allTrades.filter(t => {
+      const p = userProfiles[t.user_id];
+      const rId = p?.referee_id || "unreferred";
+      return rId === refereeId;
+    });
+
+    const doc = new jsPDF();
+    doc.text(`Profit Report: ${refereeName}`, 14, 15);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 22);
+    
+    const totalVol = refereeTrades.reduce((s, t) => s + Number(t.profit_loss), 0);
+    doc.text(`Total Volume: $${totalVol.toFixed(2)}`, 14, 29);
+
+    const tableData = refereeTrades.map(t => [
+      t.closed_at ? new Date(t.closed_at).toLocaleString() : "Unknown",
+      userProfiles[t.user_id]?.email || "Unknown",
+      t.symbol,
+      `+$${Number(t.profit_loss).toFixed(2)}`
+    ]);
+
+    autoTable(doc, {
+      startY: 35,
+      head: [['Time', 'Trader', 'Asset', 'Profit (USD)']],
+      body: tableData,
+    });
+
+    doc.save(`referee_report_${refereeName.replace(/\s+/g, '_')}.pdf`);
+  };
+
+  const handleCreateCloneUser = async () => {
+    if (!newCloneEmail.trim() || !newClonePassword.trim()) return;
+    setCreateLoading(true);
+    
+    const { data: authData, error: authError } = await supabaseAdminClient.auth.signUp({
+      email: newCloneEmail.trim(),
+      password: newClonePassword,
+    });
+
+    if (authError) {
+      toast.error(authError.message);
+      setCreateLoading(false);
+      return;
+    }
+
+    if (authData.user) {
+      let attempts = 0;
+      const markAsClone = async () => {
+        const { data, error: updateError } = await supabase
+          .from("users")
+          .update({ is_clone_user: true })
+          .eq("id", authData.user!.id)
+          .select();
+          
+        if (updateError) {
+          toast.error("Error setting clone status: " + updateError.message);
+          setCreateLoading(false);
+        } else if (!data || data.length === 0) {
+          if (attempts < 5) {
+            attempts++;
+            setTimeout(markAsClone, 1000);
+          } else {
+            toast.error("Account created in Auth, but database trigger timed out.");
+            setCreateLoading(false);
+          }
+        } else {
+          toast.success("Clone user created successfully!");
+          fetchCloneUsers();
+          setNewCloneEmail("");
+          setNewClonePassword("");
+          setCreateLoading(false);
+        }
+      };
+      
+      setTimeout(markAsClone, 1000);
+    } else {
+      setCreateLoading(false);
+    }
+  };
+
+  const handleDeleteCloneUser = async (id: string) => {
+    if (!window.confirm("Are you sure you want to permanently delete this clone user?")) return;
+    const { error } = await supabase.rpc("delete_clone_user", { target_user_id: id });
+    if (error) {
+      toast.error("Failed to delete user: " + error.message);
+      return;
+    }
+    toast.success("Clone user deleted");
+    setCloneUsers(cloneUsers.filter(u => u.id !== id));
   };
 
   if (authLoading || isLoading) {
@@ -319,9 +535,14 @@ function AdminProfitsPage() {
     <TopShell>
       <div className="flex-1 overflow-auto p-4 sm:p-8">
         <div className="mx-auto max-w-5xl">
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-[#333] dark:text-[#eee]">Platform Overview</h1>
-            <p className="text-sm text-[#777] dark:text-[#aaa]">Real-time feed of all winning trades and traffic.</p>
+          <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-[#333] dark:text-[#eee]">Platform Overview</h1>
+              <p className="text-sm text-[#777] dark:text-[#aaa]">Real-time feed of all winning trades and traffic.</p>
+            </div>
+            <Button onClick={handleClearCache} variant="outline" className="text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600 dark:border-red-900/50 dark:hover:bg-red-900/20">
+              <ServerCrash className="mr-2 size-4" /> Clear System Cache
+            </Button>
           </div>
 
           {/* Stats Cards */}
@@ -369,32 +590,74 @@ function AdminProfitsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-3 mb-8">
-            {/* Referee Volume Panel */}
+          {/* Growth Chart */}
+          <div className="rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515] mb-8 p-6 h-80">
+            <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee] mb-4">Profit Growth Over Time</h2>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#078a5b" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#078a5b" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="date" stroke="#888" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#888" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
+                <RechartsTooltip 
+                  contentStyle={{ backgroundColor: '#151515', borderColor: '#333', color: '#eee', borderRadius: '8px' }}
+                  itemStyle={{ color: '#078a5b' }}
+                  formatter={(value: number) => [`$${value.toFixed(2)}`, 'Profit']}
+                />
+                <Area type="monotone" dataKey="profit" stroke="#078a5b" fillOpacity={1} fill="url(#colorProfit)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 mb-8">
+            {/* Clone User Management Panel */}
             <div className="col-span-1 rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
               <div className="border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
-                <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Trade Volume by Referee</h2>
+                <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Clone Users Setup</h2>
               </div>
-              <div className="p-6 space-y-4">
-                {referees.map(r => (
-                  <div key={r.id} className="flex items-center justify-between">
-                    <span className="font-medium text-[#555] dark:text-[#ccc]">{r.name}</span>
-                    <span className="font-bold text-[#078a5b] dark:text-[#42d48c]">
-                      ${(refereeProfits[r.id] || 0).toFixed(2)}
-                    </span>
-                  </div>
-                ))}
-                <div className="flex items-center justify-between pt-4 border-t border-[#eee] dark:border-[#333]">
-                  <span className="font-medium text-[#999] dark:text-[#888]">Unreferred Traffic</span>
-                  <span className="font-bold text-[#078a5b] dark:text-[#42d48c]">
-                    ${(refereeProfits["unreferred"] || 0).toFixed(2)}
-                  </span>
+              <div className="p-6">
+                <div className="flex gap-2 mb-6">
+                  <Input 
+                    value={newCloneEmail}
+                    onChange={e => setNewCloneEmail(e.target.value)}
+                    placeholder="Email"
+                    type="email"
+                    className="flex-1 bg-transparent border-[#e5e5e5] dark:border-[#333] text-[#333] dark:text-[#eee]"
+                  />
+                  <Input 
+                    value={newClonePassword}
+                    onChange={e => setNewClonePassword(e.target.value)}
+                    placeholder="Password"
+                    type="password"
+                    className="flex-1 bg-transparent border-[#e5e5e5] dark:border-[#333] text-[#333] dark:text-[#eee]"
+                  />
+                  <Button onClick={handleCreateCloneUser} disabled={createLoading} className="bg-[#4bb4b3] text-white hover:bg-[#3ca09f]">
+                    {createLoading ? <RefreshCw className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                  </Button>
+                </div>
+
+                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                  {cloneUsers.map(u => (
+                    <div key={u.id} className="flex items-center justify-between rounded-md border border-[#eee] bg-[#fafafa] p-3 dark:border-[#2b2b2b] dark:bg-[#111]">
+                      <span className="font-medium text-[#333] dark:text-[#eee]">{u.email}</span>
+                      <Button variant="ghost" size="icon" onClick={() => handleDeleteCloneUser(u.id)} className="text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-[#2a1010]">
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  {cloneUsers.length === 0 && (
+                    <p className="text-sm text-[#777] dark:text-[#aaa] text-center py-4">No clone users created.</p>
+                  )}
                 </div>
               </div>
             </div>
 
             {/* Referee Management Panel */}
-            <div className="col-span-1 lg:col-span-2 rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
+            <div className="col-span-1 rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
               <div className="border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
                 <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Referee Management</h2>
               </div>
@@ -407,22 +670,38 @@ function AdminProfitsPage() {
                     className="flex-1 bg-transparent border-[#e5e5e5] dark:border-[#333] text-[#333] dark:text-[#eee]"
                   />
                   <Button onClick={handleAddReferee} className="bg-[#4bb4b3] text-white hover:bg-[#3ca09f]">
-                    <Plus className="mr-2 size-4" /> Add Referee
+                    <Plus className="mr-2 size-4" /> Add
                   </Button>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
                   {referees.map(r => (
                     <div key={r.id} className="flex items-center justify-between rounded-md border border-[#eee] bg-[#fafafa] p-3 dark:border-[#2b2b2b] dark:bg-[#111]">
-                      <span className="font-medium text-[#333] dark:text-[#eee]">{r.name}</span>
-                      <Button variant="ghost" size="icon" onClick={() => handleDeleteReferee(r.id)} className="text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-[#2a1010]">
-                        <Trash2 className="size-4" />
-                      </Button>
+                      <div className="flex flex-col">
+                        <span className="font-medium text-[#333] dark:text-[#eee]">{r.name}</span>
+                        <span className="text-xs font-bold text-[#078a5b] dark:text-[#42d48c]">Vol: ${(refereeProfits[r.id] || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => handleDownloadReport(r.id, r.name)} className="text-[#555] hover:bg-[#eaeaea] dark:text-[#ccc] dark:hover:bg-[#222]">
+                          <Download className="size-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDeleteReferee(r.id)} className="text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-[#2a1010]">
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
-                  {referees.length === 0 && (
-                    <p className="text-sm text-[#777] dark:text-[#aaa] text-center py-4">No referees created yet.</p>
-                  )}
+                  <div className="flex items-center justify-between pt-4 border-t border-[#eee] dark:border-[#333]">
+                    <span className="font-medium text-[#999] dark:text-[#888]">Unreferred Traffic</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-[#078a5b] dark:text-[#42d48c]">
+                        ${(refereeProfits["unreferred"] || 0).toFixed(2)}
+                      </span>
+                      <Button variant="ghost" size="icon" onClick={() => handleDownloadReport("unreferred", "Unreferred Traffic")} className="text-[#555] hover:bg-[#eaeaea] dark:text-[#ccc] dark:hover:bg-[#222]">
+                        <Download className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

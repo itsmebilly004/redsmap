@@ -242,15 +242,41 @@ export async function simulatedSubscribeOpenContract(
          won = false;
          payout = 0;
       } else {
-        const tradeType = payload.contract_type ?? "";
-        if (tradeType === "CALL" || tradeType === "UPORDOWN") {
-          won = currentSpot > entrySpot;
-        } else if (tradeType === "PUT" || tradeType === "EXPIRYMISS") {
-          won = currentSpot < entrySpot;
+        const tradeType = String(payload.contract_type || "").toUpperCase();
+        const quoteStr = String(tick.quote);
+        const lastDigit = parseInt(quoteStr.charAt(quoteStr.length - 1));
+        const barrier = payload.barrier !== undefined ? Number(payload.barrier) : undefined;
+        
+        let targetSpot = entrySpot;
+        if (payload.barrier && !tradeType.includes("DIGIT")) {
+          const bStr = String(payload.barrier);
+          if (bStr.startsWith("+") || bStr.startsWith("-")) {
+            targetSpot = entrySpot + Number(bStr);
+          } else {
+            targetSpot = Number(bStr);
+          }
+        }
+
+        if (tradeType === "CALL" || tradeType === "UPORDOWN" || tradeType === "ASIANU") {
+          won = currentSpot > targetSpot;
+        } else if (tradeType === "PUT" || tradeType === "EXPIRYMISS" || tradeType === "ASIAND") {
+          won = currentSpot < targetSpot;
+        } else if (tradeType === "DIGITMATCH") {
+          won = lastDigit === barrier;
+        } else if (tradeType === "DIGITDIFF") {
+          won = lastDigit !== barrier;
+        } else if (tradeType === "DIGITEVEN") {
+          won = lastDigit % 2 === 0;
+        } else if (tradeType === "DIGITODD") {
+          won = lastDigit % 2 !== 0;
+        } else if (tradeType === "DIGITOVER") {
+          won = lastDigit > (barrier ?? 0);
+        } else if (tradeType === "DIGITUNDER") {
+          won = lastDigit < (barrier ?? 9);
         } else {
           won = Math.random() > 0.5;
         }
-        payout = won ? (Number(state.payout) || Number(state.stake) * 1.95) : 0;
+        payout = won ? (Number(state?.payout) || Number(state?.stake) * 1.95) : 0;
       }
 
       const profit = payout - Number(state.stake);
@@ -296,13 +322,13 @@ export async function simulatedSubscribeOpenContract(
         await sendFreeWs({ forget: subscriptionId }).catch(()=>null);
       }
     } else {
-      let profit = (currentSpot - entrySpot) > 0 ? (Number(trade.stake) * 0.5) : -(Number(trade.stake) * 0.5);
+      let profit = (currentSpot - entrySpot) > 0 ? (Number(state?.stake || 0) * 0.5) : -(Number(state?.stake || 0) * 0.5);
       let isValidToSell = 0;
-      let bidPrice = Number(trade.stake);
+      let bidPrice = Number(state?.stake || 0);
       
       if (isAccumulator) {
-         profit = Number(trade.stake) * Math.pow(1 + growthRate, ticksPassed) - Number(trade.stake);
-         bidPrice = Number(trade.stake) + profit;
+         profit = Number(state?.stake || 0) * Math.pow(1 + growthRate, ticksPassed) - Number(state?.stake || 0);
+         bidPrice = Number(state?.stake || 0) + profit;
          isValidToSell = 1;
       }
 
@@ -313,7 +339,7 @@ export async function simulatedSubscribeOpenContract(
         profit,
         bid_price: bidPrice,
         is_valid_to_sell: isValidToSell,
-        buy_price: trade.stake,
+        buy_price: state?.stake || 0,
         entry_spot: entrySpot,
         current_spot: currentSpot,
         currency: "USD"

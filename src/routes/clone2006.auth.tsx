@@ -29,7 +29,7 @@ function TradingAuthPage() {
       toast.error(error.message);
       setLoading(false);
     } else {
-      toast.success("Admin logged in successfully");
+      toast.success("Logged in successfully");
       navigate({ to: "/clone2006" });
     }
   };
@@ -40,10 +40,10 @@ function TradingAuthPage() {
         <div className="mb-8 flex flex-col items-center">
           <BrandLogo />
           <h1 className="mt-6 text-2xl font-bold tracking-tight text-foreground">
-            Admin Sandbox Login
+            Sandbox Login
           </h1>
           <p className="mt-2 text-sm text-muted-foreground text-center">
-            Sign in with your admin credentials. No Deriv connection required.
+            Sign in with your sandbox credentials. No Deriv connection required.
           </p>
         </div>
 
