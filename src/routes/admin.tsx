@@ -1,25 +1,11 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, TrendingUp, Users, DollarSign } from "lucide-react";
+import { Activity, TrendingUp, Users, DollarSign, Shield } from "lucide-react";
+import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/admin")({
-  beforeLoad: async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      throw redirect({ to: "/" });
-    }
-    const { data: profile } = await supabase
-      .from("users")
-      .select("is_admin")
-      .eq("id", session.user.id)
-      .single();
-    
-    if (!profile?.is_admin) {
-      throw redirect({ to: "/" });
-    }
-  },
   component: AdminProfitsPage,
 });
 
@@ -35,7 +21,8 @@ type TradeRow = {
 };
 
 function AdminProfitsPage() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [trades, setTrades] = useState<TradeRow[]>([]);
   const [totalProfits, setTotalProfits] = useState(0);
   const [totalWinningTrades, setTotalWinningTrades] = useState(0);
@@ -43,9 +30,29 @@ function AdminProfitsPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    async function loadProfits() {
-      if (!user) return;
+    async function checkAuthAndLoad() {
+      if (authLoading) return;
+      if (!user) {
+        setIsLoading(false);
+        setIsAdmin(false);
+        return;
+      }
+
       setIsLoading(true);
+
+      const { data: profile } = await supabase
+        .from("users")
+        .select("is_admin")
+        .eq("id", user.id)
+        .single();
+
+      if (!profile?.is_admin) {
+        setIsAdmin(false);
+        setIsLoading(false);
+        return;
+      }
+
+      setIsAdmin(true);
 
       // Fetch the latest 100 for the feed
       const feedPromise = supabase
@@ -104,9 +111,10 @@ function AdminProfitsPage() {
 
       setIsLoading(false);
     }
-    loadProfits();
+    checkAuthAndLoad();
 
-    // Subscribe to new trades
+    // Subscribe to new trades only if admin
+    if (!isAdmin) return;
     const channel = supabase
       .channel("admin_profits_feed")
       .on(
@@ -160,7 +168,55 @@ function AdminProfitsPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, authLoading, isAdmin]);
+
+  if (authLoading || isLoading) {
+    return (
+      <div className="flex min-h-screen flex-col bg-[#fbfbfb] dark:bg-[#0f0f0f]">
+        <TopShell />
+        <main className="flex flex-1 items-center justify-center p-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#4bb4b3] border-t-transparent" />
+        </main>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex min-h-screen flex-col bg-[#fbfbfb] dark:bg-[#0f0f0f]">
+        <TopShell />
+        <main className="flex flex-1 items-center justify-center p-4">
+          <div className="max-w-md text-center">
+            <Shield className="mx-auto mb-4 h-16 w-16 text-[#4bb4b3]" />
+            <h1 className="mb-2 text-2xl font-bold text-[#333] dark:text-[#eee]">Admin Access Required</h1>
+            <p className="mb-6 text-[#777] dark:text-[#aaa]">
+              You must be logged in to view the administrator dashboard.
+            </p>
+            <Button asChild className="bg-[#4bb4b3] text-white hover:bg-[#3ca09f]">
+              <Link to="/auth" search={{ mode: "signin" }}>Log In</Link>
+            </Button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (isAdmin === false) {
+    return (
+      <div className="flex min-h-screen flex-col bg-[#fbfbfb] dark:bg-[#0f0f0f]">
+        <TopShell />
+        <main className="flex flex-1 items-center justify-center p-4">
+          <div className="max-w-md text-center">
+            <Shield className="mx-auto mb-4 h-16 w-16 text-red-500" />
+            <h1 className="mb-2 text-2xl font-bold text-[#333] dark:text-[#eee]">Access Denied</h1>
+            <p className="text-[#777] dark:text-[#aaa]">
+              Your account does not have administrator privileges.
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen flex-col bg-[#f1f2f3] dark:bg-[#101010]">
