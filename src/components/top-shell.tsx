@@ -33,6 +33,7 @@ import {
   RefreshCw,
   Moon,
   Sun,
+  Shield,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -138,6 +139,24 @@ export function TopShell({
     [accounts],
   );
   const visibleAccounts = activeAccountTab === "real" ? realAccounts : demoAccounts;
+
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    if (!user) {
+      setIsAdmin(false);
+      return;
+    }
+    supabase.from("profiles").select("is_admin").eq("id", user.id).single().then(({ data }) => {
+      setIsAdmin(!!data?.is_admin);
+    });
+  }, [user]);
+
+  const tabsToRender = useMemo(() => {
+    if (isAdmin) {
+      return [...TOP_TABS, { to: "/admin/profits", label: "Admin Dashboard", icon: Shield }];
+    }
+    return TOP_TABS;
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!account || dropdownOpen) return;
@@ -432,12 +451,12 @@ export function TopShell({
 
       <nav className="border-b border-[#e5e5e5] bg-white dark:border-[#242424] dark:bg-[#151515]">
         <div className="flex min-w-0 items-center overflow-x-auto px-1 sm:px-2">
-          {TOP_TABS.map((t) => {
+          {tabsToRender.map((t) => {
             let targetPath = t.to;
             if (isCloneSandbox) {
               if (t.to === "/") {
                 targetPath = "/clone2006";
-              } else {
+              } else if (!t.to.startsWith("/admin")) {
                 targetPath = `/clone2006${t.to}`;
               }
             }

@@ -39,6 +39,7 @@ import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-account
 import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
 import { Route as ApiBotOrphanCheckRouteImport } from './routes/api/bot-orphan-check'
 import { Route as ApiBotHandoffRouteImport } from './routes/api/bot-handoff'
+import { Route as AdminProfitsRouteImport } from './routes/admin.profits'
 import { Route as Clone2006DashboardIndexRouteImport } from './routes/clone2006.dashboard.index'
 import { Route as Clone2006StrategySlugRouteImport } from './routes/clone2006.strategy.$slug'
 import { Route as Clone2006DashboardSettingsRouteImport } from './routes/clone2006.dashboard.settings'
@@ -194,6 +195,11 @@ const ApiBotHandoffRoute = ApiBotHandoffRouteImport.update({
   path: '/api/bot-handoff',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminProfitsRoute = AdminProfitsRouteImport.update({
+  id: '/admin/profits',
+  path: '/admin/profits',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const Clone2006DashboardIndexRoute = Clone2006DashboardIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -230,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
+  '/admin/profits': typeof AdminProfitsRoute
   '/api/bot-handoff': typeof ApiBotHandoffRoute
   '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
@@ -264,6 +271,7 @@ export interface FileRoutesByTo {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
+  '/admin/profits': typeof AdminProfitsRoute
   '/api/bot-handoff': typeof ApiBotHandoffRoute
   '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
@@ -300,6 +308,7 @@ export interface FileRoutesById {
   '/redirect': typeof RedirectRoute
   '/strategies': typeof StrategiesRoute
   '/trading-bots': typeof TradingBotsRoute
+  '/admin/profits': typeof AdminProfitsRoute
   '/api/bot-handoff': typeof ApiBotHandoffRoute
   '/api/bot-orphan-check': typeof ApiBotOrphanCheckRoute
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
@@ -338,6 +347,7 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
+    | '/admin/profits'
     | '/api/bot-handoff'
     | '/api/bot-orphan-check'
     | '/api/deriv-account-otp'
@@ -372,6 +382,7 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
+    | '/admin/profits'
     | '/api/bot-handoff'
     | '/api/bot-orphan-check'
     | '/api/deriv-account-otp'
@@ -407,6 +418,7 @@ export interface FileRouteTypes {
     | '/redirect'
     | '/strategies'
     | '/trading-bots'
+    | '/admin/profits'
     | '/api/bot-handoff'
     | '/api/bot-orphan-check'
     | '/api/deriv-account-otp'
@@ -444,6 +456,7 @@ export interface RootRouteChildren {
   RedirectRoute: typeof RedirectRoute
   StrategiesRoute: typeof StrategiesRoute
   TradingBotsRoute: typeof TradingBotsRoute
+  AdminProfitsRoute: typeof AdminProfitsRoute
   ApiBotHandoffRoute: typeof ApiBotHandoffRoute
   ApiBotOrphanCheckRoute: typeof ApiBotOrphanCheckRoute
   ApiDerivAccountOtpRoute: typeof ApiDerivAccountOtpRoute
@@ -664,6 +677,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBotHandoffRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/profits': {
+      id: '/admin/profits'
+      path: '/admin/profits'
+      fullPath: '/admin/profits'
+      preLoaderRoute: typeof AdminProfitsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/clone2006/dashboard/': {
       id: '/clone2006/dashboard/'
       path: '/'
@@ -769,6 +789,7 @@ const rootRouteChildren: RootRouteChildren = {
   RedirectRoute: RedirectRoute,
   StrategiesRoute: StrategiesRoute,
   TradingBotsRoute: TradingBotsRoute,
+  AdminProfitsRoute: AdminProfitsRoute,
   ApiBotHandoffRoute: ApiBotHandoffRoute,
   ApiBotOrphanCheckRoute: ApiBotOrphanCheckRoute,
   ApiDerivAccountOtpRoute: ApiDerivAccountOtpRoute,
