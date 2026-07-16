@@ -1,10 +1,14 @@
-import { createFileRoute, redirect, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, TrendingUp, Users, DollarSign, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { disconnectAll } from "@/lib/deriv";
+
 export const Route = createFileRoute("/admin")({
   component: AdminProfitsPage,
 });
@@ -22,7 +26,11 @@ type TradeRow = {
 
 function AdminProfitsPage() {
   const { user, isLoading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
   const [trades, setTrades] = useState<TradeRow[]>([]);
   const [totalProfits, setTotalProfits] = useState(0);
   const [totalWinningTrades, setTotalWinningTrades] = useState(0);
@@ -170,6 +178,30 @@ function AdminProfitsPage() {
     };
   }, [user, authLoading, isAdmin]);
 
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      toast.error(error.message);
+      setLoginLoading(false);
+    } else {
+      toast.success("Admin logged in successfully");
+      // Page will re-render due to auth state change
+    }
+  };
+
+  const handleSignOut = async () => {
+    disconnectAll();
+    await supabase.auth.signOut();
+    navigate({ to: "/admin" });
+  };
+
   if (authLoading || isLoading) {
     return (
       <TopShell>
@@ -184,15 +216,42 @@ function AdminProfitsPage() {
     return (
       <TopShell>
         <div className="flex flex-1 flex-col items-center justify-center p-4">
-          <div className="max-w-md text-center">
-            <Shield className="mx-auto mb-4 h-16 w-16 text-[#4bb4b3]" />
-            <h1 className="mb-2 text-2xl font-bold text-[#333] dark:text-[#eee]">Admin Access Required</h1>
-            <p className="mb-6 text-[#777] dark:text-[#aaa]">
-              You must be logged in to view the administrator dashboard.
-            </p>
-            <Button asChild className="bg-[#4bb4b3] text-white hover:bg-[#3ca09f]">
-              <Link to="/auth" search={{ mode: "signin" }}>Log In</Link>
-            </Button>
+          <div className="w-full max-w-md rounded-xl border border-[#e5e5e5] bg-white p-8 shadow-sm dark:border-[#333] dark:bg-[#151515]">
+            <div className="mb-8 text-center">
+              <Shield className="mx-auto mb-4 h-16 w-16 text-[#4bb4b3]" />
+              <h1 className="mb-2 text-2xl font-bold text-[#333] dark:text-[#eee]">Admin Login</h1>
+              <p className="text-sm text-[#777] dark:text-[#aaa]">
+                Sign in with your administrator credentials.
+              </p>
+            </div>
+
+            <form onSubmit={handleAdminLogin} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-[#333] dark:text-[#eee]">Email</label>
+                <Input
+                  type="email"
+                  placeholder="admin@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="bg-transparent"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-[#333] dark:text-[#eee]">Password</label>
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="bg-transparent"
+                />
+              </div>
+              <Button type="submit" className="w-full bg-[#4bb4b3] text-white hover:bg-[#3ca09f]" disabled={loginLoading}>
+                {loginLoading ? "Signing in..." : "Sign In"}
+              </Button>
+            </form>
           </div>
         </div>
       </TopShell>
@@ -206,9 +265,12 @@ function AdminProfitsPage() {
           <div className="max-w-md text-center">
             <Shield className="mx-auto mb-4 h-16 w-16 text-red-500" />
             <h1 className="mb-2 text-2xl font-bold text-[#333] dark:text-[#eee]">Access Denied</h1>
-            <p className="text-[#777] dark:text-[#aaa]">
-              Your account does not have administrator privileges.
+            <p className="mb-6 text-[#777] dark:text-[#aaa]">
+              Your connected account does not have administrator privileges.
             </p>
+            <Button onClick={handleSignOut} variant="outline" className="border-[#e5e5e5] dark:border-[#333]">
+              Sign out to log in as Admin
+            </Button>
           </div>
         </div>
       </TopShell>
