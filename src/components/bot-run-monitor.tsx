@@ -3,14 +3,6 @@ import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, Play, Squar
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -255,86 +247,52 @@ export function BotRunMonitorPanel({
             {transactions.length === 0 ? (
               <EmptyPanel title="No transactions yet" />
             ) : (
-              <div className="p-4">
-                <div className="overflow-hidden rounded-[4px] border border-[#e5e5e5] bg-[#f8f8f8] dark:border-[#333] dark:bg-[#202020]">
-                  <Table className="text-xs">
-                    <TableHeader className="bg-[#f3f4f5] dark:bg-[#191919]">
-                      <TableRow className="border-[#e5e5e5] hover:bg-transparent dark:border-[#333]">
-                        <TableHead className="px-3 py-3 text-[10px] font-bold uppercase tracking-[0.08em] text-[#777] dark:text-[#b7b7b7]">
-                          Type
-                        </TableHead>
-                        <TableHead className="px-3 py-3 text-[10px] font-bold uppercase tracking-[0.08em] text-[#777] dark:text-[#b7b7b7]">
-                          Entry/Exit spot
-                        </TableHead>
-                        <TableHead className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-[#777] dark:text-[#b7b7b7]">
-                          Buy price and P/L
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transactions.map((transaction) => (
-                        <TableRow
-                          key={transaction.id}
-                          className="border-[#e5e5e5] bg-[#f8f8f8] dark:border-[#333] dark:bg-[#202020] dark:hover:bg-[#262626]"
+              <div className="p-2 sm:p-4 space-y-2">
+                {transactions.map((transaction) => (
+                  <div
+                    key={transaction.id}
+                    className="flex flex-row justify-between items-center rounded-md border border-[#e5e5e5] bg-[#f8f8f8] p-3 text-xs dark:border-[#333] dark:bg-[#202020] dark:hover:bg-[#262626]"
+                  >
+                    <div className="flex flex-col min-w-0 flex-1 pr-2">
+                      <div className="truncate font-semibold text-[#333] dark:text-[#eeeeee]">
+                        {transaction.symbol ? `${transaction.contractType} / ${transaction.symbol}` : `Contract ${transaction.contractId}`}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-[#777] dark:text-[#b7b7b7]">
+                        <span
+                          className={cn(
+                            "font-bold",
+                            transaction.status === "won" && "text-[#078a5b] dark:text-[#42d48c]",
+                            transaction.status === "lost" && "text-[#cc2f39] dark:text-[#ff6b73]",
+                          )}
                         >
-                          <TableCell className="px-3 py-3">
-                            <div className="min-w-0">
-                              <div className="truncate font-semibold text-[#333] dark:text-[#eeeeee]">
-                                {transaction.symbol ? `${transaction.contractType} / ${transaction.symbol}` : `Contract ${transaction.contractId}`}
-                              </div>
-                              <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-[#777] dark:text-[#b7b7b7]">
-                                <span
-                                  className={cn(
-                                    "font-bold",
-                                    transaction.status === "won" &&
-                                      "text-[#078a5b] dark:text-[#42d48c]",
-                                    transaction.status === "lost" &&
-                                      "text-[#cc2f39] dark:text-[#ff6b73]",
-                                  )}
-                                >
-                                  {transaction.status}
-                                </span>
-                                <span className="truncate normal-case tracking-normal">
-                                  {transaction.time}
-                                </span>
-                                <span className="truncate normal-case tracking-normal text-right ml-auto font-mono font-medium">
-                                  {transaction.status !== "open" ? (
-                                    <span className={transaction.profit > 0 ? "text-[#078a5b] dark:text-[#42d48c]" : transaction.profit < 0 ? "text-[#cc2f39] dark:text-[#ff6b73]" : ""}>
-                                      {transaction.profit > 0 ? "+" : ""}{transaction.profit.toFixed(2)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-muted-foreground">--</span>
-                                  )}
-                                </span>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="px-3 py-3">
-                            <SpotStack transaction={transaction} />
-                          </TableCell>
-                          <TableCell className="px-3 py-3 text-right">
-                            <div className="space-y-1">
-                              <div className="font-medium text-[#333] dark:text-[#eeeeee]">
-                                {formatMoney(transaction.stake, currency)}
-                              </div>
-                              <div
-                                className={cn(
-                                  "font-medium",
-                                  profitLossClassName(transaction.profit, transaction.status),
-                                )}
-                              >
-                                {formatSignedMoney(transaction.profit, currency)}
-                              </div>
-                              <div className="text-[10px] text-[#777] dark:text-[#b7b7b7]">
-                                Payout {formatMoney(transaction.payout, currency)}
-                              </div>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                          {transaction.status}
+                        </span>
+                        <span className="truncate normal-case tracking-normal">
+                          {transaction.time}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-[10px] text-[#777] dark:text-[#b7b7b7]">
+                        <SpotStack transaction={transaction} />
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end shrink-0 pl-2 border-l border-[#e5e5e5] dark:border-[#333]">
+                      <div className="font-medium text-[#333] dark:text-[#eeeeee]">
+                        {formatMoney(transaction.stake, currency)}
+                      </div>
+                      <div
+                        className={cn(
+                          "font-medium text-sm mt-0.5",
+                          profitLossClassName(transaction.profit, transaction.status),
+                        )}
+                      >
+                        {formatSignedMoney(transaction.profit, currency)}
+                      </div>
+                      <div className="text-[10px] mt-0.5 text-[#777] dark:text-[#b7b7b7]">
+                        Payout {formatMoney(transaction.payout, currency)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
