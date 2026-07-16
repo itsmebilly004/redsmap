@@ -172,20 +172,18 @@ function AdminProfitsPage() {
 
   if (authLoading || isLoading) {
     return (
-      <div className="flex min-h-screen flex-col bg-[#fbfbfb] dark:bg-[#0f0f0f]">
-        <TopShell />
-        <main className="flex flex-1 items-center justify-center p-4">
+      <TopShell>
+        <div className="flex flex-1 items-center justify-center p-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#4bb4b3] border-t-transparent" />
-        </main>
-      </div>
+        </div>
+      </TopShell>
     );
   }
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col bg-[#fbfbfb] dark:bg-[#0f0f0f]">
-        <TopShell />
-        <main className="flex flex-1 items-center justify-center p-4">
+      <TopShell>
+        <div className="flex flex-1 flex-col items-center justify-center p-4">
           <div className="max-w-md text-center">
             <Shield className="mx-auto mb-4 h-16 w-16 text-[#4bb4b3]" />
             <h1 className="mb-2 text-2xl font-bold text-[#333] dark:text-[#eee]">Admin Access Required</h1>
@@ -196,16 +194,15 @@ function AdminProfitsPage() {
               <Link to="/auth" search={{ mode: "signin" }}>Log In</Link>
             </Button>
           </div>
-        </main>
-      </div>
+        </div>
+      </TopShell>
     );
   }
 
   if (isAdmin === false) {
     return (
-      <div className="flex min-h-screen flex-col bg-[#fbfbfb] dark:bg-[#0f0f0f]">
-        <TopShell />
-        <main className="flex flex-1 items-center justify-center p-4">
+      <TopShell>
+        <div className="flex flex-1 flex-col items-center justify-center p-4">
           <div className="max-w-md text-center">
             <Shield className="mx-auto mb-4 h-16 w-16 text-red-500" />
             <h1 className="mb-2 text-2xl font-bold text-[#333] dark:text-[#eee]">Access Denied</h1>
@@ -213,14 +210,13 @@ function AdminProfitsPage() {
               Your account does not have administrator privileges.
             </p>
           </div>
-        </main>
-      </div>
+        </div>
+      </TopShell>
     );
   }
 
   return (
-    <div className="flex h-screen flex-col bg-[#f1f2f3] dark:bg-[#101010]">
-      <TopShell />
+    <TopShell>
       <div className="flex-1 overflow-auto p-4 sm:p-8">
         <div className="mx-auto max-w-5xl">
           <div className="mb-8">
@@ -249,11 +245,11 @@ function AdminProfitsPage() {
                 <div>
                   <p className="text-sm font-medium text-[#777] dark:text-[#aaa]">Winning Trades</p>
                   <p className="mt-2 text-3xl font-bold text-[#333] dark:text-[#eee]">
-                    {totalWinningTrades}
+                    {totalWinningTrades.toLocaleString()}
                   </p>
                 </div>
-                <div className="rounded-full bg-[#f3f4f5] p-3 dark:bg-[#202020]">
-                  <Activity className="size-6 text-[#555] dark:text-[#ccc]" />
+                <div className="rounded-full bg-[#f3f4f6] p-3 dark:bg-[#222]">
+                  <TrendingUp className="size-6 text-[#4bb4b3]" />
                 </div>
               </div>
             </div>
@@ -261,13 +257,13 @@ function AdminProfitsPage() {
             <div className="rounded-lg border border-[#e5e5e5] bg-white p-6 shadow-sm dark:border-[#333] dark:bg-[#151515]">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-[#777] dark:text-[#aaa]">Active Winners</p>
+                  <p className="text-sm font-medium text-[#777] dark:text-[#aaa]">Active Profiting Traders</p>
                   <p className="mt-2 text-3xl font-bold text-[#333] dark:text-[#eee]">
-                    {uniqueUsers}
+                    {uniqueUsers.toLocaleString()}
                   </p>
                 </div>
-                <div className="rounded-full bg-[#f3f4f5] p-3 dark:bg-[#202020]">
-                  <Users className="size-6 text-[#555] dark:text-[#ccc]" />
+                <div className="rounded-full bg-[#f3f4f6] p-3 dark:bg-[#222]">
+                  <Users className="size-6 text-[#4bb4b3]" />
                 </div>
               </div>
             </div>
@@ -276,48 +272,53 @@ function AdminProfitsPage() {
           {/* Table */}
           <div className="rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
             <div className="border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
-              <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Live Feed</h2>
+              <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Live Feed (Last 100 Trades)</h2>
             </div>
             
-            {isLoading ? (
-              <div className="p-8 text-center text-sm text-[#777] dark:text-[#aaa]">Loading profits...</div>
-            ) : trades.length === 0 ? (
-              <div className="p-8 text-center text-sm text-[#777] dark:text-[#aaa]">No winning trades recorded yet.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm text-[#555] dark:text-[#ccc]">
-                  <thead className="bg-[#f8f8f8] text-xs uppercase text-[#777] dark:bg-[#202020] dark:text-[#aaa]">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm text-[#555] dark:text-[#ccc]">
+                <thead className="bg-[#fbfbfb] text-[#777] dark:bg-[#111] dark:text-[#aaa]">
+                  <tr>
+                    <th className="px-6 py-3 font-medium">Time</th>
+                    <th className="px-6 py-3 font-medium">Trader</th>
+                    <th className="px-6 py-3 font-medium">Asset</th>
+                    <th className="px-6 py-3 font-medium text-right">Profit (USD)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#e5e5e5] dark:divide-[#333]">
+                  {trades.length === 0 ? (
                     <tr>
-                      <th className="px-6 py-3">Trader</th>
-                      <th className="px-6 py-3">Symbol</th>
-                      <th className="px-6 py-3">Time</th>
-                      <th className="px-6 py-3 text-right">Profit</th>
+                      <td colSpan={4} className="px-6 py-8 text-center text-[#777] dark:text-[#aaa]">
+                        <Activity className="mx-auto mb-2 size-6 opacity-50" />
+                        No profiting trades yet.
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {trades.map((trade) => (
-                      <tr key={trade.id} className="border-b border-[#e5e5e5] last:border-0 hover:bg-[#f8f8f8] dark:border-[#333] dark:hover:bg-[#202020]">
-                        <td className="px-6 py-4">
-                          <p className="text-sm font-medium text-[#333] dark:text-[#eee]">
-                          {trade.users?.email || "Unknown Trader"}
-                        </p>
-                        </td>
-                        <td className="px-6 py-4 font-medium">{trade.symbol}</td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                  ) : (
+                    trades.map((trade) => (
+                      <tr key={trade.id} className="transition-colors hover:bg-[#fbfbfb] dark:hover:bg-[#111]">
+                        <td className="whitespace-nowrap px-6 py-4 text-[#555] dark:text-[#ccc]">
                           {new Date(trade.closed_at || Date.now()).toLocaleTimeString()}
                         </td>
-                        <td className="px-6 py-4 text-right font-bold text-[#078a5b] dark:text-[#42d48c]">
+                        <td className="whitespace-nowrap px-6 py-4 font-medium text-[#333] dark:text-[#eee]">
+                          {trade.users?.email || "Unknown Trader"}
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4">
+                          <span className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2.5 py-0.5 text-xs font-medium text-[#555] dark:bg-[#222] dark:text-[#ccc]">
+                            {trade.symbol}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4 text-right font-bold text-[#078a5b] dark:text-[#42d48c]">
                           +${Number(trade.profit_loss).toFixed(2)}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </TopShell>
   );
 }
