@@ -119,6 +119,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      referees: {
+        Row: {
+          id: string;
+          name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       sessions: {
         Row: {
           account_id: string;
@@ -280,6 +298,8 @@ export type Database = {
           deriv_user_id: string | null;
           email: string | null;
           id: string;
+          referee_id: string | null;
+          referee_selected: boolean | null;
           updated_at: string;
         };
         Insert: {
@@ -289,6 +309,8 @@ export type Database = {
           deriv_user_id?: string | null;
           email?: string | null;
           id: string;
+          referee_id?: string | null;
+          referee_selected?: boolean | null;
           updated_at?: string;
         };
         Update: {
@@ -298,9 +320,19 @@ export type Database = {
           deriv_user_id?: string | null;
           email?: string | null;
           id?: string;
+          referee_id?: string | null;
+          referee_selected?: boolean | null;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "users_referee_id_fkey";
+            columns: ["referee_id"];
+            isOneToOne: false;
+            referencedRelation: "referees";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       watchlist: {
         Row: {

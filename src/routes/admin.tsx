@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { TopShell } from "@/components/top-shell";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, TrendingUp, Users, DollarSign, Shield } from "lucide-react";
+import { Activity, TrendingUp, Users, DollarSign, Shield, Trash2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ type TradeRow = {
   user_id: string;
   users: {
     email: string;
+    referee_id?: string;
   };
 };
 
@@ -31,10 +32,16 @@ function AdminProfitsPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  
   const [trades, setTrades] = useState<TradeRow[]>([]);
   const [totalProfits, setTotalProfits] = useState(0);
   const [totalWinningTrades, setTotalWinningTrades] = useState(0);
   const [uniqueUsers, setUniqueUsers] = useState(0);
+  
+  const [referees, setReferees] = useState<{ id: string; name: string }[]>([]);
+  const [newRefereeName, setNewRefereeName] = useState("");
+  const [refereeProfits, setRefereeProfits] = useState<Record<string, number>>({});
+  
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -86,19 +93,26 @@ function AdminProfitsPage() {
         .not("deriv_contract_id", "like", "DEMO_%")
         .gt("profit_loss", 0);
 
-      const [feedRes, statsRes] = await Promise.all([feedPromise, statsPromise]);
+      // Fetch referees
+      const refsPromise = supabase.from("referees").select("*").order("name");
 
-      if (!feedRes.error && feedRes.data) {
+      const [feedRes, statsRes, refsRes] = await Promise.all([feedPromise, statsPromise, refsPromise]);
+
+      if (refsRes.data) {
+        setReferees(refsRes.data);
+      }
+
+      if (!feedRes.error && feedRes.data && !statsRes.error && statsRes.data) {
         const rawTrades = feedRes.data;
-        const userIds = [...new Set(rawTrades.map(t => t.user_id))];
+        const allUserIds = [...new Set([...rawTrades.map(t => t.user_id), ...statsRes.data.map(t => t.user_id)])];
         
         const profileMap = new Map();
         
-        if (userIds.length > 0) {
+        if (allUserIds.length > 0) {
           const { data: usersData } = await supabase
             .from("users")
-            .select("id, email")
-            .in("id", userIds);
+            .select("id, email, referee_id")
+            .in("id", allUserIds);
             
           usersData?.forEach(u => profileMap.set(u.id, u));
         }
@@ -109,14 +123,20 @@ function AdminProfitsPage() {
         }));
         
         setTrades(enrichedTrades as unknown as TradeRow[]);
-      }
 
-      if (!statsRes.error && statsRes.data) {
         const total = statsRes.data.reduce((sum, t) => sum + Number(t.profit_loss), 0);
-        const users = new Set(statsRes.data.map((t) => t.user_id)).size;
+        const usersCount = new Set(statsRes.data.map((t) => t.user_id)).size;
         setTotalProfits(total);
         setTotalWinningTrades(statsRes.data.length);
-        setUniqueUsers(users);
+        setUniqueUsers(usersCount);
+
+        const refProfits: Record<string, number> = {};
+        statsRes.data.forEach(t => {
+          const p = profileMap.get(t.user_id);
+          const refId = p?.referee_id || "unreferred";
+          refProfits[refId] = (refProfits[refId] || 0) + Number(t.profit_loss);
+        });
+        setRefereeProfits(refProfits);
       }
 
       setIsLoading(false);
@@ -136,30 +156,30 @@ function AdminProfitsPage() {
           filter: "profit_loss=gt.0",
         },
         (payload) => {
-          // If it's a simulated or demo trade, ignore it.
           const newTrade = payload.new as any;
           const oldTrade = payload.old as any;
           
           if (newTrade.deriv_contract_id?.startsWith("SIM_") || newTrade.deriv_contract_id?.startsWith("DEMO_")) return;
-          
-          // Only process if it just became a winning trade (was open or 0 before)
           if (oldTrade && oldTrade.profit_loss > 0) return;
 
-          // We need to fetch the profile for this new user to display it correctly
           supabase
             .from("users")
-            .select("email")
+            .select("email, referee_id")
             .eq("id", newTrade.user_id)
             .single()
             .then(({ data: userProfile }) => {
               if (userProfile) {
                 setTrades((prev) => {
-                  // Prevent duplicates if the row is updated multiple times
                   if (prev.some(t => t.id === newTrade.id)) return prev;
                   
-                  // Update live aggregations only for new unique trades
                   setTotalProfits((p) => p + Number(newTrade.profit_loss));
                   setTotalWinningTrades((p) => p + 1);
+                  
+                  const refId = userProfile.referee_id || "unreferred";
+                  setRefereeProfits((rp) => ({
+                    ...rp,
+                    [refId]: (rp[refId] || 0) + Number(newTrade.profit_loss)
+                  }));
 
                   return [
                     {
@@ -167,7 +187,7 @@ function AdminProfitsPage() {
                       users: userProfile,
                     },
                     ...prev,
-                  ].slice(0, 100); // Keep last 100
+                  ].slice(0, 100);
                 });
               }
             });
@@ -194,7 +214,6 @@ function AdminProfitsPage() {
       setLoginLoading(false);
     } else {
       toast.success("Admin logged in successfully");
-      // Page will re-render due to auth state change
     }
   };
 
@@ -202,6 +221,23 @@ function AdminProfitsPage() {
     disconnectAll();
     await supabase.auth.signOut();
     navigate({ to: "/admin" });
+  };
+
+  const handleAddReferee = async () => {
+    if (!newRefereeName.trim()) return;
+    const { data, error } = await supabase.from("referees").insert({ name: newRefereeName.trim() }).select().single();
+    if (error) { toast.error(error.message); return; }
+    if (data) setReferees([...referees, data].sort((a, b) => a.name.localeCompare(b.name)));
+    setNewRefereeName("");
+    toast.success("Referee added");
+  };
+
+  const handleDeleteReferee = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this referee? This will orphan users assigned to them.")) return;
+    const { error } = await supabase.from("referees").delete().eq("id", id);
+    if (error) { toast.error(error.message); return; }
+    setReferees(referees.filter(r => r.id !== id));
+    toast.success("Referee deleted");
   };
 
   if (authLoading || isLoading) {
@@ -285,7 +321,7 @@ function AdminProfitsPage() {
         <div className="mx-auto max-w-5xl">
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-[#333] dark:text-[#eee]">Platform Overview</h1>
-            <p className="text-sm text-[#777] dark:text-[#aaa]">Real-time feed of all winning trades across the main platform.</p>
+            <p className="text-sm text-[#777] dark:text-[#aaa]">Real-time feed of all winning trades and traffic.</p>
           </div>
 
           {/* Stats Cards */}
@@ -328,6 +364,65 @@ function AdminProfitsPage() {
                 </div>
                 <div className="rounded-full bg-[#f3f4f6] p-3 dark:bg-[#222]">
                   <Users className="size-6 text-[#4bb4b3]" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-3 mb-8">
+            {/* Referee Volume Panel */}
+            <div className="col-span-1 rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
+              <div className="border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
+                <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Trade Volume by Referee</h2>
+              </div>
+              <div className="p-6 space-y-4">
+                {referees.map(r => (
+                  <div key={r.id} className="flex items-center justify-between">
+                    <span className="font-medium text-[#555] dark:text-[#ccc]">{r.name}</span>
+                    <span className="font-bold text-[#078a5b] dark:text-[#42d48c]">
+                      ${(refereeProfits[r.id] || 0).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-4 border-t border-[#eee] dark:border-[#333]">
+                  <span className="font-medium text-[#999] dark:text-[#888]">Unreferred Traffic</span>
+                  <span className="font-bold text-[#078a5b] dark:text-[#42d48c]">
+                    ${(refereeProfits["unreferred"] || 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Referee Management Panel */}
+            <div className="col-span-1 lg:col-span-2 rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
+              <div className="border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
+                <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Referee Management</h2>
+              </div>
+              <div className="p-6">
+                <div className="flex gap-2 mb-6">
+                  <Input 
+                    value={newRefereeName}
+                    onChange={e => setNewRefereeName(e.target.value)}
+                    placeholder="Enter new referee name..."
+                    className="flex-1 bg-transparent border-[#e5e5e5] dark:border-[#333] text-[#333] dark:text-[#eee]"
+                  />
+                  <Button onClick={handleAddReferee} className="bg-[#4bb4b3] text-white hover:bg-[#3ca09f]">
+                    <Plus className="mr-2 size-4" /> Add Referee
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  {referees.map(r => (
+                    <div key={r.id} className="flex items-center justify-between rounded-md border border-[#eee] bg-[#fafafa] p-3 dark:border-[#2b2b2b] dark:bg-[#111]">
+                      <span className="font-medium text-[#333] dark:text-[#eee]">{r.name}</span>
+                      <Button variant="ghost" size="icon" onClick={() => handleDeleteReferee(r.id)} className="text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-[#2a1010]">
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  {referees.length === 0 && (
+                    <p className="text-sm text-[#777] dark:text-[#aaa] text-center py-4">No referees created yet.</p>
+                  )}
                 </div>
               </div>
             </div>
