@@ -78,11 +78,15 @@ function AdminProfitsPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchCloneUsers = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("users")
       .select("id, email, created_at")
       .eq("is_clone_user", true)
       .order("created_at", { ascending: false });
+    
+    if (error) {
+      toast.error("Error fetching clone users: " + error.message);
+    }
     if (data) setCloneUsers(data);
   };
 

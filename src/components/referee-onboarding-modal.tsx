@@ -28,12 +28,17 @@ export function RefereeOnboardingModal() {
       // Fetch user's referee_selected status
       const { data: profile, error } = await supabase
         .from("users")
-        .select("referee_selected")
+        .select("referee_selected, is_clone_user")
         .eq("id", user!.id)
         .single();
 
       if (error) {
         console.error("Error fetching user profile for referee check:", error);
+        setLoading(false);
+        return;
+      }
+
+      if (profile?.is_clone_user) {
         setLoading(false);
         return;
       }
