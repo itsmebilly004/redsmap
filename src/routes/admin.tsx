@@ -97,11 +97,18 @@ function AdminProfitsPage() {
 
       setIsLoading(true);
 
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from("users")
         .select("is_admin")
         .eq("id", user.id)
         .single();
+
+      if (profileError) {
+        toast.error(`Auth check failed: ${profileError.message}`);
+        setIsAdmin(false);
+        setIsLoading(false);
+        return;
+      }
 
       if (!profile?.is_admin) {
         setIsAdmin(false);
@@ -304,7 +311,7 @@ function AdminProfitsPage() {
     e.preventDefault();
     setLoginLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data: authData, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -312,10 +319,27 @@ function AdminProfitsPage() {
     if (error) {
       toast.error(error.message);
       setLoginLoading(false);
-    } else {
-      toast.success("Admin logged in successfully");
-      setLoginLoading(false);
+      return;
     }
+
+    if (authData.user) {
+      // Verify admin status immediately
+      const { data: profile, error: profileError } = await supabase
+        .from("users")
+        .select("is_admin")
+        .eq("id", authData.user.id)
+        .single();
+
+      if (profileError || !profile?.is_admin) {
+        await supabase.auth.signOut();
+        toast.error("Account does not have administrator privileges.");
+        setLoginLoading(false);
+        return;
+      }
+    }
+
+    toast.success("Admin logged in successfully");
+    setLoginLoading(false);
   };
 
   const handleSignOut = async () => {
