@@ -363,19 +363,51 @@ function AdminProfitsPage() {
     toast.success("Referee deleted");
   };
 
-  const handleDownloadReport = (refereeId: string, refereeName: string) => {
-    const refereeTrades = allTrades.filter(t => {
-      const p = userProfiles[t.user_id];
-      const rId = p?.referee_id || "unreferred";
-      return rId === refereeId;
-    });
+  const handleDownloadReport = async (refereeId: string, refereeName: string) => {
+    toast.success(`Generating report for ${refereeName}...`);
+    
+    let query = supabase.from("trades").select(`
+      id, profit_loss, symbol, closed_at, user_id
+    `).not("deriv_contract_id", "like", "SIM_%").not("deriv_contract_id", "like", "DEMO_%").gt("profit_loss", 0);
+
+    const { data: tradesData } = await query;
+    if (!tradesData) return;
+
+    // Filter manually because foreign tables in supabase-js are tricky for top-level filtering
+    const { data: usersData } = await supabase.from("users").select("id, email, referee_id");
+    const userProfiles = (usersData || []).reduce((acc: any, u) => {
+      acc[u.id] = u;
+      return acc;
+    }, {});
+
+    let refereeTrades = tradesData;
+    
+    if (refereeId !== "general") {
+      refereeTrades = tradesData.filter(t => {
+        const u = userProfiles[t.user_id];
+        if (refereeId === "unreferred") return !u || !u.referee_id;
+        return u && u.referee_id === refereeId;
+      });
+    }
 
     const doc = new jsPDF();
-    doc.text(`Profit Report: ${refereeName}`, 14, 15);
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 22);
     
-    const totalVol = refereeTrades.reduce((s, t) => s + Number(t.profit_loss), 0);
-    doc.text(`Total Volume: $${totalVol.toFixed(2)}`, 14, 29);
+    // Branding Header
+    doc.setFontSize(22);
+    doc.setTextColor(7, 138, 91); // ArkTrader Hub Green
+    doc.text("ArkTrader Hub", 14, 20);
+    
+    doc.setFontSize(14);
+    doc.setTextColor(51, 51, 51);
+    doc.text(`Performance Report: ${refereeName}`, 14, 30);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(119, 119, 119);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 38);
+    
+    const totalVol = refereeTrades.reduce((sum, t) => sum + Number(t.profit_loss), 0);
+    doc.setTextColor(7, 138, 91);
+    doc.text(`Total Profit Volume: $${totalVol.toFixed(2)}`, 14, 46);
 
     const tableData = refereeTrades.map(t => [
       t.closed_at ? new Date(t.closed_at).toLocaleString() : "Unknown",
@@ -385,12 +417,14 @@ function AdminProfitsPage() {
     ]);
 
     autoTable(doc, {
-      startY: 35,
+      startY: 55,
       head: [['Time', 'Trader', 'Asset', 'Profit (USD)']],
       body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [7, 138, 91] }
     });
 
-    doc.save(`referee_report_${refereeName.replace(/\s+/g, '_')}.pdf`);
+    doc.save(`arktrader_report_${refereeName.replace(/\s+/g, '_')}.pdf`);
   };
 
   const handleCreateCloneUser = async () => {
@@ -413,8 +447,11 @@ function AdminProfitsPage() {
       const markAsClone = async () => {
         const { data, error: updateError } = await supabase
           .from("users")
-          .update({ is_clone_user: true })
-          .eq("id", authData.user!.id)
+          .upsert({ 
+            id: authData.user!.id, 
+            email: authData.user!.email, 
+            is_clone_user: true 
+          })
           .select();
           
         if (updateError) {
@@ -656,8 +693,11 @@ function AdminProfitsPage() {
 
             {/* Referee Management Panel */}
             <div className="col-span-1 rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
-              <div className="border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
+              <div className="flex items-center justify-between border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
                 <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Referee Management</h2>
+                <Button variant="outline" size="sm" onClick={() => handleDownloadReport("general", "All Platforms")} className="text-[#078a5b] border-[#078a5b]/20 hover:bg-[#078a5b]/10">
+                  <Download className="mr-2 size-4" /> General Report
+                </Button>
               </div>
               <div className="p-6">
                 <div className="flex gap-2 mb-6">
