@@ -127,10 +127,12 @@ function AdminProfitsPage() {
           profit_loss,
           symbol,
           closed_at,
-          user_id
+          user_id,
+          users!inner(is_clone_user)
         `)
         .not("deriv_contract_id", "like", "SIM_%")
         .not("deriv_contract_id", "like", "DEMO_%")
+        .eq("users.is_clone_user", false)
         .gt("profit_loss", 0)
         .order("closed_at", { ascending: false })
         .limit(100);
@@ -142,9 +144,10 @@ function AdminProfitsPage() {
       while (fetchMore) {
         const { data, error } = await supabase
           .from("trades")
-          .select("profit_loss, user_id, closed_at, symbol")
+          .select("profit_loss, user_id, closed_at, symbol, users!inner(is_clone_user)")
           .not("deriv_contract_id", "like", "SIM_%")
           .not("deriv_contract_id", "like", "DEMO_%")
+          .eq("users.is_clone_user", false)
           .gt("profit_loss", 0)
           .range(from, from + 999);
           
@@ -391,8 +394,8 @@ function AdminProfitsPage() {
     toast.success(`Generating report for ${refereeName}...`);
     
     let query = supabase.from("trades").select(`
-      id, profit_loss, symbol, closed_at, user_id
-    `).not("deriv_contract_id", "like", "SIM_%").not("deriv_contract_id", "like", "DEMO_%").gt("profit_loss", 0);
+      id, profit_loss, symbol, closed_at, user_id, users!inner(is_clone_user)
+    `).not("deriv_contract_id", "like", "SIM_%").not("deriv_contract_id", "like", "DEMO_%").eq("users.is_clone_user", false).gt("profit_loss", 0);
 
     const { data: tradesData } = await query;
     if (!tradesData) return;
