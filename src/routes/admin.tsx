@@ -11,7 +11,7 @@ import { disconnectAll } from "@/lib/deriv";
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { useQueryClient } from "@tanstack/react-query";
+
 import { createClient } from "@supabase/supabase-js";
 
 export const Route = createFileRoute("/admin")({
@@ -50,7 +50,6 @@ const supabaseAdminClient = createClient(
 function AdminProfitsPage() {
   const { user, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
@@ -328,7 +327,6 @@ function AdminProfitsPage() {
     const supabaseKeys = Object.keys(localStorage).filter(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
     const authValues = supabaseKeys.map(k => ({ key: k, value: localStorage.getItem(k) }));
 
-    queryClient.clear();
     localStorage.clear();
     sessionStorage.clear();
 
