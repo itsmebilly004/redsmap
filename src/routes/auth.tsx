@@ -457,7 +457,7 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
     {
       label: "redirect_uri",
       actual: diagnostics.decodedRedirectUri || "(missing)",
-      expected: "https://www.arktradershub.com/deriv-callback",
+      expected: "https://www.redsmaptraders.com/deriv-callback",
       ok: diagnostics.redirectUriMatchesRegisteredUrl,
     },
     {
@@ -469,8 +469,8 @@ function oauthValidationRows(diagnostics: DerivOAuthDiagnostics) {
     {
       label: "callback origin",
       actual: diagnostics.redirectUriOrigin || "(missing)",
-      expected: "https://www.arktradershub.com",
-      ok: diagnostics.redirectUriOrigin === "https://www.arktradershub.com",
+      expected: "https://www.redsmaptraders.com",
+      ok: diagnostics.redirectUriOrigin === "https://www.redsmaptraders.com",
     },
     {
       label: "callback path",

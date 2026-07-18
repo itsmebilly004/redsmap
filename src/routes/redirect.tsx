@@ -14,7 +14,7 @@ import {
 } from "@/lib/deriv";
 
 // Legacy direct-token Deriv OAuth callback. The redirect URL Deriv sends users
-// back to (https://www.arktradershub.com/redirect) carries token1/acct1/cur1
+// back to (https://www.redsmaptraders.com/redirect) carries token1/acct1/cur1
 // triplets — one per linked account. We authorize each over the public Deriv
 // WebSocket (no PKCE / no token exchange) and persist the results.
 

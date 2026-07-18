@@ -2528,7 +2528,7 @@ export function assertValidDerivOAuthRedirectUrl(url: string) {
   }
   if (!diagnostics.redirectUriMatchesRegisteredUrl) {
     throw new Error(
-      "Invalid Deriv OAuth URL. redirect_uri must exactly match https://www.arktradershub.com/deriv-callback.",
+      "Invalid Deriv OAuth URL. redirect_uri must exactly match https://www.redsmaptraders.com/deriv-callback.",
     );
   }
   if (diagnostics.hasDoubleEncodedRedirectUri) {
@@ -2695,9 +2695,9 @@ export async function buildOAuthUrl(
   else sessionStorage.removeItem("deriv_oauth_debug");
   if (!DERIV_CLIENT_ID) throw new Error("Missing required OAuth parameter: client_id");
   if (!DERIV_REDIRECT_URI) throw new Error("Missing required OAuth parameter: redirect_uri");
-  if (DERIV_REDIRECT_URI !== "https://www.arktradershub.com/deriv-callback") {
+  if (DERIV_REDIRECT_URI !== "https://www.redsmaptraders.com/deriv-callback") {
     throw new Error(
-      "Deriv redirect_uri must be exactly https://www.arktradershub.com/deriv-callback",
+      "Deriv redirect_uri must be exactly https://www.redsmaptraders.com/deriv-callback",
     );
   }
 
