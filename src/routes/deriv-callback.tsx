@@ -578,6 +578,22 @@ function DerivCallback() {
         if (activeSessionUserId !== sessionUser.id) {
           throw new Error("Supabase session was created but is not active. Please sign in again.");
         }
+        
+        // Process referee assignment from localStorage if they came from the auth popup
+        const pendingReferee = localStorage.getItem("arktrader_pending_referee");
+        const hasSelected = localStorage.getItem("arktrader_referee_selected");
+        
+        if (hasSelected) {
+          const { data: profile } = await supabase.from("users").select("referee_selected").eq("id", sessionUser.id).single();
+          if (profile && !profile.referee_selected) {
+            await supabase.from("users").update({
+              referee_selected: true,
+              referee_id: (pendingReferee && pendingReferee !== "none") ? pendingReferee : null
+            }).eq("id", sessionUser.id);
+          }
+          localStorage.removeItem("arktrader_pending_referee");
+        }
+
         const expiresAt = derivTokenExpiresAt(expiresIn);
 
         const freshAccountIds = new Set(

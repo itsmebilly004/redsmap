@@ -16,7 +16,8 @@ import {
   type DerivOAuthRedirectFailure,
   type DerivOAuthDiagnostics,
 } from "@/lib/deriv";
-import { ArrowRight, ShieldCheck } from "lucide-react";
+import { ArrowRight, ShieldCheck, Users } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 const search = z.object({
   mode: z.enum(["signin", "signup"]).catch("signin"),
@@ -36,6 +37,34 @@ function AuthPage() {
   const [debugUrl, setDebugUrl] = useState<string | null>(null);
   const [oauthFailure, setOauthFailure] = useState<DerivOAuthRedirectFailure | null>(null);
   const [oauthDiagnostics, setOauthDiagnostics] = useState<DerivOAuthDiagnostics | null>(null);
+
+  // Referee logic
+  const [showRefereeModal, setShowRefereeModal] = useState(false);
+  const [referees, setReferees] = useState<{ id: string; name: string }[]>([]);
+  const [selectedRefereeId, setSelectedRefereeId] = useState<string>("none");
+
+  useEffect(() => {
+    supabase.from("referees").select("*").order("name").then(({ data }) => {
+      if (data) setReferees(data);
+    });
+  }, []);
+
+  const handleConnectClick = () => {
+    if (localStorage.getItem("arktrader_referee_selected")) {
+      handleDeriv();
+    } else {
+      setShowRefereeModal(true);
+    }
+  };
+
+  const handleRefereeSubmit = () => {
+    localStorage.setItem("arktrader_referee_selected", "true");
+    if (selectedRefereeId !== "none") {
+      localStorage.setItem("arktrader_pending_referee", selectedRefereeId);
+    }
+    setShowRefereeModal(false);
+    handleDeriv();
+  };
 
   const isSignup = mode === "signup";
   const showOAuthDebug = String(debug_oauth ?? "") === "1";
@@ -190,7 +219,7 @@ function AuthPage() {
 
           <div className="mt-6 grid gap-3">
             <Button
-              onClick={handleDeriv}
+              onClick={handleConnectClick}
               size="lg"
               disabled={busy}
               className="h-auto w-full justify-start px-4 py-3 text-left shadow-[0_0_30px_-5px_oklch(0.78_0.16_230_/_0.5)]"
@@ -357,6 +386,39 @@ function AuthPage() {
           third-party interface for the Deriv API.
         </p>
       </div>
+
+      {showRefereeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md animate-in zoom-in-95 rounded-2xl border border-border bg-card p-6 text-card-foreground shadow-xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                <Users className="h-5 w-5 text-primary" />
+              </div>
+              <h2 className="text-xl font-semibold">Who invited you?</h2>
+            </div>
+            <p className="mb-6 text-sm text-muted-foreground">
+              Please select the person who referred you to ArkTrader Hub. If you weren't invited, simply choose "Not invited".
+            </p>
+            <div className="space-y-4">
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                value={selectedRefereeId}
+                onChange={(e) => setSelectedRefereeId(e.target.value)}
+              >
+                <option value="none">Not invited (I found it myself)</option>
+                {referees.map((ref) => (
+                  <option key={ref.id} value={ref.id}>
+                    {ref.name}
+                  </option>
+                ))}
+              </select>
+              <Button onClick={handleRefereeSubmit} className="w-full">
+                Continue to Connect Deriv <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

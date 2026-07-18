@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { AiAssistant } from "@/components/ai-assistant";
 import { BotRunMonitorPanel } from "@/components/bot-run-monitor";
 import { useAuth } from "@/hooks/use-auth";
-import { RefereeOnboardingModal } from "@/components/referee-onboarding-modal";
 import { useDerivBalanceContext } from "@/context/deriv-balance-context";
 import { useTheme } from "@/hooks/use-theme";
 import { useBotRunner } from "@/context/bot-runner-context";
@@ -245,7 +244,6 @@ export function TopShell({
 
   return (
     <>
-      <RefereeOnboardingModal />
       <div className="flex min-h-dvh min-w-0 flex-col overflow-x-hidden bg-[#f2f3f4] text-[#333333] dark:bg-[#0e0e0e] dark:text-[#e6e6e6]">
       <header className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-[#e5e5e5] bg-white px-3 py-2 sm:flex-nowrap md:px-6 dark:border-[#242424] dark:bg-[#151515]">
         <Link to="/" className="flex min-w-0 items-center gap-2">
