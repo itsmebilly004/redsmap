@@ -471,6 +471,10 @@ function AdminProfitsPage() {
       `+$${Number(t.profit_loss).toFixed(2)}`
     ]);
 
+    if (tableData.length === 0) {
+      tableData.push(["No data for this period", "-", "-", "$0.00"]);
+    }
+
     try {
       if (typeof (doc as any).autoTable === "function") {
         (doc as any).autoTable({
