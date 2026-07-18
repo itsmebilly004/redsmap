@@ -80,6 +80,8 @@ function AdminProfitsPage() {
   const [reportEndDate, setReportEndDate] = useState<string>("");
   const [selectedRefereeDetails, setSelectedRefereeDetails] = useState<{id: string, name: string} | null>(null);
   const [selectedRefereeChartData, setSelectedRefereeChartData] = useState<{ date: string; profit: number }[]>([]);
+  const [refereeModalStartDate, setRefereeModalStartDate] = useState<string>("");
+  const [refereeModalEndDate, setRefereeModalEndDate] = useState<string>("");
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -674,6 +676,20 @@ function AdminProfitsPage() {
     );
   }
 
+  let displayChartData = selectedRefereeChartData;
+  if (refereeModalStartDate || refereeModalEndDate) {
+    displayChartData = displayChartData.filter(d => {
+      const dDate = new Date(d.date);
+      if (refereeModalStartDate && dDate < new Date(refereeModalStartDate)) return false;
+      if (refereeModalEndDate) {
+        const end = new Date(refereeModalEndDate);
+        end.setHours(23, 59, 59, 999);
+        if (dDate > end) return false;
+      }
+      return true;
+    });
+  }
+
   return (
     <TopShell>
       <div className="flex-1 overflow-auto p-4 sm:p-8">
@@ -929,14 +945,31 @@ function AdminProfitsPage() {
                     <h2 className="text-xl font-bold text-[#333] dark:text-[#eee]">{selectedRefereeDetails.name}</h2>
                     <p className="text-sm text-[#777] dark:text-[#aaa]">Performance Distribution Over Time</p>
                   </div>
-                  <Button variant="ghost" onClick={() => setSelectedRefereeDetails(null)} className="text-[#555] hover:bg-[#eaeaea] dark:text-[#ccc] dark:hover:bg-[#222]">
-                    Close
-                  </Button>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 text-sm text-[#555] dark:text-[#ccc]">
+                      <Input 
+                        type="date" 
+                        value={refereeModalStartDate} 
+                        onChange={e => setRefereeModalStartDate(e.target.value)} 
+                        className="h-8 w-36 bg-transparent dark:border-[#333]" 
+                      />
+                      <span>to</span>
+                      <Input 
+                        type="date" 
+                        value={refereeModalEndDate} 
+                        onChange={e => setRefereeModalEndDate(e.target.value)} 
+                        className="h-8 w-36 bg-transparent dark:border-[#333]" 
+                      />
+                    </div>
+                    <Button variant="ghost" onClick={() => setSelectedRefereeDetails(null)} className="text-[#555] hover:bg-[#eaeaea] dark:text-[#ccc] dark:hover:bg-[#222]">
+                      Close
+                    </Button>
+                  </div>
                 </div>
                 
                 <div className="h-[300px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={selectedRefereeChartData}>
+                    <AreaChart data={displayChartData}>
                       <defs>
                         <linearGradient id="colorProfitRef" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#078a5b" stopOpacity={0.3}/>
