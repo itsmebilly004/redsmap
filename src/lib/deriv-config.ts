@@ -5,6 +5,7 @@ export const DERIV_OAUTH_TOKEN_ENDPOINT = "https://auth.deriv.com/oauth2/token";
 export const DERIV_API_BASE_URL = "https://api.derivws.com";
 export const DERIV_OAUTH_SCOPE = "trade account_manage";
 
+
 // Legacy direct-token OAuth flow (older Deriv accounts that don't use OAuth2 PKCE).
 // Tokens come back in the redirect query (token1/acct1/cur1/...) and are used directly
 // against the public WebSocket with `authorize { authorize: <token> }`.
