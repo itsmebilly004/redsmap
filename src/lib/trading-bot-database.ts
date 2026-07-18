@@ -27,7 +27,7 @@ type BotRow = {
   updated_at: string;
 };
 
-const STRATEGY_KIND = "arktrader.asset-bot-xml";
+const STRATEGY_KIND = "Redsmap.asset-bot-xml";
 const STRATEGY_VERSION = 1;
 
 const assetXmlModules = import.meta.glob<string>("/src/assets/*.xml", {
@@ -48,7 +48,7 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
   },
   {
     id: "nova-v6",
-    name: "ArkTraders Nova Stalker",
+    name: "Redsmaps Nova Stalker",
     iconKey: "cpu",
     desc: "Adaptive Digit Under strategy loaded from the Nova XML asset.",
     fileMatch: "Nova_Digit_Harvester",
@@ -58,7 +58,7 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
   },
   {
     id: "mega-mind",
-    name: "ArkTraders MegaMind Surge",
+    name: "Redsmaps MegaMind Surge",
     iconKey: "brain",
     desc: "Digit Over scalper loaded directly from the Mega Mind XML asset.",
     fileMatch: "Mega_Mind",
@@ -68,7 +68,7 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
   },
   {
     id: "phantom-hit-run",
-    name: "ArkTraders Phantom HitRun",
+    name: "Redsmaps Phantom HitRun",
     iconKey: "flame",
     desc: "Rise/Fall hit-and-run strategy loaded from the Phantom XML asset.",
     fileMatch: "Phantom HitRun",
@@ -78,7 +78,7 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
   },
   {
     id: "candle-mine",
-    name: "ArkTraders CandleVault Sentinel",
+    name: "Redsmaps CandleVault Sentinel",
     iconKey: "zap",
     desc: "Digit Differs strategy loaded from the Candle Mine XML asset.",
     fileMatch: "candlevault",
@@ -88,7 +88,7 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
   },
   {
     id: "dec-entry",
-    name: "ArkTraders Entry Point Sniper",
+    name: "Redsmaps Entry Point Sniper",
     iconKey: "target",
     desc: "Entry-point Digit Over setup loaded from the DEC XML asset.",
     fileMatch: "dec  entry point",
@@ -98,20 +98,20 @@ export const TRADING_BOT_ASSETS: TradingBotAsset[] = [
   },
   {
     id: "under-pro-sentinel",
-    name: "ArkTraders UnderPro Sentinel",
+    name: "Redsmaps UnderPro Sentinel",
     iconKey: "shield",
     desc: "Precision Digit Under sentinel strategy on 1HZ10V, loaded from the UnderPro Sentinel XML asset.",
-    fileMatch: "ArkTraders UnderPro Sentinel",
+    fileMatch: "Redsmaps UnderPro Sentinel",
     market: "1HZ10V",
     tradeType: "Over/Under",
     contractType: "Under",
   },
   {
     id: "osam-auto-pilot",
-    name: "ArkTraders AutoBot Pro",
+    name: "Redsmaps AutoBot Pro",
     iconKey: "rocket",
     desc: "Fully automated Over/Under pilot strategy on 1HZ10V, loaded from the AutoPilot XML asset.",
-    fileMatch: "ArkTraders Osam AutoPilot",
+    fileMatch: "Redsmaps Osam AutoPilot",
     market: "1HZ10V",
     tradeType: "Over/Under",
     contractType: "Over/Under",
@@ -224,7 +224,7 @@ export async function ensureTradingBotDatabasePresets(
       });
       if (error) console.warn(`[trading-bots] failed to insert ${asset.name}:`, error);
     } catch (err) {
-      console.warn(`[trading-bots] skipped ${asset.name} — could not load XML asset:`, err);
+      console.warn(`[trading-bots] skipped ${asset.name} â€” could not load XML asset:`, err);
     }
   }
 

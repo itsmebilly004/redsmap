@@ -62,7 +62,7 @@ import { getBlocklyRuntime, getDerivWorkspace, type BlocklyEventLike } from "./b
 import "./bot-builder.css";
 
 const PERSIST_DEBOUNCE_MS = 200;
-const SIDEBAR_PREF_KEY = "arktrader:bot-builder:sidebar-collapsed";
+const SIDEBAR_PREF_KEY = "Redsmap:bot-builder:sidebar-collapsed";
 
 const generatePresetId = (): string => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -212,7 +212,7 @@ const BotBuilderInner = observer(() => {
           // during Deploy and must persist across navigations so autosave can
           // continue updating the preset-workspaces key. It is only cleared when
           // the user explicitly loads a different strategy (file upload, library
-          // load, or workspace reset) — each of those handlers already calls
+          // load, or workspace reset) â€” each of those handlers already calls
           // clearCurrentBotPresetId directly.
           const saved_xml = readSavedWorkspaceXml(currentUser) ?? readSavedWorkspaceXml(null);
           if (saved_xml) {
@@ -307,7 +307,7 @@ const BotBuilderInner = observer(() => {
       }
     };
     // Mount-only: run init exactly once per route mount. Auth resolution
-    // (userId null → uuid) and preset URL changes are handled by their own
+    // (userId null â†’ uuid) and preset URL changes are handled by their own
     // effects so we never re-inject Blockly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -337,11 +337,11 @@ const BotBuilderInner = observer(() => {
   // When the user signs in AFTER the bot-builder has already mounted (late auth
   // resolution), ensure the workspace is persisted under the user-specific key.
   // Two cases:
-  //   1. Guest edits exist and no user key yet → promote anonymous work.
+  //   1. Guest edits exist and no user key yet â†’ promote anonymous work.
   //   2. Auth resolved after dbot init completed (race): init read the null key
-  //      (null → "guest"), found nothing, so the workspace was loaded from
+  //      (null â†’ "guest"), found nothing, so the workspace was loaded from
   //      localForage. The user key might already exist (prior session) but the
-  //      current workspace is the authoritative live state — snapshot it now so
+  //      current workspace is the authoritative live state â€” snapshot it now so
   //      future mounts that DO resolve auth before dbot init read the right XML.
   React.useEffect(() => {
     if (!initialisedRef.current) return;
@@ -359,7 +359,7 @@ const BotBuilderInner = observer(() => {
       // because both paths write there). Snapshot the live workspace to refresh
       // the user key with the most recent state and clear the stale guest key.
       persistWorkspaceSnapshot(userId, ws);
-      try { window.localStorage.removeItem(`arktrader:bot-builder:guest:workspace-xml`); } catch { /* noop */ }
+      try { window.localStorage.removeItem(`Redsmap:bot-builder:guest:workspace-xml`); } catch { /* noop */ }
     }
   }, [userId]);
 
@@ -380,7 +380,7 @@ const BotBuilderInner = observer(() => {
     const result = await loadWorkspaceFromFile(file, workspace, userId);
     if (result.ok) {
       toast.success(
-        `Loaded ${file.name} — ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}.`,
+        `Loaded ${file.name} â€” ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}.`,
       );
       setSaveName(file.name.replace(/\.xml$/i, "") || "My bot strategy");
       setLoadOpen(false);
@@ -560,7 +560,7 @@ const BotBuilderInner = observer(() => {
           <div ref={containerRef} id="scratch_div" />
           {is_loading && (
             <div className="bot-builder-overlay" aria-live="polite">
-              Loading Blockly…
+              Loading Blocklyâ€¦
             </div>
           )}
           {error && (
@@ -637,7 +637,7 @@ const BotBuilderInner = observer(() => {
               onClick={handleFilePickerOpen}
             >
               <Upload className="size-4" />
-              Open from your computer…
+              Open from your computerâ€¦
             </Button>
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
@@ -667,8 +667,8 @@ const BotBuilderInner = observer(() => {
                       >
                         <span className="block truncate text-sm font-medium">{preset.name}</span>
                         <span className="block truncate text-xs text-muted-foreground">
-                          Saved {formatSavedAt(preset.savedAt)} · {preset.settings.symbol || "—"}
-                          {preset.xml ? "" : " · settings only"}
+                          Saved {formatSavedAt(preset.savedAt)} Â· {preset.settings.symbol || "â€”"}
+                          {preset.xml ? "" : " Â· settings only"}
                         </span>
                       </button>
                       <Button

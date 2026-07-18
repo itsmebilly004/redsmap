@@ -36,7 +36,7 @@ export const BOT_PRESET_CONFIGS: BotPresetConfig[] = [
   },
   {
     id: "nova-v6",
-    name: "ArkTraders Nova Stalker",
+    name: "Redsmaps Nova Stalker",
     iconKey: "cpu",
     desc: "Adaptive Under strategy tuned for fast 1-second index sessions with controlled recovery.",
     market: "1HZ100V",
@@ -53,7 +53,7 @@ export const BOT_PRESET_CONFIGS: BotPresetConfig[] = [
   },
   {
     id: "mega-mind",
-    name: "ArkTraders MegaMind Surge",
+    name: "Redsmaps MegaMind Surge",
     iconKey: "brain",
     desc: "Digit Over scalper with measured recovery and fast tick execution on low-volatility indices.",
     market: "1HZ10V",
@@ -70,7 +70,7 @@ export const BOT_PRESET_CONFIGS: BotPresetConfig[] = [
   },
   {
     id: "phantom-hit-run",
-    name: "ArkTraders Phantom HitRun",
+    name: "Redsmaps Phantom HitRun",
     iconKey: "flame",
     desc: "High-velocity Rise/Fall sniper built for short, decisive Volatility 100 bursts.",
     market: "R_100",
@@ -87,7 +87,7 @@ export const BOT_PRESET_CONFIGS: BotPresetConfig[] = [
   },
   {
     id: "candle-mine",
-    name: "ArkTraders CandleVault Sentinel",
+    name: "Redsmaps CandleVault Sentinel",
     iconKey: "zap",
     desc: "Digit Differs specialist targeting differs contracts with aggressive recovery controls.",
     market: "R_100",
@@ -104,7 +104,7 @@ export const BOT_PRESET_CONFIGS: BotPresetConfig[] = [
   },
   {
     id: "dec-entry",
-    name: "ArkTraders Entry Point Sniper",
+    name: "Redsmaps Entry Point Sniper",
     iconKey: "target",
     desc: "Entry-point driven Digit Over setup built for traders who want precise trigger-based execution.",
     market: "1HZ10V",
@@ -121,7 +121,7 @@ export const BOT_PRESET_CONFIGS: BotPresetConfig[] = [
   },
   {
     id: "auto-pilot-shield",
-    name: "ArkTraders AutoPilot Shield",
+    name: "Redsmaps AutoPilot Shield",
     iconKey: "shield",
     desc: "Hands-off Digit Odd auto-bot designed for disciplined, hands-free volatility 100 sessions.",
     market: "R_100",
@@ -138,7 +138,7 @@ export const BOT_PRESET_CONFIGS: BotPresetConfig[] = [
   },
   {
     id: "under-pro-bot",
-    name: "ArkTraders UnderPro Vortex",
+    name: "Redsmaps UnderPro Vortex",
     iconKey: "radar",
     desc: "Under-focused setup tuned for Digit Under entries on Volatility 100 (1s).",
     market: "1HZ100V",

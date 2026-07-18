@@ -31,11 +31,11 @@ const DERIV_OAUTH_PKCE_BACKUP_TTL_MS = 15 * 60 * 1000;
 const PUBLIC_WS_URL = `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${DERIV_LEGACY_APP_ID}`;
 const FORBIDDEN_OAUTH_ROUTE_MARKERS = ["redirect=home", "brand=deriv"];
 export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
-  "Deriv completed login on its dashboard instead of returning an OAuth code to ArkTrader. The OAuth callback was never reached; verify the exact redirect_uri registration and ask Deriv to enable this OAuth client for legacy-account routing.";
+  "Deriv completed login on its dashboard instead of returning an OAuth code to Redsmap. The OAuth callback was never reached; verify the exact redirect_uri registration and ask Deriv to enable this OAuth client for legacy-account routing.";
 const DERIV_FORBIDDEN_OAUTH_ROUTE_MESSAGE =
   "Blocked unsupported Deriv OAuth route. Use the OAuth2 PKCE authorization endpoint.";
 const DERIV_OAUTH_ONLY_RECONNECT_MESSAGE =
-  "Reconnect this Deriv account through OAuth2. ArkTrader uses client_id 33dF8d2wwjIpeFDBvNkln for all account types.";
+  "Reconnect this Deriv account through OAuth2. Redsmap uses client_id 33dF8d2wwjIpeFDBvNkln for all account types.";
 const DERIV_SESSION_EXPIRED_CODE = "DERIV_SESSION_EXPIRED";
 const DERIV_OTP_AUTH_FAILED_CODE = "DERIV_OTP_AUTH_FAILED";
 const DERIV_TRADING_SESSION_NOT_INITIALIZED_CODE = "DERIV_TRADING_SESSION_NOT_INITIALIZED";
@@ -1987,7 +1987,7 @@ export async function send(payload: DerivRecord): Promise<DerivMessage> {
 // only accepts `symbol`, not `underlying_symbol`. The legacy direct-token app
 // surfaces this strictly ("Properties not allowed: underlying_symbol"). The new
 // PKCE flow is wired to `underlying_symbol` end-to-end, so we only rename the
-// field for the legacy adapter — PKCE payloads are passed through unchanged.
+// field for the legacy adapter â€” PKCE payloads are passed through unchanged.
 function adaptPayloadForActiveAdapter(payload: DerivRecord): DerivRecord {
   if (authenticatedAccount?.tokenSource !== "deriv_legacy_token") return payload;
   if (!("underlying_symbol" in payload)) return payload;
@@ -2581,7 +2581,7 @@ export function redirectToDerivOAuth(url: string) {
 // Legacy OAuth (direct-token) flow: per the official Deriv API spec the
 // authorization URL takes only `app_id`. The registered "OAuth redirect URL"
 // on developers.deriv.com decides where Deriv sends the user back with
-// `acct1=…&token1=…&cur1=…`. We build the absolutely minimal URL so Deriv has
+// `acct1=â€¦&token1=â€¦&cur1=â€¦`. We build the absolutely minimal URL so Deriv has
 // nothing to reject; any extra query parameter (redirect_uri, brand, l, etc.)
 // risks dropping the user onto Deriv's anonymous landing page.
 export function buildLegacyOAuthUrl(options: { returnTo?: string } = {}): string {
@@ -2615,7 +2615,7 @@ export function redirectToDerivLegacyOAuth(url: string) {
   for (const forbidden of ["redirect_uri", "redirect", "brand", "l", "scope", "state"]) {
     if (parsed.searchParams.has(forbidden)) {
       throw new Error(
-        `Legacy OAuth URL must not include "${forbidden}" — only app_id is allowed. The redirect is configured on the Deriv app dashboard.`,
+        `Legacy OAuth URL must not include "${forbidden}" â€” only app_id is allowed. The redirect is configured on the Deriv app dashboard.`,
       );
     }
   }
@@ -2635,9 +2635,9 @@ export function redirectToDerivLegacyOAuth(url: string) {
   // background cross-origin GET to Deriv's own /oauth2/sessions/logout
   // endpoint with credentials. The browser carries the existing oauth.deriv.com
   // session cookie first-party, Deriv invalidates the session and returns
-  // Set-Cookie clearance headers, and the browser applies them — all
+  // Set-Cookie clearance headers, and the browser applies them â€” all
   // invisibly, with no popup or iframe shown to the user. The subsequent
-  // top-level navigation to the bare ?app_id=… URL then sees no active
+  // top-level navigation to the bare ?app_id=â€¦ URL then sees no active
   // session, so Deriv reliably presents the login/authorization screen and
   // the callback round-trip completes.
   clearDerivLegacyOAuthSessionCookie().finally(() => {
@@ -2659,7 +2659,7 @@ function clearDerivLegacyOAuthSessionCookie(): Promise<void> {
       resolve();
     };
     // Hard cap so a slow/blocked network never strands the user. If the
-    // fetch hasn't completed in 1.8s we proceed with the redirect anyway —
+    // fetch hasn't completed in 1.8s we proceed with the redirect anyway â€”
     // worst case the user lands on the existing behavior, never worse.
     const hardTimeout = window.setTimeout(finish, 1800);
     try {
@@ -2841,7 +2841,7 @@ export async function getAuthenticatedWsUrl(
   if (tokenSource === "deriv_legacy_token") {
     // Legacy direct-token flow: connect to the public Deriv WebSocket with the legacy
     // app_id. The token is sent over the open socket via {authorize: token} from
-    // openAuthenticatedSocket() — there is no OTP/URL exchange step.
+    // openAuthenticatedSocket() â€” there is no OTP/URL exchange step.
     const legacyUrl = `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${encodeURIComponent(DERIV_LEGACY_APP_ID)}`;
     console.info("[Deriv WS] Legacy authorize-mode WebSocket URL prepared", {
       accountId,
@@ -3038,7 +3038,7 @@ async function publicSend(payload: DerivRecord): Promise<DerivMessage> {
 /**
  * Send N public Deriv requests over a SINGLE shared WebSocket and resolve each
  * independently. Cuts the per-call WS handshake overhead (TLS + WS upgrade,
- * typically 150–400 ms) to a single one for the whole batch — the main source
+ * typically 150â€“400 ms) to a single one for the whole batch â€” the main source
  * of latency when the AI assistant scans many markets in parallel.
  *
  * Each item resolves to a DerivMessage on success or an Error on per-request
@@ -3076,7 +3076,7 @@ export async function publicSendBatch(
       } catch {
         /* ignore */
       }
-      // Fill any holes (defensive — shouldn't happen given the bookkeeping)
+      // Fill any holes (defensive â€” shouldn't happen given the bookkeeping)
       resolveAll(
         results.map((value) =>
           value === undefined ? new Error("Deriv public batch did not return") : value,

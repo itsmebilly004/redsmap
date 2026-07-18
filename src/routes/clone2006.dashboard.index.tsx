@@ -103,7 +103,7 @@ function DashboardHome() {
           <div className="min-w-0">
             <div className="font-medium text-foreground">Connect your Deriv account</div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Authorize ArkTrader through Deriv's official OAuth — no passwords stored.
+              Authorize Redsmap through Deriv's official OAuth â€” no passwords stored.
             </p>
           </div>
           <Button
@@ -121,13 +121,13 @@ function DashboardHome() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-sm font-medium text-foreground">Recent trades</h3>
             <Link to="/clone2006/dashboard/analytics" className="text-xs text-primary hover:underline">
-              View all →
+              View all â†’
             </Link>
           </div>
           {trades.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <p className="text-sm text-muted-foreground">
-                No trades yet — head to the Trade desk.
+                No trades yet â€” head to the Trade desk.
               </p>
               <Button
                 asChild

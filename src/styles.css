@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * ArkTrader Hub — Glass Architectural design system.
+ * Redsmap Traders â€” Glass Architectural design system.
  * Dark midnight-blue, sky accent, layered translucency.
  * All colors in oklch.
  */
@@ -118,7 +118,7 @@
 .dark {
   color-scheme: dark;
 
-  /* Original ArkTrader Hub dark — fintech glass-architectural. */
+  /* Original Redsmap Traders dark â€” fintech glass-architectural. */
   --background: oklch(0.14 0.02 260);
   --foreground: oklch(0.96 0.01 240);
 

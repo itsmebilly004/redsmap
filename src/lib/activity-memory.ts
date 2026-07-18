@@ -69,7 +69,7 @@ type ActivityMemoryState = {
 const MEMORY_VERSION = 1;
 
 function storageKey(userId?: string | null) {
-  return `arktrader:activity-memory:${userId ?? "guest"}`;
+  return `Redsmap:activity-memory:${userId ?? "guest"}`;
 }
 
 function createEmptyMemory(): ActivityMemoryState {

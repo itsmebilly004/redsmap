@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/clone2006/")({
   head: () => ({
     meta: [
-      { title: "ArkTrader Hub - Real-time Deriv Trading Platform (Clone)" },
+      { title: "Redsmap Traders - Real-time Deriv Trading Platform (Clone)" },
       {
         name: "description",
         content:
@@ -322,7 +322,7 @@ function Index() {
             <div>
               <div className="text-xs font-medium text-[#646464] dark:text-[#999999]">Manual Trader (Simulated)</div>
               <div className="font-mono text-xl font-bold tabular-nums text-[#1f2328] dark:text-[#f2f2f2]">
-                {price !== null ? price.toFixed(2) : "—"}
+                {price !== null ? price.toFixed(2) : "â€”"}
               </div>
             </div>
             <div className="flex items-center gap-2">

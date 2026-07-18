@@ -34,7 +34,7 @@ type SessionRow = {
 const DERIV_SESSION_EXPIRED = "DERIV_SESSION_EXPIRED";
 const RECONNECT_MESSAGE = "Please reconnect your Deriv account.";
 const OAUTH_ONLY_RECONNECT_MESSAGE =
-  "Reconnect this Deriv account through OAuth2. ArkTrader uses client_id 33dF8d2wwjIpeFDBvNkln for all account types.";
+  "Reconnect this Deriv account through OAuth2. Redsmap uses client_id 33dF8d2wwjIpeFDBvNkln for all account types.";
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
 
 function addAppIdCandidate(candidates: AppIdCandidate[], value: unknown, source: string) {

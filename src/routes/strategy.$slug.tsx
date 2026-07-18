@@ -11,7 +11,7 @@ export const Route = createFileRoute("/strategy/$slug")({
   },
   head: ({ loaderData }) => ({
     meta: [
-      { title: `${loaderData?.name ?? "Strategy"} — ArkTrader Hub` },
+      { title: `${loaderData?.name ?? "Strategy"} â€” Redsmap Traders` },
       {
         name: "description",
         content: loaderData?.tagline ?? "Detailed beginner-friendly trading strategy guide.",

@@ -259,7 +259,7 @@ function SettingsPage() {
       <section className="glass-card rounded-xl border-destructive/30 p-5">
         <h3 className="text-sm font-medium text-destructive">Danger zone</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Permanently remove your data from ArkTrader Hub.
+          Permanently remove your data from Redsmap Traders.
         </p>
         <Button variant="destructive" className="mt-4 w-full sm:w-auto" onClick={deleteAccount}>
           Delete account & data

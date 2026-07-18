@@ -16,7 +16,7 @@ import { STRATEGIES } from "@/lib/strategies";
 export const Route = createFileRoute("/clone2006/strategies")({
   head: () => ({
     meta: [
-      { title: "Advanced Trading Strategies — ArkTrader Hub" },
+      { title: "Advanced Trading Strategies â€” Redsmap Traders" },
       {
         name: "description",
         content:

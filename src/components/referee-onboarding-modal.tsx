@@ -97,7 +97,7 @@ export function RefereeOnboardingModal() {
           </div>
           <h2 className="mb-2 text-2xl font-bold text-white">Who invited you?</h2>
           <p className="text-sm text-[#aaa]">
-            Please select the person who referred you to ArkTraders Hub. If no one referred you, select "None".
+            Please select the person who referred you to Redsmap Traders. If no one referred you, select "None".
           </p>
         </div>
 

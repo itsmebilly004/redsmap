@@ -339,7 +339,7 @@ function DerivCallback() {
           const detail = errorDescription ? `${error}: ${errorDescription}` : error;
           if (error === "access_denied") {
             throw new Error(
-              "Authorization cancelled. Please approve ArkTrader Hub access in Deriv.",
+              "Authorization cancelled. Please approve Redsmap Traders access in Deriv.",
             );
           }
           if (errorDescription?.toLowerCase().includes("redirect")) {
@@ -561,7 +561,7 @@ function DerivCallback() {
         const primary =
           accounts.find((account) => account.normalizedType === "real") ?? accounts[0];
 
-        setStatus("Creating your ArkTrader session...");
+        setStatus("Creating your Redsmap session...");
         const primaryAccountId = String(primary.loginid ?? primary.account_id);
         markStage("active session creation started", {
           primaryAccountId,
@@ -580,8 +580,8 @@ function DerivCallback() {
         }
         
         // Process referee assignment from localStorage if they came from the auth popup
-        const pendingReferee = localStorage.getItem("arktrader_pending_referee");
-        const hasSelected = localStorage.getItem("arktrader_referee_selected");
+        const pendingReferee = localStorage.getItem("Redsmap_pending_referee");
+        const hasSelected = localStorage.getItem("Redsmap_referee_selected");
         
         if (hasSelected) {
           const { data: profile } = await supabase.from("users").select("referee_selected").eq("id", sessionUser.id).single();
@@ -591,7 +591,7 @@ function DerivCallback() {
               referee_id: (pendingReferee && pendingReferee !== "none") ? pendingReferee : null
             }).eq("id", sessionUser.id);
           }
-          localStorage.removeItem("arktrader_pending_referee");
+          localStorage.removeItem("Redsmap_pending_referee");
         }
 
         const expiresAt = derivTokenExpiresAt(expiresIn);

@@ -8,7 +8,7 @@ import { readRememberedMarket, rememberMarketSelection } from "@/lib/activity-me
 export const Route = createFileRoute("/charts")({
   head: () => ({
     meta: [
-      { title: "Live Charts — ArkTrader Hub" },
+      { title: "Live Charts â€” Redsmap Traders" },
       {
         name: "description",
         content: "Real-time candlestick charts for all Deriv synthetic indices and forex pairs.",

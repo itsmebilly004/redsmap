@@ -15,7 +15,7 @@ import {
 
 // Legacy direct-token Deriv OAuth callback. The redirect URL Deriv sends users
 // back to (https://www.redsmaptraders.com/redirect) carries token1/acct1/cur1
-// triplets — one per linked account. We authorize each over the public Deriv
+// triplets â€” one per linked account. We authorize each over the public Deriv
 // WebSocket (no PKCE / no token exchange) and persist the results.
 
 export const Route = createFileRoute("/redirect")({
@@ -305,7 +305,7 @@ function LegacyRedirectCallback() {
           normalizedAccounts[0];
         const primaryAccountId = String(primary.loginid ?? primary.account_id);
 
-        setStatus("Creating your ArkTrader session...");
+        setStatus("Creating your Redsmap session...");
         markStage("supabase session creation started", { primaryAccountId });
         const sessionUser = await ensureSupabaseSession(primaryAccountId);
 

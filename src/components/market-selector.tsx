@@ -39,7 +39,7 @@ type SymbolGroup = {
   items: ActiveSymbol[];
 };
 
-const FAVORITES_STORAGE_KEY = "arktrader-market-favorites";
+const FAVORITES_STORAGE_KEY = "Redsmap-market-favorites";
 
 const CATEGORIES: MarketCategory[] = [
   { key: "favorites", label: "Favorites", Icon: Star },

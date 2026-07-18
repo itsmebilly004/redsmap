@@ -442,8 +442,8 @@ function AdminProfitsPage() {
     
     // Branding Header
     doc.setFontSize(22);
-    doc.setTextColor(7, 138, 91); // ArkTrader Hub Green
-    doc.text("ArkTrader Hub", 14, 20);
+    doc.setTextColor(7, 138, 91); // Redsmap Traders Green
+    doc.text("Redsmap Traders", 14, 20);
     
     doc.setFontSize(14);
     doc.setTextColor(51, 51, 51);
@@ -498,7 +498,7 @@ function AdminProfitsPage() {
       doc.text("Table generation failed (plugin error).", 14, 60);
     }
 
-    doc.save(`arktrader_report_${refereeName.replace(/\s+/g, '_')}.pdf`);
+    doc.save(`Redsmap_report_${refereeName.replace(/\s+/g, '_')}.pdf`);
   };
 
   const handleRefereeClick = (id: string, name: string) => {
@@ -644,7 +644,7 @@ function AdminProfitsPage() {
                 <label className="text-sm font-medium text-[#333] dark:text-[#eee]">Password</label>
                 <Input
                   type="password"
-                  placeholder="••••••••"
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required

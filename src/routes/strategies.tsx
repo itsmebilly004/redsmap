@@ -16,7 +16,7 @@ import { STRATEGIES } from "@/lib/strategies";
 export const Route = createFileRoute("/strategies")({
   head: () => ({
     meta: [
-      { title: "Advanced Trading Strategies — ArkTrader Hub" },
+      { title: "Advanced Trading Strategies â€” Redsmap Traders" },
       {
         name: "description",
         content:

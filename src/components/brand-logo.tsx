@@ -1,10 +1,10 @@
-import brandLogoUrl from "@/assets/ArkTrader logo.jpeg";
+import brandLogoUrl from "@/assets/redsmap-logo.png";
 import { cn } from "@/lib/utils";
 
 export function BrandLogo({
   className,
   imageClassName,
-  label = "ArkTrader Hub",
+  label = "Redsmap Traders",
   labelClassName,
   showLabel = true,
 }: {

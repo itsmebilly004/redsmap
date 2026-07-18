@@ -50,7 +50,7 @@ function AuthPage() {
   }, []);
 
   const handleConnectClick = () => {
-    if (localStorage.getItem("arktrader_referee_selected")) {
+    if (localStorage.getItem("Redsmap_referee_selected")) {
       handleDeriv();
     } else {
       setShowRefereeModal(true);
@@ -58,9 +58,9 @@ function AuthPage() {
   };
 
   const handleRefereeSubmit = () => {
-    localStorage.setItem("arktrader_referee_selected", "true");
+    localStorage.setItem("Redsmap_referee_selected", "true");
     if (selectedRefereeId !== "none") {
-      localStorage.setItem("arktrader_pending_referee", selectedRefereeId);
+      localStorage.setItem("Redsmap_pending_referee", selectedRefereeId);
     }
     setShowRefereeModal(false);
     handleDeriv();
@@ -214,7 +214,7 @@ function AuthPage() {
           <p className="mt-1.5 text-sm text-muted-foreground">
             {isSignup
               ? "You'll be redirected to Deriv to register, then sent straight back to your dashboard."
-              : "Continue with the Deriv account you already use to trade — no passwords stored here."}
+              : "Continue with the Deriv account you already use to trade â€” no passwords stored here."}
           </p>
 
           <div className="mt-6 grid gap-3">
@@ -361,7 +361,7 @@ function AuthPage() {
             </li>
             <li className="flex gap-2">
               <span className="mt-1 size-1 shrink-0 rounded-full bg-primary" />
-              ArkTrader receives a trading token only — never your password.
+              Redsmap receives a trading token only â€” never your password.
             </li>
             <li className="flex gap-2">
               <span className="mt-1 size-1 shrink-0 rounded-full bg-primary" />
@@ -382,7 +382,7 @@ function AuthPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          By continuing you agree to trade at your own risk. ArkTrader Hub is an independent
+          By continuing you agree to trade at your own risk. Redsmap Traders is an independent
           third-party interface for the Deriv API.
         </p>
       </div>
@@ -397,7 +397,7 @@ function AuthPage() {
               <h2 className="text-xl font-semibold">Who invited you?</h2>
             </div>
             <p className="mb-6 text-sm text-muted-foreground">
-              Please select the person who referred you to ArkTrader Hub. If you weren't invited, simply choose "Not invited".
+              Please select the person who referred you to Redsmap Traders. If you weren't invited, simply choose "Not invited".
             </p>
             <div className="space-y-4">
               <select

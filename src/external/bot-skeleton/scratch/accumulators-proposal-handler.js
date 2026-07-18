@@ -1,5 +1,5 @@
 // Visual-only port: the original module ran the WS proposal subscription for
-// accumulator contracts. arktrader's runtime owns proposals, so these are
+// accumulator contracts. Redsmap's runtime owns proposals, so these are
 // no-op stubs that match the original export signature.
 
 export const DEFAULT_PROPOSAL_REQUEST = {

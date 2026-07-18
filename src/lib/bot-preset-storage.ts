@@ -1,7 +1,7 @@
 const DEPLOYED_PRESETS_STORAGE_VERSION = 1;
 
 function deployedPresetStorageKey(userId?: string | null) {
-  return `arktrader:bot-builder:${userId ?? "guest"}:deployed-presets`;
+  return `Redsmap:bot-builder:${userId ?? "guest"}:deployed-presets`;
 }
 
 export function readDeployedBotPresetIds(userId?: string | null) {

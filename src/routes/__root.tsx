@@ -5,7 +5,7 @@ import { SimulatedTradingProvider } from "@/context/simulated-trading-provider";
 import { BotRunnerProvider } from "@/context/bot-runner-context";
 
 import appCss from "../styles.css?url";
-import faviconUrl from "../assets/favicon.png?url";
+import faviconUrl from "../assets/redsmap-favicon.png?url";
 
 function NotFoundComponent() {
   return (
@@ -34,14 +34,14 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "ArkTrader Hub — Trade Smarter with Automation" },
+      { title: "Redsmap Traders â€” Trade Smarter with Automation" },
       {
         name: "description",
         content:
-          "ArkTrader Hub is a third-party trading platform for Deriv. Trade synthetic indices, automate strategies, and stay in control of risk.",
+          "Redsmap Traders is a third-party trading platform for Deriv. Trade synthetic indices, automate strategies, and stay in control of risk.",
       },
-      { name: "author", content: "ArkTrader Hub" },
-      { property: "og:title", content: "ArkTrader Hub — Trade Smarter with Automation" },
+      { name: "author", content: "Redsmap Traders" },
+      { property: "og:title", content: "Redsmap Traders â€” Trade Smarter with Automation" },
       {
         property: "og:description",
         content:
@@ -69,7 +69,7 @@ export const Route = createRootRoute({
 
 const THEME_INIT_SCRIPT = `
 (function(){try{
-  var t = localStorage.getItem('arktrader-theme');
+  var t = localStorage.getItem('Redsmap-theme');
   if (t !== 'dark' && t !== 'light') t = 'light';
   var r = document.documentElement;
   r.classList.toggle('dark', t === 'dark');

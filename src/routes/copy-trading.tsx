@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/copy-trading")({
   head: () => ({
     meta: [
-      { title: "Copy Trading - ArkTrader Hub" },
+      { title: "Copy Trading - Redsmap Traders" },
       {
         name: "description",
-        content: "Copy-trading discovery for ArkTrader Hub. Live mirroring is not enabled yet.",
+        content: "Copy-trading discovery for Redsmap Traders. Live mirroring is not enabled yet.",
       },
     ],
   }),

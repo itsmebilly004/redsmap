@@ -14,7 +14,7 @@ import { Zap, Target, Cpu, BrainCircuit, Flame, Rocket, Shield } from "lucide-re
 export const Route = createFileRoute("/clone2006/trading-bots")({
   head: () => ({
     meta: [
-      { title: "Trading Bot Presets - ArkTrader Hub" },
+      { title: "Trading Bot Presets - Redsmap Traders" },
       {
         name: "description",
         content: "Launch professional-grade Deriv trading bot presets instantly.",

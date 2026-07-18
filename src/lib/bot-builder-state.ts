@@ -87,23 +87,23 @@ export const initialBotBuilderSettings: BotBuilderSettings = {
 };
 
 function currentSettingsStorageKey(userId?: string | null) {
-  return `arktrader:bot-builder:${userId ?? "guest"}:current-settings`;
+  return `Redsmap:bot-builder:${userId ?? "guest"}:current-settings`;
 }
 
 function currentPresetStorageKey(userId?: string | null) {
-  return `arktrader:bot-builder:${userId ?? "guest"}:current-preset`;
+  return `Redsmap:bot-builder:${userId ?? "guest"}:current-preset`;
 }
 
 function savedPresetsStorageKey(userId?: string | null) {
-  return `arktrader:bot-builder:${userId ?? "guest"}:saved-presets`;
+  return `Redsmap:bot-builder:${userId ?? "guest"}:saved-presets`;
 }
 
 function presetSettingsStorageKey(userId?: string | null) {
-  return `arktrader:bot-builder:${userId ?? "guest"}:preset-settings`;
+  return `Redsmap:bot-builder:${userId ?? "guest"}:preset-settings`;
 }
 
 function presetWorkspacesStorageKey(userId?: string | null) {
-  return `arktrader:bot-builder:${userId ?? "guest"}:preset-workspaces`;
+  return `Redsmap:bot-builder:${userId ?? "guest"}:preset-workspaces`;
 }
 
 // Bumped again (v3) after the candlevault else branch was simplified from a

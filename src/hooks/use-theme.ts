@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 export type Theme = "light" | "dark";
 
-const STORAGE_KEY = "arktrader-theme";
+const STORAGE_KEY = "Redsmap-theme";
 const DEFAULT_THEME: Theme = "light";
 
 function readStoredTheme(): Theme {

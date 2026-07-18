@@ -17,7 +17,7 @@ import {
 import { scheduleRecentWorkspaceWrite } from "./recent-workspaces";
 
 const xmlStorageKey = (userId: string | null | undefined) =>
-  `arktrader:bot-builder:${userId ?? "guest"}:workspace-xml`;
+  `Redsmap:bot-builder:${userId ?? "guest"}:workspace-xml`;
 
 export function readSavedWorkspaceXml(userId: string | null | undefined): string | null {
   if (typeof window === "undefined") return null;
@@ -106,7 +106,7 @@ function readFirstNumber(...candidates: unknown[]): number | null {
 //   * variables_get   (follow back to a matching variables_set and recurse)
 // Anything more exotic returns null so the caller can fall back to a default.
 // `forbidden` blocks variables_get from resolving a variable whose ID or name
-// is in the set — this prevents self-referential assignments like
+// is in the set â€” this prevents self-referential assignments like
 // `Stake = Stake * 1.95` from being evaluated as an initial value.
 function evaluateMathBlock(
   block: BlocklyBlockLike | null | undefined,
@@ -200,7 +200,7 @@ function readNumberInput(
   // Fast path: literal math_number shadow.
   const literal = readFirstNumber(target.getFieldValue?.("NUM"));
   if (literal !== null) return literal;
-  // Slow path: walk through math/variables blocks (no forbidden — trade options inputs are not self-referential).
+  // Slow path: walk through math/variables blocks (no forbidden â€” trade options inputs are not self-referential).
   return evaluateMathBlock(target, workspace, new Set());
 }
 
@@ -709,7 +709,7 @@ function setLiteralValueNum(block: Element | null, value: number): boolean {
   const valueBlock = xmlValueBlock(block, "VALUE");
   // Only rewrite literal numeric initial assignments. Self-referential martingale
   // formulas (Stake = Stake * factor) are math_arithmetic, and win-resets
-  // (Stake = Initial Stake) are variables_get — both are skipped here so we never
+  // (Stake = Initial Stake) are variables_get â€” both are skipped here so we never
   // corrupt the bot's recovery logic, only its starting values.
   if (!valueBlock || valueBlock.getAttribute("type") !== "math_number") return false;
   const numField = xmlFieldElement(valueBlock, "NUM");
@@ -723,7 +723,7 @@ function setLiteralValueNum(block: Element | null, value: number): boolean {
  * take-profit inside a DBot strategy XML so a deployed bot actually runs with
  * the user's chosen values. The DBot runtime executes the XML's INITIALIZATION
  * chain on every run (see `initBotState`/`getBotStakeVar`), and
- * `extractSettingsFromXmlText` re-reads these same variables — so persisting the
+ * `extractSettingsFromXmlText` re-reads these same variables â€” so persisting the
  * user's run-loop knobs in `current-settings` alone is not enough; the XML wins
  * at run time unless these literals are updated too.
  *
@@ -759,7 +759,7 @@ export function applyRunSettingsToBotXml(
     }
 
     // Some bots wire the trade-options AMOUNT to a literal rather than a stake
-    // variable — keep it in sync so the very first proposal uses the new stake.
+    // variable â€” keep it in sync so the very first proposal uses the new stake.
     if (values.stake != null) {
       const options = firstXmlBlock(doc, "trade_definition_tradeoptions");
       const amountBlock = xmlValueBlock(options, "AMOUNT");
@@ -788,7 +788,7 @@ export function persistWorkspaceSnapshot(
       const xml_text = B.Xml.domToText(xml_dom);
       writeSavedWorkspaceXml(userId, xml_text);
       // ALSO write to the localForage key dbot.initWorkspace reads from on
-      // every mount. This is the canonical restore path — by writing here,
+      // every mount. This is the canonical restore path â€” by writing here,
       // refresh / re-open of /bot-builder picks up the user's last bot
       // automatically without any post-init React work.
       scheduleRecentWorkspaceWrite(workspace, options?.name ?? "My bot strategy");
@@ -852,7 +852,7 @@ export function loadWorkspaceXmlIntoBlockly(
 
     // 2) Use Blockly's canonical "wipe + load" helper. This is one atomic
     //    operation that clears variables + top blocks AND renders the new
-    //    DOM into the same workspace — no race, no leftover blocks.
+    //    DOM into the same workspace â€” no race, no leftover blocks.
     if (typeof B.Xml.clearWorkspaceAndLoadFromXml === "function") {
       B.Xml.clearWorkspaceAndLoadFromXml(dom, workspace);
     } else if (B.Xml.domToWorkspace) {
