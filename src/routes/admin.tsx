@@ -75,6 +75,12 @@ function AdminProfitsPage() {
   const [newClonePassword, setNewClonePassword] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
   
+  // Advanced reporting & analytics
+  const [reportStartDate, setReportStartDate] = useState<string>("");
+  const [reportEndDate, setReportEndDate] = useState<string>("");
+  const [selectedRefereeDetails, setSelectedRefereeDetails] = useState<{id: string, name: string} | null>(null);
+  const [selectedRefereeChartData, setSelectedRefereeChartData] = useState<{ date: string; profit: number }[]>([]);
+
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchCloneUsers = async () => {
@@ -401,6 +407,15 @@ function AdminProfitsPage() {
       id, profit_loss, symbol, closed_at, user_id, users!inner(is_clone_user)
     `).not("deriv_contract_id", "like", "SIM_%").not("deriv_contract_id", "like", "DEMO_%").eq("users.is_clone_user", false).gt("profit_loss", 0);
 
+    if (reportStartDate) {
+      query = query.gte("closed_at", new Date(reportStartDate).toISOString());
+    }
+    if (reportEndDate) {
+      const end = new Date(reportEndDate);
+      end.setHours(23, 59, 59, 999);
+      query = query.lte("closed_at", end.toISOString());
+    }
+
     const { data: tradesData } = await query;
     if (!tradesData) return;
 
@@ -436,9 +451,16 @@ function AdminProfitsPage() {
     doc.setTextColor(119, 119, 119);
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 38);
     
+    if (reportStartDate || reportEndDate) {
+      doc.setFontSize(9);
+      doc.setTextColor(100, 100, 100);
+      const dateText = `Date Range: ${reportStartDate || 'Beginning'} to ${reportEndDate || 'Now'}`;
+      doc.text(dateText, 14, 43);
+    }
+    
     const totalVol = refereeTrades.reduce((sum, t) => sum + Number(t.profit_loss), 0);
     doc.setTextColor(7, 138, 91);
-    doc.text(`Total Profit Volume: $${totalVol.toFixed(2)}`, 14, 46);
+    doc.text(`Total Profit Volume: $${totalVol.toFixed(2)}`, 14, 51);
 
     const tableData = refereeTrades.map(t => [
       t.closed_at ? new Date(t.closed_at).toLocaleString() : "Unknown",
@@ -447,15 +469,56 @@ function AdminProfitsPage() {
       `+$${Number(t.profit_loss).toFixed(2)}`
     ]);
 
-    autoTable(doc, {
-      startY: 55,
-      head: [['Time', 'Trader', 'Asset', 'Profit (USD)']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [7, 138, 91] }
-    });
+    try {
+      if (typeof (doc as any).autoTable === "function") {
+        (doc as any).autoTable({
+          startY: 60,
+          head: [['Time', 'Trader', 'Asset', 'Profit (USD)']],
+          body: tableData,
+          theme: 'grid',
+          headStyles: { fillColor: [7, 138, 91] }
+        });
+      } else {
+        autoTable(doc, {
+          startY: 60,
+          head: [['Time', 'Trader', 'Asset', 'Profit (USD)']],
+          body: tableData,
+          theme: 'grid',
+          headStyles: { fillColor: [7, 138, 91] }
+        });
+      }
+    } catch (err) {
+      console.warn("AutoTable failed", err);
+      doc.text("Table generation failed (plugin error).", 14, 60);
+    }
 
     doc.save(`arktrader_report_${refereeName.replace(/\s+/g, '_')}.pdf`);
+  };
+
+  const handleRefereeClick = (id: string, name: string) => {
+    setSelectedRefereeDetails({ id, name });
+    
+    let refereeTrades = allTrades;
+    if (id !== "general") {
+      refereeTrades = allTrades.filter(t => {
+        const u = userProfiles[t.user_id];
+        if (id === "unreferred") return !u || !u.referee_id;
+        return u && u.referee_id === id;
+      });
+    }
+
+    const grouped = refereeTrades.reduce((acc, t) => {
+      const date = new Date(t.closed_at || Date.now()).toLocaleDateString();
+      acc[date] = (acc[date] || 0) + Number(t.profit_loss);
+      return acc;
+    }, {} as Record<string, number>);
+
+    const chartData = Object.keys(grouped).map(date => ({
+      date,
+      profit: grouped[date]
+    })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    setSelectedRefereeChartData(chartData);
   };
 
   const handleCreateCloneUser = async () => {
@@ -724,11 +787,29 @@ function AdminProfitsPage() {
 
             {/* Referee Management Panel */}
             <div className="col-span-1 rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
-              <div className="flex items-center justify-between border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
-                <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Referee Management</h2>
-                <Button variant="outline" size="sm" onClick={() => handleDownloadReport("general", "All Platforms")} className="text-[#078a5b] border-[#078a5b]/20 hover:bg-[#078a5b]/10">
-                  <Download className="mr-2 size-4" /> General Report
-                </Button>
+              <div className="flex flex-col gap-3 border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">Referee Analytics & Reports</h2>
+                  <Button variant="outline" size="sm" onClick={() => handleDownloadReport("general", "All Platforms")} className="text-[#078a5b] border-[#078a5b]/20 hover:bg-[#078a5b]/10">
+                    <Download className="mr-2 size-4" /> General Report
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-[#555] dark:text-[#ccc]">
+                  <span>Filter Date:</span>
+                  <Input 
+                    type="date" 
+                    value={reportStartDate} 
+                    onChange={e => setReportStartDate(e.target.value)} 
+                    className="h-8 w-36 bg-transparent dark:border-[#333]" 
+                  />
+                  <span>to</span>
+                  <Input 
+                    type="date" 
+                    value={reportEndDate} 
+                    onChange={e => setReportEndDate(e.target.value)} 
+                    className="h-8 w-36 bg-transparent dark:border-[#333]" 
+                  />
+                </div>
               </div>
               <div className="p-6">
                 <div className="flex gap-2 mb-6">
@@ -747,7 +828,7 @@ function AdminProfitsPage() {
                   {referees.map(r => (
                     <div key={r.id} className="flex items-center justify-between rounded-md border border-[#eee] bg-[#fafafa] p-3 dark:border-[#2b2b2b] dark:bg-[#111]">
                       <div className="flex flex-col">
-                        <span className="font-medium text-[#333] dark:text-[#eee]">{r.name}</span>
+                        <span className="font-medium text-[#333] dark:text-[#eee] cursor-pointer hover:underline" onClick={() => handleRefereeClick(r.id, r.name)}>{r.name}</span>
                         <span className="text-xs font-bold text-[#078a5b] dark:text-[#42d48c]">Vol: ${(refereeProfits[r.id] || 0).toFixed(2)}</span>
                       </div>
                       <div className="flex items-center gap-1">
@@ -761,7 +842,7 @@ function AdminProfitsPage() {
                     </div>
                   ))}
                   <div className="flex items-center justify-between pt-4 border-t border-[#eee] dark:border-[#333]">
-                    <span className="font-medium text-[#999] dark:text-[#888]">Unreferred Traffic</span>
+                    <span className="font-medium text-[#999] dark:text-[#888] cursor-pointer hover:underline" onClick={() => handleRefereeClick("unreferred", "Unreferred Traffic")}>Unreferred Traffic</span>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-[#078a5b] dark:text-[#42d48c]">
                         ${(refereeProfits["unreferred"] || 0).toFixed(2)}
@@ -824,6 +905,40 @@ function AdminProfitsPage() {
               </table>
             </div>
           </div>
+
+          {/* Referee Details Modal */}
+          {selectedRefereeDetails && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="w-full max-w-3xl rounded-xl border border-[#e5e5e5] bg-white p-6 shadow-xl dark:border-[#333] dark:bg-[#151515]">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-[#333] dark:text-[#eee]">{selectedRefereeDetails.name}</h2>
+                    <p className="text-sm text-[#777] dark:text-[#aaa]">Performance Distribution Over Time</p>
+                  </div>
+                  <Button variant="ghost" onClick={() => setSelectedRefereeDetails(null)} className="text-[#555] hover:bg-[#eaeaea] dark:text-[#ccc] dark:hover:bg-[#222]">
+                    Close
+                  </Button>
+                </div>
+                
+                <div className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={selectedRefereeChartData}>
+                      <defs>
+                        <linearGradient id="colorProfitRef" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#078a5b" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#078a5b" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="date" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val}`} />
+                      <RechartsTooltip contentStyle={{ backgroundColor: "#151515", border: "none", borderRadius: "8px", color: "#eee" }} />
+                      <Area type="monotone" dataKey="profit" stroke="#078a5b" strokeWidth={2} fillOpacity={1} fill="url(#colorProfitRef)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </TopShell>
