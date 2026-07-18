@@ -11,7 +11,7 @@ export const Route = createFileRoute("/clone2006/strategy/$slug")({
   },
   head: ({ loaderData }) => ({
     meta: [
-      { title: `${loaderData?.name ?? "Strategy"} â€” Redsmap Traders` },
+      { title: `${loaderData?.name ?? "Strategy"} — Redsmap Traders` },
       {
         name: "description",
         content: loaderData?.tagline ?? "Detailed beginner-friendly trading strategy guide.",

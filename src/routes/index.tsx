@@ -42,7 +42,7 @@ function Index() {
   // suggested symbol/tradeType/stake apply on first render. The pickup is
   // cleared inside `consumeManualTradePickup` so a later refresh starts clean.
   // It lives in state (not a useMemo) so a live hand-off from the AI assistant
-  // while this page is already mounted can replace it â€” see the event listener
+  // while this page is already mounted can replace it — see the event listener
   // below. `pickupVersion` is used as the TradePanel key so a fresh pickup
   // remounts the panel and re-arms the auto-trade.
   const [aiPickup, setAiPickup] = useState<ManualTradePickup | null>(() =>
@@ -124,7 +124,7 @@ function Index() {
   }, [aiPickup?.symbol, user?.id]);
 
   // Live hand-off: the AI assistant floats over every page, so a user can launch
-  // from the manual trader itself â€” where navigate("/") does NOT remount this
+  // from the manual trader itself — where navigate("/") does NOT remount this
   // route. Consume the freshly-written pickup, apply it, and bump the version so
   // the TradePanel remounts with the new presets and re-fires the auto-trade.
   useEffect(() => {
@@ -170,7 +170,7 @@ function Index() {
         await document.documentElement.requestFullscreen();
       }
     } catch {
-      /* user dismissed prompt or browser blocked it â€” ignore */
+      /* user dismissed prompt or browser blocked it — ignore */
     }
   }, []);
 
@@ -380,7 +380,7 @@ function Index() {
             <div>
               <div className="text-xs font-medium text-[#646464] dark:text-[#999999]">Manual Trader</div>
               <div className="font-mono text-xl font-bold tabular-nums text-[#1f2328] dark:text-[#f2f2f2]">
-                {price !== null ? price.toFixed(2) : "â€”"}
+                {price !== null ? price.toFixed(2) : "—"}
               </div>
             </div>
             <Link
@@ -391,7 +391,7 @@ function Index() {
             </Link>
           </div>
 
-          {/* Digit stats row â€” shown prominently for even/odd, over/under, matches/differs */}
+          {/* Digit stats row — shown prominently for even/odd, over/under, matches/differs */}
           {isDigitTrade(tradeType) && (
             <MobileDigitStatsRow tickPrices={tickPrices} currentPrice={price} />
           )}
@@ -418,7 +418,7 @@ function Index() {
                 stickyActions
               />
             </div>
-            {/* Chart below trade params â€” scroll down to see it */}
+            {/* Chart below trade params — scroll down to see it */}
             <div className="mt-2 border-t border-[#e5e5e5] bg-white px-1 pt-1 dark:border-[#242424] dark:bg-[#151515]">
               <div className="mb-1 px-2 pt-1 text-xs font-medium text-[#646464] dark:text-[#999999]">
                 Live Chart

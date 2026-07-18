@@ -20,7 +20,7 @@ import { fetchBotXmlFromDatabase } from "@/lib/bot-xml-storage";
 export type BuilderMemoryImport = {
   name: string;
   xml: string;
-  /** Optional bot preset ID â€” when provided, previously saved user edits for this
+  /** Optional bot preset ID — when provided, previously saved user edits for this
    *  preset are restored instead of overwriting with the fresh deployment XML. */
   presetId?: string;
   /** When true, the provided XML is authoritative: any previously saved user edits
@@ -50,7 +50,7 @@ export async function importBotXmlIntoBuilderMemory(
 
   // If a presetId is given, check whether the user already has edits for this
   // preset saved. If so, restore those instead of wiping them with the fresh
-  // deployment XML â€” this preserves any block-level adjustments the user made.
+  // deployment XML — this preserves any block-level adjustments the user made.
   // Sanitize the saved XML too so any structurally-broken older snapshot does
   // not prevent the workspace from loading.
   let workspaceXml = freshXml;
@@ -63,7 +63,7 @@ export async function importBotXmlIntoBuilderMemory(
 
   if (input.presetId) {
     persistCurrentBotPresetId(userId, input.presetId);
-    // On a forced import the fresh XML is authoritative â€” overwrite any stale saved
+    // On a forced import the fresh XML is authoritative — overwrite any stale saved
     // workspace so re-deploying the same preset keeps the new run-loop values.
     // Otherwise only seed the store on first deploy so autosave can update it.
     if (input.force || !readPresetWorkspaceXml(userId, input.presetId)) {
@@ -82,7 +82,7 @@ export async function importBotXmlIntoBuilderMemory(
  * Deploy a bot preset from the AI assistant with a custom opening stake and
  * martingale already applied. The XML is loaded from the database (same
  * source as the Trading Bot Presets page) so the builder memory is identical
- * to a manual deploy â€” then we overwrite the run-loop knobs in
+ * to a manual deploy — then we overwrite the run-loop knobs in
  * `current-settings` so the next Run uses the AI's risk-sized values.
  *
  * Caller is responsible for navigating to /bot-builder after this resolves.
@@ -110,7 +110,7 @@ export async function deployBotFromAiSuggestion(input: {
 
   const rawXml = await fetchBotXmlFromDatabase(input.presetId);
   // Inject the user's run-loop values into the XML's INITIALIZATION literals so
-  // the DBot runtime actually runs with them â€” the panel/run-loop re-read these
+  // the DBot runtime actually runs with them — the panel/run-loop re-read these
   // variables, so setting `current-settings` alone is not enough (XML wins).
   const xml = applyRunSettingsToBotXml(rawXml, { martingale, stake, stopLoss, takeProfit });
   await importBotXmlIntoBuilderMemory(input.userId, {

@@ -322,7 +322,7 @@ function Index() {
             <div>
               <div className="text-xs font-medium text-[#646464] dark:text-[#999999]">Manual Trader (Simulated)</div>
               <div className="font-mono text-xl font-bold tabular-nums text-[#1f2328] dark:text-[#f2f2f2]">
-                {price !== null ? price.toFixed(2) : "â€”"}
+                {price !== null ? price.toFixed(2) : "—"}
               </div>
             </div>
             <div className="flex items-center gap-2">

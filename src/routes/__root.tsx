@@ -34,14 +34,14 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Redsmap Traders â€” Trade Smarter with Automation" },
+      { title: "Redsmap Traders — Trade Smarter with Automation" },
       {
         name: "description",
         content:
           "Redsmap Traders is a third-party trading platform for Deriv. Trade synthetic indices, automate strategies, and stay in control of risk.",
       },
       { name: "author", content: "Redsmap Traders" },
-      { property: "og:title", content: "Redsmap Traders â€” Trade Smarter with Automation" },
+      { property: "og:title", content: "Redsmap Traders — Trade Smarter with Automation" },
       {
         property: "og:description",
         content:

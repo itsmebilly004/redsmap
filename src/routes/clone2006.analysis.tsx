@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/clone2006/analysis")({
   head: () => ({
     meta: [
-      { title: "Analysis Tool â€” Redsmap Traders" },
+      { title: "Analysis Tool — Redsmap Traders" },
       {
         name: "description",
         content: "Live last-digit and tick analysis for Deriv synthetic indices.",
@@ -202,7 +202,7 @@ function Analysis() {
           </div>
           <div className="min-w-0 rounded-md bg-muted px-4 py-2 text-center sm:col-span-2 lg:col-span-1">
             <div className="font-mono text-2xl font-bold text-foreground">
-              {last !== null ? last.toFixed(2) : "â€”"}
+              {last !== null ? last.toFixed(2) : "—"}
             </div>
             <div className="truncate text-[10px] text-muted-foreground uppercase tracking-wider">
               {marketName}
@@ -217,7 +217,7 @@ function Analysis() {
         {tab === "Dcircles" && (
           <div className="mt-6">
             <div className="text-sm font-semibold text-foreground">
-              Last {dcircleDigits.length} ticks â€” digit distribution
+              Last {dcircleDigits.length} ticks — digit distribution
             </div>
             <div className="mt-6 grid grid-cols-5 gap-y-8 sm:grid-cols-10">
               {counts.map((_c, i) => {
@@ -294,7 +294,7 @@ function Analysis() {
                 label={consecutiveSame >= 3 ? `Streak of ${consecutiveSame}` : "No streak"}
                 confidence={consecutiveSame >= 3 ? Math.min(95, consecutiveSame * 20) : 0}
                 color={consecutiveSame >= 3 ? "rose" : "slate"}
-                detail={`Last digit ${lastStreakDigit ?? "â€”"} repeated ${consecutiveSame}Ã— in a row`}
+                detail={`Last digit ${lastStreakDigit ?? "—"} repeated ${consecutiveSame}× in a row`}
               />
               {/* Most frequent digit signal */}
               <SignalCard
@@ -308,7 +308,7 @@ function Analysis() {
 
             <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
               <Info className="inline h-3.5 w-3.5 mr-1" />
-              Signals are statistical observations only â€” not financial advice. Deriv markets are
+              Signals are statistical observations only — not financial advice. Deriv markets are
               random-walk processes; past frequency does not predict future outcomes.
             </div>
           </div>
@@ -405,7 +405,7 @@ function Analysis() {
               })}
               {ticks.length === 0 && (
                 <div className="col-span-10 rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
-                  Waiting for ticksâ€¦
+                  Waiting for ticks…
                 </div>
               )}
             </div>

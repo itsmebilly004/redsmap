@@ -15,7 +15,7 @@ export type ManualTradePickup = {
   /** Contract duration in ticks the user chose before the AI scan. Pre-fills the panel. */
   durationTicks?: number;
   /**
-   * Prediction digit for digit contracts â€” the Over/Under threshold or the
+   * Prediction digit for digit contracts — the Over/Under threshold or the
    * Matches/Differs target digit the AI selected. Ignored for non-digit families.
    */
   predictionDigit?: number;
@@ -25,7 +25,7 @@ export type ManualTradePickup = {
    * config side `value`, not the human label.
    */
   side?: string;
-  /** Recommended opening stake â€” manual trader pre-fills this in the panel. */
+  /** Recommended opening stake — manual trader pre-fills this in the panel. */
   stake: number;
   /** Session stop-loss the user entered before the AI scan (0 = disabled). */
   stopLoss?: number;
@@ -52,7 +52,7 @@ export function setManualTradePickup(pickup: ManualTradePickup): void {
   try {
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pickup));
   } catch {
-    /* sessionStorage may be blocked in privacy mode â€” ignore */
+    /* sessionStorage may be blocked in privacy mode — ignore */
   }
   // Notify an already-mounted manual trader. Defer so the navigate() that
   // typically follows has a chance to mount the page first when coming from
@@ -60,7 +60,7 @@ export function setManualTradePickup(pickup: ManualTradePickup): void {
   try {
     window.dispatchEvent(new CustomEvent(MANUAL_TRADE_PICKUP_EVENT));
   } catch {
-    /* CustomEvent unsupported â€” the mount-time consume path still applies */
+    /* CustomEvent unsupported — the mount-time consume path still applies */
   }
 }
 

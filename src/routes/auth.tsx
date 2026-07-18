@@ -214,7 +214,7 @@ function AuthPage() {
           <p className="mt-1.5 text-sm text-muted-foreground">
             {isSignup
               ? "You'll be redirected to Deriv to register, then sent straight back to your dashboard."
-              : "Continue with the Deriv account you already use to trade â€” no passwords stored here."}
+              : "Continue with the Deriv account you already use to trade — no passwords stored here."}
           </p>
 
           <div className="mt-6 grid gap-3">
@@ -361,7 +361,7 @@ function AuthPage() {
             </li>
             <li className="flex gap-2">
               <span className="mt-1 size-1 shrink-0 rounded-full bg-primary" />
-              Redsmap receives a trading token only â€” never your password.
+              Redsmap receives a trading token only — never your password.
             </li>
             <li className="flex gap-2">
               <span className="mt-1 size-1 shrink-0 rounded-full bg-primary" />

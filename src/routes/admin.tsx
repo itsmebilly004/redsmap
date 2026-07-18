@@ -644,7 +644,7 @@ function AdminProfitsPage() {
                 <label className="text-sm font-medium text-[#333] dark:text-[#eee]">Password</label>
                 <Input
                   type="password"
-                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                  placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required

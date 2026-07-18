@@ -1,8 +1,8 @@
 // Stub ApiHelpers. The reference wires four real services (TradingTimes,
 // ContractsFor, ActiveSymbols, AccountLimits) on top of a live Deriv
-// websocket. For the visual-only port we expose the same SHAPE â€” block
+// websocket. For the visual-only port we expose the same SHAPE — block
 // definitions use both optional chaining (`ApiHelpers?.instance?.contracts_for`)
-// AND direct method calls (`active_symbols.getMarketDropdownOptions()`) â€” but
+// AND direct method calls (`active_symbols.getMarketDropdownOptions()`) — but
 // every method here returns a safe empty default. Symbol/contract dropdowns
 // will be empty until a future task bridges these to Redsmap's
 // deriv-trading-service. Blockly dropdowns require a non-empty list shaped

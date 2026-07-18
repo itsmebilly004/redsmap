@@ -212,7 +212,7 @@ const BotBuilderInner = observer(() => {
           // during Deploy and must persist across navigations so autosave can
           // continue updating the preset-workspaces key. It is only cleared when
           // the user explicitly loads a different strategy (file upload, library
-          // load, or workspace reset) â€” each of those handlers already calls
+          // load, or workspace reset) — each of those handlers already calls
           // clearCurrentBotPresetId directly.
           const saved_xml = readSavedWorkspaceXml(currentUser) ?? readSavedWorkspaceXml(null);
           if (saved_xml) {
@@ -341,7 +341,7 @@ const BotBuilderInner = observer(() => {
   //   2. Auth resolved after dbot init completed (race): init read the null key
   //      (null â†’ "guest"), found nothing, so the workspace was loaded from
   //      localForage. The user key might already exist (prior session) but the
-  //      current workspace is the authoritative live state â€” snapshot it now so
+  //      current workspace is the authoritative live state — snapshot it now so
   //      future mounts that DO resolve auth before dbot init read the right XML.
   React.useEffect(() => {
     if (!initialisedRef.current) return;
@@ -380,7 +380,7 @@ const BotBuilderInner = observer(() => {
     const result = await loadWorkspaceFromFile(file, workspace, userId);
     if (result.ok) {
       toast.success(
-        `Loaded ${file.name} â€” ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}.`,
+        `Loaded ${file.name} — ${result.blockCount} block${result.blockCount === 1 ? "" : "s"}.`,
       );
       setSaveName(file.name.replace(/\.xml$/i, "") || "My bot strategy");
       setLoadOpen(false);
@@ -560,7 +560,7 @@ const BotBuilderInner = observer(() => {
           <div ref={containerRef} id="scratch_div" />
           {is_loading && (
             <div className="bot-builder-overlay" aria-live="polite">
-              Loading Blocklyâ€¦
+              Loading Blockly…
             </div>
           )}
           {error && (
@@ -637,7 +637,7 @@ const BotBuilderInner = observer(() => {
               onClick={handleFilePickerOpen}
             >
               <Upload className="size-4" />
-              Open from your computerâ€¦
+              Open from your computer…
             </Button>
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
@@ -667,8 +667,8 @@ const BotBuilderInner = observer(() => {
                       >
                         <span className="block truncate text-sm font-medium">{preset.name}</span>
                         <span className="block truncate text-xs text-muted-foreground">
-                          Saved {formatSavedAt(preset.savedAt)} Â· {preset.settings.symbol || "â€”"}
-                          {preset.xml ? "" : " Â· settings only"}
+                          Saved {formatSavedAt(preset.savedAt)} · {preset.settings.symbol || "—"}
+                          {preset.xml ? "" : " · settings only"}
                         </span>
                       </button>
                       <Button

@@ -1,7 +1,7 @@
 // Minimal DBotStore singleton. Block files reach into DBotStore.instance for
 // access to flyout/toolbar/save-modal etc. The reference also wired an
 // rxjs reaction to api_base.createNewInstance() on loginid change; for the
-// visual-only port we drop that â€” Redsmap owns the websocket lifecycle.
+// visual-only port we drop that — Redsmap owns the websocket lifecycle.
 
 class DBotStoreInterface {
   handleFileChange = () => {

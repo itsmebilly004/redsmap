@@ -224,7 +224,7 @@ export async function ensureTradingBotDatabasePresets(
       });
       if (error) console.warn(`[trading-bots] failed to insert ${asset.name}:`, error);
     } catch (err) {
-      console.warn(`[trading-bots] skipped ${asset.name} â€” could not load XML asset:`, err);
+      console.warn(`[trading-bots] skipped ${asset.name} — could not load XML asset:`, err);
     }
   }
 
