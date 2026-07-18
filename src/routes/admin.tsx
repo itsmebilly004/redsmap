@@ -513,10 +513,24 @@ function AdminProfitsPage() {
       return acc;
     }, {} as Record<string, number>);
 
-    const chartData = Object.keys(grouped).map(date => ({
+    let chartData = Object.keys(grouped).map(date => ({
       date,
       profit: grouped[date]
     })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    if (chartData.length === 0) {
+      const emptyData = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        emptyData.push({ date: d.toLocaleDateString(), profit: 0 });
+      }
+      chartData = emptyData;
+    } else if (chartData.length === 1) {
+      const d = new Date(chartData[0].date);
+      d.setDate(d.getDate() - 1);
+      chartData.unshift({ date: d.toLocaleDateString(), profit: 0 });
+    }
 
     setSelectedRefereeChartData(chartData);
   };
