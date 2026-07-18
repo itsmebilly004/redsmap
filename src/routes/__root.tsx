@@ -5,7 +5,7 @@ import { SimulatedTradingProvider } from "@/context/simulated-trading-provider";
 import { BotRunnerProvider } from "@/context/bot-runner-context";
 
 import appCss from "../styles.css?url";
-import faviconUrl from "../assets/redsmap-favicon.png?url";
+import faviconUrl from "../assets/redsmap-favicon.jpeg?url";
 
 function NotFoundComponent() {
   return (
@@ -52,7 +52,7 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", type: "image/png", href: faviconUrl },
+      { rel: "icon", type: "image/jpeg", href: faviconUrl },
       { rel: "apple-touch-icon", href: faviconUrl },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },

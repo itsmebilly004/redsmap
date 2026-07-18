@@ -1,4 +1,4 @@
-import brandLogoUrl from "@/assets/redsmap-logo.png";
+import brandLogoUrl from "@/assets/redsmap-logo.jpeg";
 import { cn } from "@/lib/utils";
 
 export function BrandLogo({
