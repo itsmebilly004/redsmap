@@ -1041,10 +1041,20 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       // contract settlement pushes an accurate balance to the UI immediately.
       balanceSubCleanupRef.current?.();
       balanceSubCleanupRef.current = null;
+      let balanceSubCancelled = false;
       subscribeBalance(currentAccount.deriv_token, (b) => {
-        window.dispatchEvent(new CustomEvent("deriv:dbot-balance", { detail: { balance: b.balance } }));
+        if (!balanceSubCancelled) {
+          window.dispatchEvent(new CustomEvent("deriv:dbot-balance", { detail: { balance: b.balance } }));
+        }
       }).then((cleanup) => {
-        balanceSubCleanupRef.current = cleanup;
+        if (balanceSubCancelled || footerBotRunningRef.current === false) {
+          cleanup();
+        } else {
+          balanceSubCleanupRef.current = () => {
+            balanceSubCancelled = true;
+            cleanup();
+          };
+        }
       }).catch(() => {});
 
       const sessionAccountUpper = String(session.account_id ?? "").trim().toUpperCase();
@@ -1608,36 +1618,42 @@ async function waitForSettlement(
 
     const doSubscribe = async () => {
       try {
-        unsubscribe = await subscribeOpenContractFn(contractId, (contract: any) => {
-      onContractUpdate?.(contract);
-      const statusText = String(contract.status ?? "").toLowerCase();
-      const isSold =
-        contract.is_sold === 1 || contract.is_sold === true ||
-        statusText === "won" || statusText === "lost" || statusText === "sold";
-      if (!isSold || settled) return;
-      settled = true;
-      window.clearTimeout(timeout);
-      const entrySpot = numberFrom(contract.entry_spot, contract.entry_tick, contract.entry_tick_display_value);
-      const exitSpot = numberFrom(
-        contract.exit_spot, contract.exit_tick, contract.exit_tick_display_value,
-        contract.sell_spot, contract.current_spot, contract.current_tick, contract.current_spot_display_value,
-      );
-      const sell_price = Number(contract.sell_price ?? 0);
-      const contract_buy_price = Number(contract.buy_price ?? 0);
-      const potential_payout = Number(contract.payout ?? 0);
-      const computedProfit = sell_price > 0 || contract_buy_price > 0 ? sell_price - contract_buy_price : null;
-      const rawProfit = Number(contract.profit);
-      const profit = computedProfit !== null ? computedProfit : Number.isFinite(rawProfit) ? rawProfit : 0;
-      const won = statusText === "won" ? true : statusText === "lost" ? false : Number.isFinite(profit) && profit > 0;
-      const payout = won ? (sell_price > 0 ? sell_price : potential_payout > 0 ? potential_payout : 0) : 0;
-      const entryTickTime = Number(contract.entry_tick_time ?? 0) || null;
-      const exitTickTime = Number(contract.exit_tick_time ?? 0) || null;
-      const barrierValue = contract.barrier ? String(contract.barrier) : null;
-      const transactionIdSell = contract.transaction_ids
-        ? String((contract.transaction_ids as Record<string, unknown>).sell ?? "") || null : null;
-      resolve({ entrySpot, exitSpot, payout, profit, status: won ? "won" : "lost", transactionIdSell, entryTickTime, exitTickTime, barrierValue });
-      void unsubscribe?.();
-    });
+        const unsub = await subscribeOpenContractFn(contractId, (contract: any) => {
+          onContractUpdate?.(contract);
+          const statusText = String(contract.status ?? "").toLowerCase();
+          const isSold =
+            contract.is_sold === 1 || contract.is_sold === true ||
+            statusText === "won" || statusText === "lost" || statusText === "sold";
+          if (!isSold || settled) return;
+          settled = true;
+          window.clearTimeout(timeout);
+          const entrySpot = numberFrom(contract.entry_spot, contract.entry_tick, contract.entry_tick_display_value);
+          const exitSpot = numberFrom(
+            contract.exit_spot, contract.exit_tick, contract.exit_tick_display_value,
+            contract.sell_spot, contract.current_spot, contract.current_tick, contract.current_spot_display_value,
+          );
+          const sell_price = Number(contract.sell_price ?? 0);
+          const contract_buy_price = Number(contract.buy_price ?? 0);
+          const potential_payout = Number(contract.payout ?? 0);
+          const computedProfit = sell_price > 0 || contract_buy_price > 0 ? sell_price - contract_buy_price : null;
+          const rawProfit = Number(contract.profit);
+          const profit = computedProfit !== null ? computedProfit : Number.isFinite(rawProfit) ? rawProfit : 0;
+          const won = statusText === "won" ? true : statusText === "lost" ? false : Number.isFinite(profit) && profit > 0;
+          const payout = won ? (sell_price > 0 ? sell_price : potential_payout > 0 ? potential_payout : 0) : 0;
+          const entryTickTime = Number(contract.entry_tick_time ?? 0) || null;
+          const exitTickTime = Number(contract.exit_tick_time ?? 0) || null;
+          const barrierValue = contract.barrier ? String(contract.barrier) : null;
+          const transactionIdSell = contract.transaction_ids
+            ? String((contract.transaction_ids as Record<string, unknown>).sell ?? "") || null : null;
+          resolve({ entrySpot, exitSpot, payout, profit, status: won ? "won" : "lost", transactionIdSell, entryTickTime, exitTickTime, barrierValue });
+          void unsub();
+        });
+        
+        if (settled) {
+          unsub();
+        } else {
+          unsubscribe = unsub;
+        }
       } catch (err) {
         if (!settled) {
           console.error("[Bot] Failed to subscribe to contract settlement:", err);

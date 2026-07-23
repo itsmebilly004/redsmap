@@ -873,6 +873,9 @@ export function TradePanel({
           }
         });
 
+      let tradeSubCancelled = false;
+      unsubscribeRef.current = async () => { tradeSubCancelled = true; };
+
       // Start contract subscription without blocking — updates flow in via the callback
       subscribeOpenContract(contractId, (openContract) => {
         setActiveContract((current) => {
@@ -945,7 +948,10 @@ export function TradePanel({
           return next;
         });
       }).then(
-        (off) => { unsubscribeRef.current = off; },
+        (off) => { 
+          if (tradeSubCancelled) off();
+          else unsubscribeRef.current = async () => { tradeSubCancelled = true; await off(); };
+        },
         (error) => { console.warn("[Deriv Trade] proposal_open_contract subscription failed", error); },
       );
 

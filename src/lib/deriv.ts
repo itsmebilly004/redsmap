@@ -1975,8 +1975,8 @@ export async function send(payload: DerivRecord): Promise<DerivMessage> {
       false,
     );
   }
-  assertInitializedTradingSessionForSend(payload);
   const ws = await connect();
+  assertInitializedTradingSessionForSend(payload);
   if (authenticatedAccount && socketAccountId !== authenticatedAccount.accountId) {
     throw new Error("Deriv WebSocket account does not match the selected account.");
   }
@@ -2019,6 +2019,13 @@ async function getCloneLiveSocket(): Promise<WebSocket> {
     const ws = cloneLiveSocket!;
     
     ws.onopen = () => {
+      ws.addEventListener("message", (event) => {
+        try {
+          const data = JSON.parse(event.data) as DerivMessage;
+          fallbackListeners.forEach((l) => l(data));
+        } catch {}
+      });
+
       const tempOnMessage = (event: MessageEvent) => {
         try {
           const msg = JSON.parse(event.data);
@@ -2053,6 +2060,9 @@ async function getCloneLiveSocket(): Promise<WebSocket> {
       }
       cloneLiveSocket = null;
       cloneLiveAuthPromise = null;
+      if (fallbackActiveSubs.size > 0) {
+        fallbackReconnect();
+      }
     };
   });
 
@@ -2077,7 +2087,6 @@ export async function subscribeTicks(
     const sub = { send: { ticks: symbol, subscribe: 1 }, key };
     try {
       const ws = await connect();
-      activeSubs.set(key, sub);
       let subId: string | null = null;
 
       const off = onMessage((msg) => {
@@ -2086,7 +2095,15 @@ export async function subscribeTicks(
         }
       });
 
-      const res = await send(sub.send);
+      let res;
+      try {
+        res = await send(sub.send);
+      } catch (sendErr) {
+        off();
+        throw sendErr; // rethrow to trigger the fallback block
+      }
+
+      activeSubs.set(key, sub);
       if (res.subscription?.id) {
         subId = res.subscription.id;
       }
@@ -2108,45 +2125,40 @@ export async function subscribeTicks(
     let subId: string | null = null;
     let unmounted = false;
     
-    const handleMessage = (event: MessageEvent) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
-          if (msg.subscription?.id && !subId) {
-            subId = msg.subscription.id;
-            
-            // If the component already unmounted before we got the ID, forget it now!
-            if (unmounted && ws.readyState === 1) {
-              ws.send(JSON.stringify({ forget: subId }));
-              ws.removeEventListener("message", handleMessage);
-              return;
-            }
-          }
-          if (!unmounted) {
-            onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
+    const key = `fallback_ticks:${symbol}:${Math.random().toString(36).slice(2, 8)}`;
+    const sub = { send: { ticks: symbol, subscribe: 1 }, key };
+    
+    const off = onFallbackMessage((msg) => {
+      if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
+        if (msg.subscription?.id && !subId) {
+          subId = msg.subscription.id;
+          if (unmounted) {
+            getCloneLiveSocket().then((freshWs) => {
+              if (freshWs.readyState === 1) freshWs.send(JSON.stringify({ forget: subId }));
+            }).catch(() => {});
+            return;
           }
         }
-      } catch {
-        /* ignore */
+        if (!unmounted) {
+          onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
+        }
       }
-    };
-    ws.addEventListener("message", handleMessage);
+    });
+
+    fallbackActiveSubs.set(key, sub);
     
-    ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify(sub.send));
+    }
     
     return () => {
       unmounted = true;
-      try {
-        if (subId) {
-          // If we already have the ID, forget it immediately
-          ws.removeEventListener("message", handleMessage);
-          if (ws.readyState === 1) {
-            ws.send(JSON.stringify({ forget: subId }));
-          }
-        }
-        // If we DON'T have the ID yet, we leave the listener active so it can catch the ID and unsubscribe later.
-      } catch {
-        /* ignore */
+      off();
+      fallbackActiveSubs.delete(key);
+      if (subId) {
+        getCloneLiveSocket().then((freshWs) => {
+          if (freshWs.readyState === 1) freshWs.send(JSON.stringify({ forget: subId }));
+        }).catch(() => {});
       }
     };
   } catch (err) {
@@ -3098,74 +3110,139 @@ export async function getAuthenticatedWsUrl(
   return url;
 }
 
-function connectPublic(): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
+const fallbackListeners = new Set<Listener>();
+const fallbackActiveSubs = new Map<string, { send: DerivRecord; key: string }>();
+let fallbackReconnectAttempts = 0;
+let fallbackReconnectTimeout: ReturnType<typeof setTimeout> | undefined;
+
+function onFallbackMessage(fn: Listener) {
+  fallbackListeners.add(fn);
+  return () => fallbackListeners.delete(fn);
+}
+
+function fallbackReconnect() {
+  if (fallbackReconnectAttempts > 10) return;
+  if (fallbackReconnectTimeout) clearTimeout(fallbackReconnectTimeout);
+  fallbackReconnectTimeout = setTimeout(async () => {
+    fallbackReconnectAttempts++;
     try {
-      if (status === "disconnected") setStatus("connecting");
-      const ws = new WebSocket(PUBLIC_WS_URL);
-      ws.onopen = () => {
-        if (status !== "connected") setStatus("connected");
-        resolve(ws);
-      };
-      ws.onerror = () => {
-        if (status !== "connected") setStatus("disconnected");
-        reject(new Error("Could not connect to Deriv public WebSocket"));
-      };
-      ws.onclose = () => {
-        if (status === "connecting") setStatus("disconnected");
-      };
-    } catch (e) {
-      reject(e);
+      const ws = await getCloneLiveSocket();
+      fallbackReconnectAttempts = 0;
+      for (const sub of fallbackActiveSubs.values()) {
+        try { ws.send(JSON.stringify(sub.send)); } catch {}
+      }
+    } catch {
+      // Retried automatically by onclose
     }
+  }, Math.min(1000 * Math.pow(2, fallbackReconnectAttempts), 30000));
+}
+
+let sharedPublicSocket: WebSocket | null = null;
+let sharedPublicPromise: Promise<WebSocket> | null = null;
+
+function connectPublic(): Promise<WebSocket> {
+  if (sharedPublicPromise && sharedPublicSocket) {
+    if (sharedPublicSocket.readyState === WebSocket.OPEN || sharedPublicSocket.readyState === WebSocket.CONNECTING) {
+      return sharedPublicPromise;
+    }
+  }
+
+  if (getStatus() === "disconnected") setStatus("connecting");
+  sharedPublicSocket = new WebSocket(PUBLIC_WS_URL);
+  sharedPublicPromise = new Promise((resolve, reject) => {
+    let handled = false;
+    const ws = sharedPublicSocket!;
+    
+    ws.onopen = () => {
+      handled = true;
+      if (getStatus() !== "connected") setStatus("connected");
+      ws.addEventListener("message", (event) => {
+        try {
+          const data = JSON.parse(event.data) as DerivMessage;
+          fallbackListeners.forEach((l) => l(data));
+        } catch {}
+      });
+      resolve(ws);
+    };
+    
+    ws.onerror = () => {
+      if (!handled) {
+        handled = true;
+        if (getStatus() !== "connected") setStatus("disconnected");
+        reject(new Error("Could not connect to Deriv public WebSocket"));
+      }
+    };
+    
+    ws.onclose = () => {
+      if (!handled) {
+        handled = true;
+        reject(new Error("Deriv public WebSocket closed before open"));
+      }
+      if (getStatus() === "connecting") setStatus("disconnected");
+      sharedPublicSocket = null;
+      sharedPublicPromise = null;
+      if (fallbackActiveSubs.size > 0) {
+        fallbackReconnect();
+      }
+    };
   });
+
+  return sharedPublicPromise;
 }
 
 async function publicSend(payload: DerivRecord): Promise<DerivMessage> {
   const ws = await connectPublic();
   const id = reqId++;
   return new Promise((resolve, reject) => {
+    let cleanup: () => void;
+    
     const timeoutId = setTimeout(() => {
-      try {
-        ws.close();
-      } catch {
-        /* ignore */
-      }
+      cleanup();
       reject(new Error("Deriv public request timed out"));
     }, 15000);
-    ws.onmessage = (event) => {
+
+    const handleMessage = (event: MessageEvent) => {
       try {
         const msg = JSON.parse(event.data);
         if (msg.req_id === id) {
           clearTimeout(timeoutId);
-          try {
-            ws.close();
-          } catch {
-            /* ignore */
-          }
-          if (msg.error) reject(derivMessageError(msg.error));
+          cleanup();
+          if (msg.error) reject(new Error(msg.error.message));
           else resolve(msg);
         }
       } catch {
         /* ignore */
       }
     };
-    ws.onerror = () => {
+
+    const handleClose = () => {
       clearTimeout(timeoutId);
-      try {
-        ws.close();
-      } catch {
-        /* ignore */
-      }
-      reject(new Error("Deriv public request failed"));
+      cleanup();
+      reject(new Error("Deriv public WebSocket closed"));
     };
-    ws.send(JSON.stringify({ ...payload, req_id: id }));
+
+    cleanup = () => {
+      ws.removeEventListener("message", handleMessage);
+      ws.removeEventListener("close", handleClose);
+    };
+
+    ws.addEventListener("message", handleMessage);
+    ws.addEventListener("close", handleClose);
+
+    try {
+      ws.send(JSON.stringify({ ...payload, req_id: id }));
+    } catch (err) {
+      clearTimeout(timeoutId);
+      cleanup();
+      reject(err instanceof Error ? err : new Error("Failed to send public payload"));
+    }
   });
 }
 
 /**
  * Send N public Deriv requests over a SINGLE shared WebSocket and resolve each
  * independently. Cuts the per-call WS handshake overhead (TLS + WS upgrade,
- * typically 150â€“400 ms) to a single one for the whole batch — the main source
+ * typically 150-400 ms) to a single one for the whole batch — the main source
  * of latency when the AI assistant scans many markets in parallel.
  *
  * Each item resolves to a DerivMessage on success or an Error on per-request
@@ -3180,94 +3257,61 @@ export async function publicSendBatch(
   const timeoutMs = options?.timeoutMs ?? 12000;
   const results = new Array<DerivMessage | Error | undefined>(payloads.length);
   const requestIds = payloads.map(() => reqId++);
-  const indexById = new Map<number, number>();
-  requestIds.forEach((id, idx) => indexById.set(id, idx));
 
-  let ws: WebSocket;
-  try {
-    ws = await connectPublic();
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error("Deriv public WebSocket failed to open");
-    return payloads.map(() => error);
-  }
-
-  return new Promise<(DerivMessage | Error)[]>((resolveAll) => {
+  const ws = await connectPublic();
+  return new Promise((resolve) => {
     let completed = 0;
-    const timeouts = new Map<number, ReturnType<typeof setTimeout>>();
+    let cleanup: () => void;
 
-    const finalize = () => {
-      for (const t of timeouts.values()) clearTimeout(t);
-      timeouts.clear();
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve(results.map((r) => r ?? new Error("Timeout")));
+    }, timeoutMs);
+
+    const handleMessage = (event: MessageEvent) => {
       try {
-        ws.close();
-      } catch {
-        /* ignore */
-      }
-      // Fill any holes (defensive — shouldn't happen given the bookkeeping)
-      resolveAll(
-        results.map((value) =>
-          value === undefined ? new Error("Deriv public batch did not return") : value,
-        ),
-      );
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data as string) as DerivMessage & { req_id?: number };
-        const reqIdNum = typeof msg.req_id === "number" ? msg.req_id : -1;
-        const index = indexById.get(reqIdNum);
-        if (index === undefined || results[index] !== undefined) return;
-        const timeoutId = timeouts.get(reqIdNum);
-        if (timeoutId) clearTimeout(timeoutId);
-        timeouts.delete(reqIdNum);
-        results[index] = msg.error ? derivMessageError(msg.error) : msg;
-        completed += 1;
-        if (completed === payloads.length) finalize();
-      } catch {
-        /* ignore */
-      }
-    };
-
-    ws.onerror = () => {
-      const error = new Error("Deriv public batch socket failed");
-      for (let i = 0; i < payloads.length; i += 1) {
-        if (results[i] === undefined) results[i] = error;
-      }
-      finalize();
-    };
-
-    ws.onclose = () => {
-      if (completed === payloads.length) return;
-      const error = new Error("Deriv public batch socket closed prematurely");
-      for (let i = 0; i < payloads.length; i += 1) {
-        if (results[i] === undefined) results[i] = error;
-      }
-      finalize();
-    };
-
-    payloads.forEach((payload, index) => {
-      const id = requestIds[index];
-      const timeoutId = setTimeout(() => {
-        if (results[index] !== undefined) return;
-        results[index] = new Error("Deriv public request timed out");
-        timeouts.delete(id);
-        completed += 1;
-        if (completed === payloads.length) finalize();
-      }, timeoutMs);
-      timeouts.set(id, timeoutId);
-      try {
-        ws.send(JSON.stringify({ ...payload, req_id: id }));
-      } catch (err) {
-        if (results[index] === undefined) {
-          results[index] = err instanceof Error ? err : new Error("Deriv public request failed");
-          const t = timeouts.get(id);
-          if (t) clearTimeout(t);
-          timeouts.delete(id);
-          completed += 1;
-          if (completed === payloads.length) finalize();
+        const msg = JSON.parse(event.data);
+        const index = requestIds.indexOf(msg.req_id);
+        if (index !== -1) {
+          if (msg.error) {
+            results[index] = new Error(msg.error.message);
+          } else {
+            results[index] = msg;
+          }
+          completed++;
+          if (completed === payloads.length) {
+            clearTimeout(timeoutId);
+            cleanup();
+            resolve(results as (DerivMessage | Error)[]);
+          }
         }
+      } catch {
+        /* ignore */
       }
-    });
+    };
+
+    const handleClose = () => {
+      clearTimeout(timeoutId);
+      cleanup();
+      resolve(results.map((r) => r ?? new Error("Deriv public socket closed")));
+    };
+
+    cleanup = () => {
+      ws.removeEventListener("message", handleMessage);
+      ws.removeEventListener("close", handleClose);
+    };
+
+    ws.addEventListener("message", handleMessage);
+    ws.addEventListener("close", handleClose);
+
+    try {
+      payloads.forEach((payload, i) => {
+        ws.send(JSON.stringify({ ...payload, req_id: requestIds[i] }));
+      });
+    } catch (err) {
+      // If one throws, the socket is likely dead. The close handler will catch it,
+      // but we can also just let the timeout/close deal with the remainder.
+    }
   });
 }
 

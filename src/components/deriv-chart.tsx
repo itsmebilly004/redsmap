@@ -1146,6 +1146,7 @@ export function DerivChart({
     onPrice,
     scheduleAnalysisOverlayUpdate,
     updateAnalysisOverlays,
+    session?.accountId,
   ]);
 
   useEffect(() => {

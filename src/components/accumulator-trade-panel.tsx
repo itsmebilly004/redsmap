@@ -391,6 +391,9 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
           }
         });
 
+      let accSubCancelled = false;
+      unsubscribeRef.current = async () => { accSubCancelled = true; };
+
       // Start subscription without blocking
       subscribeOpenContract(contractId, (openContract) => {
         setState((current) => {
@@ -459,7 +462,10 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
           return next;
         });
       }).then(
-        (off) => { unsubscribeRef.current = off; },
+        (off) => { 
+          if (accSubCancelled) off();
+          else unsubscribeRef.current = async () => { accSubCancelled = true; await off(); };
+        },
         (error) => { console.warn("[Accumulator] proposal_open_contract subscription failed", error); },
       );
     } catch (error: unknown) {
