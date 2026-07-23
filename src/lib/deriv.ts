@@ -1995,37 +1995,164 @@ function adaptPayloadForActiveAdapter(payload: DerivRecord): DerivRecord {
   return { ...rest, symbol: underlying_symbol };
 }
 
+let cloneLiveSocket: WebSocket | null = null;
+let cloneLiveAuthPromise: Promise<void> | null = null;
+
+async function getCloneLiveSocket(): Promise<WebSocket> {
+  const token = import.meta.env.VITE_DERIV_READONLY_TOKEN;
+  if (!token) {
+    return connectPublic(); // fallback to standard unauthenticated if no token
+  }
+
+  // If a connection is already in progress or established, return it
+  if (cloneLiveAuthPromise && cloneLiveSocket) {
+    if (cloneLiveSocket.readyState === WebSocket.OPEN || cloneLiveSocket.readyState === WebSocket.CONNECTING) {
+      await cloneLiveAuthPromise;
+      return cloneLiveSocket;
+    }
+  }
+
+  cloneLiveSocket = new WebSocket(PUBLIC_WS_URL);
+  
+  cloneLiveAuthPromise = new Promise((resolveAuth, rejectAuth) => {
+    let handled = false;
+    const ws = cloneLiveSocket!;
+    
+    ws.onopen = () => {
+      const tempOnMessage = (event: MessageEvent) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.msg_type === "authorize") {
+            ws.removeEventListener("message", tempOnMessage);
+            handled = true;
+            if (msg.error) {
+              rejectAuth(new Error(msg.error.message));
+            } else {
+              resolveAuth();
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.addEventListener("message", tempOnMessage);
+      ws.send(JSON.stringify({ authorize: token }));
+    };
+    
+    ws.onerror = () => {
+      if (!handled) {
+        handled = true;
+        rejectAuth(new Error("Clone live socket connection failed"));
+      }
+    };
+    
+    ws.onclose = () => {
+      if (!handled) {
+        handled = true;
+        rejectAuth(new Error("Clone live socket closed before auth"));
+      }
+      cloneLiveSocket = null;
+      cloneLiveAuthPromise = null;
+    };
+  });
+
+  try {
+    await cloneLiveAuthPromise;
+    return cloneLiveSocket!;
+  } catch (err) {
+    cloneLiveSocket = null;
+    cloneLiveAuthPromise = null;
+    throw err;
+  }
+}
+
 export async function subscribeTicks(
   symbol: string,
   onTick: (price: number, time: number) => void,
 ) {
   if (!isBrowser) return () => {};
-  const ws = await connectPublic();
-  ws.onmessage = (event) => {
+
+  if (authenticatedAccount) {
+    const key = `ticks:${symbol}:${Math.random().toString(36).slice(2, 8)}`;
+    const sub = { send: { ticks: symbol, subscribe: 1 }, key };
     try {
-      const msg = JSON.parse(event.data);
-      if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
-        onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
+      const ws = await connect();
+      activeSubs.set(key, sub);
+      let subId: string | null = null;
+
+      const off = onMessage((msg) => {
+        if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
+          onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
+        }
+      });
+
+      const res = await send(sub.send);
+      if (res.subscription?.id) {
+        subId = res.subscription.id;
       }
-    } catch {
-      /* ignore */
+
+      return () => {
+        off();
+        activeSubs.delete(key);
+        if (subId) {
+          forgetSubscription(subId);
+        }
+      };
+    } catch (err) {
+      console.warn("[Deriv WS] authenticated tick subscription failed, falling back to clone/public", err);
     }
-  };
-  ws.onclose = () => {
-    if (status === "connected") setStatus("reconnecting");
-  };
-  ws.onerror = () => {
-    if (status === "connected") setStatus("reconnecting");
-  };
-  ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
-  return () => {
-    try {
-      if (ws.readyState === 1) ws.send(JSON.stringify({ forget_all: "ticks" }));
-      ws.close();
-    } catch {
-      /* ignore */
-    }
-  };
+  }
+
+  try {
+    const ws = await getCloneLiveSocket();
+    let subId: string | null = null;
+    let unmounted = false;
+    
+    const handleMessage = (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.msg_type === "tick" && msg.tick?.symbol === symbol) {
+          if (msg.subscription?.id && !subId) {
+            subId = msg.subscription.id;
+            
+            // If the component already unmounted before we got the ID, forget it now!
+            if (unmounted && ws.readyState === 1) {
+              ws.send(JSON.stringify({ forget: subId }));
+              ws.removeEventListener("message", handleMessage);
+              return;
+            }
+          }
+          if (!unmounted) {
+            onTick(Number(msg.tick.quote), Number(msg.tick.epoch));
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    ws.addEventListener("message", handleMessage);
+    
+    ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
+    
+    return () => {
+      unmounted = true;
+      try {
+        if (subId) {
+          // If we already have the ID, forget it immediately
+          ws.removeEventListener("message", handleMessage);
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({ forget: subId }));
+          }
+        }
+        // If we DON'T have the ID yet, we leave the listener active so it can catch the ID and unsubscribe later.
+      } catch {
+        /* ignore */
+      }
+    };
+  } catch (err) {
+    console.warn("[Deriv WS] public tick subscription failed to connect", err);
+    return () => {};
+  }
 }
 
 export async function subscribeBalance(token: string, onBalance: (b: DerivBalance) => void) {

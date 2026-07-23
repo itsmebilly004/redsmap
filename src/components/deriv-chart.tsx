@@ -1079,7 +1079,7 @@ export function DerivChart({
         /* network/timeout handled by status badge */
       }
 
-      unsubTicks = await subscribeTicks(symbol, (price, t) => {
+      const unsub = await subscribeTicks(symbol, (price, t) => {
         if (cancelled) return;
         onPrice?.(price);
         const tickPoint = { time: t as UTCTimestamp, value: price };
@@ -1127,6 +1127,11 @@ export function DerivChart({
         pushDigit(price, digitHistoryRef, setDigitStats, showDigitStatsRef.current);
         scheduleAnalysisOverlayUpdate();
       });
+      if (cancelled) {
+        unsub();
+        return;
+      }
+      unsubTicks = unsub;
     }
 
     init();
