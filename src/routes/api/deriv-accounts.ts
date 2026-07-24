@@ -48,13 +48,13 @@ function oauthAppIdCandidates(
   requestHints?: Pick<DerivAccountsRequest, "oauthClientId" | "oauthAppId">,
 ) {
   const candidates: AppIdCandidate[] = [];
-  addAppIdCandidate(candidates, DERIV_OAUTH_CLIENT_ID, "DERIV_OAUTH_CLIENT_ID");
-  if (requestHints?.oauthClientId === DERIV_OAUTH_CLIENT_ID) {
+  if (requestHints?.oauthClientId) {
     addAppIdCandidate(candidates, requestHints.oauthClientId, "request.oauthClientId");
   }
-  if (requestHints?.oauthAppId === DERIV_OAUTH_CLIENT_ID) {
+  if (requestHints?.oauthAppId) {
     addAppIdCandidate(candidates, requestHints.oauthAppId, "request.oauthAppId");
   }
+  addAppIdCandidate(candidates, DERIV_OAUTH_CLIENT_ID, "DERIV_OAUTH_CLIENT_ID");
   return candidates;
 }
 

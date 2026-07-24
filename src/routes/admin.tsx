@@ -75,6 +75,11 @@ function AdminProfitsPage() {
   const [newClonePassword, setNewClonePassword] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
   
+  // App configuration
+  const [settingsLegacyAppId, setSettingsLegacyAppId] = useState("");
+  const [settingsOauthAppId, setSettingsOauthAppId] = useState("");
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  
   // Advanced reporting & analytics
   const [reportStartDate, setReportStartDate] = useState<string>("");
   const [reportEndDate, setReportEndDate] = useState<string>("");
@@ -130,6 +135,15 @@ function AdminProfitsPage() {
 
       setIsAdmin(true);
       fetchCloneUsers();
+
+      // Fetch dynamic app configuration
+      const { data: settingsData } = await supabase.from("site_settings").select("key, value");
+      if (settingsData) {
+        settingsData.forEach(row => {
+          if (row.key === "deriv_legacy_app_id") setSettingsLegacyAppId(row.value);
+          if (row.key === "deriv_oauth_app_id") setSettingsOauthAppId(row.value);
+        });
+      }
 
       // Fetch the latest 100 for the feed
       const feedPromise = supabase
@@ -377,6 +391,33 @@ function AdminProfitsPage() {
     setTimeout(() => {
       window.location.reload();
     }, 1000);
+  };
+
+  const handleSaveSettings = async () => {
+    setSettingsLoading(true);
+    try {
+      const updates = [
+        { key: "deriv_legacy_app_id", value: settingsLegacyAppId },
+        { key: "deriv_oauth_app_id", value: settingsOauthAppId }
+      ];
+
+      for (const update of updates) {
+        if (!update.value) continue;
+        const { error } = await supabase
+          .from("site_settings")
+          .upsert(update, { onConflict: "key" });
+        if (error) throw error;
+      }
+      
+      toast.success("App configuration saved successfully! Reloading in 1s...");
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    } catch (err: any) {
+      toast.error(`Failed to save settings: ${err.message}`);
+    } finally {
+      setSettingsLoading(false);
+    }
   };
 
   const handleAddReferee = async () => {
@@ -777,6 +818,40 @@ function AdminProfitsPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 mb-8">
+            {/* App Configuration Panel */}
+            <div className="col-span-1 rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
+              <div className="border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">
+                <h2 className="text-lg font-semibold text-[#333] dark:text-[#eee]">App Configuration</h2>
+                <p className="text-xs text-[#777] dark:text-[#aaa]">Change Deriv App IDs dynamically.</p>
+              </div>
+              <div className="p-6">
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="text-sm font-medium text-[#555] dark:text-[#ccc]">Legacy App ID</label>
+                    <Input 
+                      value={settingsLegacyAppId}
+                      onChange={e => setSettingsLegacyAppId(e.target.value)}
+                      placeholder="e.g. 133647"
+                      className="mt-1 bg-transparent border-[#e5e5e5] dark:border-[#333] text-[#333] dark:text-[#eee]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-[#555] dark:text-[#ccc]">OAuth Client ID (App ID)</label>
+                    <Input 
+                      value={settingsOauthAppId}
+                      onChange={e => setSettingsOauthAppId(e.target.value)}
+                      placeholder="e.g. 33dF8d2wwjIpeFDBvNkln"
+                      className="mt-1 bg-transparent border-[#e5e5e5] dark:border-[#333] text-[#333] dark:text-[#eee]"
+                    />
+                  </div>
+                </div>
+                <Button onClick={handleSaveSettings} disabled={settingsLoading} className="w-full bg-[#078a5b] text-white hover:bg-[#06734c]">
+                  {settingsLoading ? <RefreshCw className="mr-2 size-4 animate-spin" /> : null}
+                  Save Configuration
+                </Button>
+              </div>
+            </div>
+
             {/* Clone User Management Panel */}
             <div className="col-span-1 rounded-lg border border-[#e5e5e5] bg-white shadow-sm dark:border-[#333] dark:bg-[#151515]">
               <div className="border-b border-[#e5e5e5] px-6 py-4 dark:border-[#333]">

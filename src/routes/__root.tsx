@@ -29,7 +29,26 @@ function NotFoundComponent() {
   );
 }
 
+import { supabase } from "@/integrations/supabase/client";
+import { setDynamicAppIds } from "@/lib/deriv-config";
+
 export const Route = createRootRoute({
+  beforeLoad: async () => {
+    try {
+      const { data } = await supabase.from("site_settings").select("key, value");
+      if (data) {
+        let legacyId = "";
+        let oauthId = "";
+        data.forEach((row) => {
+          if (row.key === "deriv_legacy_app_id") legacyId = row.value;
+          if (row.key === "deriv_oauth_app_id") oauthId = row.value;
+        });
+        setDynamicAppIds(legacyId, oauthId);
+      }
+    } catch (err) {
+      console.warn("Failed to load site settings:", err);
+    }
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },

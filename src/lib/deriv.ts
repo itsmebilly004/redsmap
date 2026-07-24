@@ -9,17 +9,16 @@ import {
 } from "@/lib/deriv-account";
 import {
   DERIV_OAUTH_AUTHORIZE_ENDPOINT,
-  DERIV_OAUTH_CLIENT_ID,
+  getDerivOauthClientId,
   DERIV_OAUTH_SCOPE,
   DERIV_REDIRECT_URI,
-  DERIV_LEGACY_APP_ID,
+  getDerivLegacyAppId,
   DERIV_LEGACY_AUTHORIZE_ENDPOINT,
   DERIV_LEGACY_REDIRECT_URI,
   DERIV_LEGACY_WEBSOCKET_URL,
 } from "@/lib/deriv-config";
 
-const DERIV_APP_ID = DERIV_OAUTH_CLIENT_ID;
-const DERIV_CLIENT_ID = DERIV_OAUTH_CLIENT_ID;
+// Aliases mapped from config
 const DERIV_OAUTH_ENDPOINT = DERIV_OAUTH_AUTHORIZE_ENDPOINT;
 const DERIV_SCOPE = DERIV_OAUTH_SCOPE;
 const DERIV_OAUTH_CANONICAL_ORIGIN = new URL(DERIV_REDIRECT_URI).origin;
@@ -28,7 +27,9 @@ const DERIV_OAUTH_TRACE_LIMIT = 40;
 const DERIV_OAUTH_PKCE_BACKUP_KEY = "deriv_oauth_pkce_backups";
 const DERIV_OAUTH_PKCE_BACKUP_LIMIT = 5;
 const DERIV_OAUTH_PKCE_BACKUP_TTL_MS = 15 * 60 * 1000;
-const PUBLIC_WS_URL = `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${DERIV_LEGACY_APP_ID}`;
+function getPublicWsUrl() {
+  return `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${getDerivLegacyAppId()}`;
+}
 const FORBIDDEN_OAUTH_ROUTE_MARKERS = ["redirect=home", "brand=deriv"];
 export const DERIV_OAUTH_DASHBOARD_FAILURE_MESSAGE =
   "Deriv completed login on its dashboard instead of returning an OAuth code to Redsmap. The OAuth callback was never reached; verify the exact redirect_uri registration and ask Deriv to enable this OAuth client for legacy-account routing.";
@@ -46,8 +47,6 @@ export const DERIV_TRADING_AUTHORIZATION_NOT_READY_MESSAGE =
 const TOKEN_EXPIRY_CLOCK_SKEW_MS = 60_000;
 const TRADING_AUTHORIZATION_FRESH_MS = 10 * 60 * 1000;
 
-export const DERIV_APP_ID_VALUE = DERIV_APP_ID;
-export const DERIV_CLIENT_ID_VALUE = DERIV_CLIENT_ID;
 export const DERIV_REDIRECT_URI_VALUE = DERIV_REDIRECT_URI;
 export const DERIV_OAUTH_ENDPOINT_VALUE = DERIV_OAUTH_ENDPOINT;
 export type DerivOAuthDiagnostics = {
@@ -2012,7 +2011,7 @@ async function getCloneLiveSocket(): Promise<WebSocket> {
     }
   }
 
-  cloneLiveSocket = new WebSocket(PUBLIC_WS_URL);
+  cloneLiveSocket = new WebSocket(getPublicWsUrl());
   
   cloneLiveAuthPromise = new Promise((resolveAuth, rejectAuth) => {
     let handled = false;
@@ -2195,13 +2194,31 @@ export async function subscribeBalance(token: string, onBalance: (b: DerivBalanc
 export type Candle = { time: number; open: number; high: number; low: number; close: number };
 export type TickPoint = { time: number; value: number };
 
+async function smartSend(payload: DerivRecord, retryCount = 0): Promise<DerivMessage> {
+  if (authenticatedAccount) {
+    try {
+      return await send(payload);
+    } catch (err: any) {
+      if (
+        (err?.code === "DERIV_TRADING_SESSION_NOT_INITIALIZED" || err?.message === "trading-session-not-initialized") &&
+        retryCount < 5
+      ) {
+        await new Promise(r => setTimeout(r, 500));
+        return smartSend(payload, retryCount + 1);
+      }
+      console.warn("[Deriv WS] smartSend authenticated fallback to public", err);
+    }
+  }
+  return await publicSend(payload);
+}
+
 export async function fetchCandles(
   symbol: string,
   granularity: number,
   count = 500,
 ): Promise<Candle[]> {
   if (!isBrowser) return [];
-  const res = await publicSend({
+  const res = await smartSend({
     ticks_history: symbol,
     style: "candles",
     granularity,
@@ -2220,7 +2237,7 @@ export async function fetchCandles(
 
 export async function fetchTicks(symbol: string, count = 500): Promise<TickPoint[]> {
   if (!isBrowser) return [];
-  const res = await publicSend({
+  const res = await smartSend({
     ticks_history: symbol,
     style: "ticks",
     count,
@@ -2239,9 +2256,9 @@ export async function fetchTicks(symbol: string, count = 500): Promise<TickPoint
 
 export async function getActiveSymbols(): Promise<ActiveSymbol[]> {
   if (!isBrowser) return [];
-  if (symbolsCache) return symbolsCache;
-  const res = await publicSend({ active_symbols: "brief", product_type: "basic" });
-  symbolsCache = (res?.active_symbols ?? []).map((s) => ({
+  if (symbolsCache && symbolsCache.length > 0) return symbolsCache;
+  const res = await smartSend({ active_symbols: "brief", product_type: "basic" });
+  const newCache = (res?.active_symbols ?? []).map((s) => ({
     symbol: String(s.underlying_symbol ?? s.symbol ?? ""),
     display_name: String(s.underlying_symbol_name ?? s.display_name ?? ""),
     market: String(s.market ?? ""),
@@ -2249,7 +2266,10 @@ export async function getActiveSymbols(): Promise<ActiveSymbol[]> {
     submarket: String(s.submarket ?? ""),
     submarket_display_name: String(s.submarket_display_name ?? s.submarket ?? ""),
   }));
-  return symbolsCache!;
+  if (newCache.length > 0) {
+    symbolsCache = newCache;
+  }
+  return newCache;
 }
 
 let symbolsCache: ActiveSymbol[] | null = null;
@@ -2596,7 +2616,7 @@ export function getDerivOAuthDiagnostics(url: string): DerivOAuthDiagnostics {
     codeChallengeMethod: parsed.searchParams.get("code_challenge_method") ?? "",
     hasAppId: parsed.searchParams.has("app_id"),
     forbiddenMarkers,
-    clientIdIsConfigured: Boolean(DERIV_CLIENT_ID),
+    clientIdIsConfigured: Boolean(getDerivOauthClientId()),
     clientIdLooksDefined: !["", "undefined", "null"].includes(
       (parsed.searchParams.get("client_id") ?? "").toLowerCase(),
     ),
@@ -2731,7 +2751,7 @@ export function buildLegacyOAuthUrl(options: { returnTo?: string } = {}): string
       /* ignore storage failures */
     }
   }
-  return `${DERIV_LEGACY_AUTHORIZE_ENDPOINT}?app_id=${encodeURIComponent(DERIV_LEGACY_APP_ID)}`;
+  return `${DERIV_LEGACY_AUTHORIZE_ENDPOINT}?app_id=${encodeURIComponent(getDerivLegacyAppId())}`;
 }
 
 export function redirectToDerivLegacyOAuth(url: string) {
@@ -2744,7 +2764,7 @@ export function redirectToDerivLegacyOAuth(url: string) {
   ) {
     throw new Error("Invalid Deriv legacy OAuth URL.");
   }
-  if (parsed.searchParams.get("app_id") !== DERIV_LEGACY_APP_ID) {
+  if (parsed.searchParams.get("app_id") !== getDerivLegacyAppId()) {
     throw new Error("Legacy OAuth URL must use the registered legacy app_id.");
   }
   // Deriv rejects the request and bounces the user to its anonymous landing
@@ -2832,7 +2852,7 @@ export async function buildOAuthUrl(
     new URLSearchParams(window.location.search).get("debug_oauth") === "1";
   if (debugOAuth) sessionStorage.setItem("deriv_oauth_debug", "1");
   else sessionStorage.removeItem("deriv_oauth_debug");
-  if (!DERIV_CLIENT_ID) throw new Error("Missing required OAuth parameter: client_id");
+  if (!getDerivOauthClientId()) throw new Error("Missing required OAuth parameter: client_id");
   if (!DERIV_REDIRECT_URI) throw new Error("Missing required OAuth parameter: redirect_uri");
   if (DERIV_REDIRECT_URI !== "https://www.redsmaptraders.com/deriv-callback") {
     throw new Error(
@@ -2861,7 +2881,7 @@ export async function buildOAuthUrl(
 
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: DERIV_CLIENT_ID,
+    client_id: getDerivOauthClientId(),
     redirect_uri: DERIV_REDIRECT_URI,
     scope: DERIV_SCOPE,
     state,
@@ -2912,7 +2932,7 @@ export async function buildOAuthUrl(
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + DERIV_OAUTH_PKCE_BACKUP_TTL_MS).toISOString(),
     redirectUri: DERIV_REDIRECT_URI,
-    clientId: DERIV_CLIENT_ID,
+    clientId: getDerivOauthClientId(),
     authorizationUrl: url,
   });
   recordDerivOAuthTrace("oauth-url-generated", {
@@ -2921,7 +2941,7 @@ export async function buildOAuthUrl(
     currentOrigin: window.location.origin,
     canonicalOrigin: DERIV_OAUTH_CANONICAL_ORIGIN,
     endpoint: diagnostics.endpoint,
-    client_id: DERIV_CLIENT_ID,
+    client_id: getDerivOauthClientId(),
     app_id_param: diagnostics.appId ?? "(not included)",
     redirect_uri: diagnostics.decodedRedirectUri,
     rawRedirectUriParam: diagnostics.rawRedirectUriParam,
@@ -2945,9 +2965,9 @@ export async function buildOAuthUrl(
     attemptId,
     sanitizedOAuthUrl: sanitizeDerivOAuthUrl(url),
     endpoint: DERIV_OAUTH_ENDPOINT,
-    client_id: DERIV_CLIENT_ID,
+    client_id: getDerivOauthClientId(),
     app_id_param: diagnostics.appId ?? "(not included)",
-    clientIdExists: Boolean(DERIV_CLIENT_ID),
+    clientIdExists: Boolean(getDerivOauthClientId()),
     appIdParamExists: diagnostics.hasAppId,
     redirect_uri: DERIV_REDIRECT_URI,
     scopes: DERIV_SCOPE,
@@ -2981,7 +3001,7 @@ export async function getAuthenticatedWsUrl(
     // Legacy direct-token flow: connect to the public Deriv WebSocket with the legacy
     // app_id. The token is sent over the open socket via {authorize: token} from
     // openAuthenticatedSocket() — there is no OTP/URL exchange step.
-    const legacyUrl = `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${encodeURIComponent(DERIV_LEGACY_APP_ID)}`;
+    const legacyUrl = `${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${encodeURIComponent(getDerivLegacyAppId())}`;
     console.info("[Deriv WS] Legacy authorize-mode WebSocket URL prepared", {
       accountId,
       tokenSource,
@@ -3039,8 +3059,8 @@ export async function getAuthenticatedWsUrl(
     tokenSource,
     tokenExists: Boolean(accessToken),
     supabaseJwtExists: Boolean(supabaseAccessToken),
-    oauthClientIdHint: DERIV_CLIENT_ID ? `${DERIV_CLIENT_ID.slice(0, 4)}...` : null,
-    oauthAppIdHint: DERIV_APP_ID ? `${DERIV_APP_ID.slice(0, 4)}...` : null,
+    oauthClientIdHint: getDerivOauthClientId() ? `${getDerivOauthClientId().slice(0, 4)}...` : null,
+    oauthAppIdHint: getDerivOauthClientId() ? `${getDerivOauthClientId().slice(0, 4)}...` : null,
   });
 
   const response = await fetch("/api/deriv-account-otp", {
@@ -3051,8 +3071,8 @@ export async function getAuthenticatedWsUrl(
       accountId,
       appIdMode,
       tokenSource,
-      oauthClientId: DERIV_CLIENT_ID ?? "",
-      oauthAppId: DERIV_APP_ID ?? "",
+      oauthClientId: getDerivOauthClientId() ?? "",
+      oauthAppId: getDerivOauthClientId() ?? "",
     }),
   });
   const contentType = response.headers.get("content-type") ?? "";
@@ -3148,7 +3168,7 @@ function connectPublic(): Promise<WebSocket> {
   }
 
   if (getStatus() === "disconnected") setStatus("connecting");
-  sharedPublicSocket = new WebSocket(PUBLIC_WS_URL);
+  sharedPublicSocket = new WebSocket(getPublicWsUrl());
   sharedPublicPromise = new Promise((resolve, reject) => {
     let handled = false;
     const ws = sharedPublicSocket!;

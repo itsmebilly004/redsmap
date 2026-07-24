@@ -2,8 +2,6 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  DERIV_APP_ID_VALUE,
-  DERIV_CLIENT_ID_VALUE,
   DERIV_REDIRECT_URI_VALUE,
   adapterForTokenSource,
   clearDerivOAuthPkceBackup,
@@ -16,6 +14,7 @@ import {
   tradingWebSocketMode,
   type DerivTokenSource,
 } from "@/lib/deriv";
+import { getDerivOauthClientId } from "@/lib/deriv-config";
 import { normalizeDerivAccount } from "@/lib/deriv-account";
 import { derivCredentials } from "@/lib/deriv-credentials";
 import { toast } from "sonner";
@@ -331,7 +330,7 @@ function DerivCallback() {
           error,
           errorDescription,
           redirect_uri: DERIV_REDIRECT_URI_VALUE,
-          client_id: DERIV_CLIENT_ID_VALUE,
+          client_id: getDerivOauthClientId(),
           storage: callbackStorageSummary(state),
           trace: readDerivOAuthTrace(),
         });
@@ -419,7 +418,7 @@ function DerivCallback() {
             providerEndpoint: "https://auth.deriv.com/oauth2/token",
             method: "POST",
             grant_type: "authorization_code",
-            client_id: DERIV_CLIENT_ID_VALUE,
+            client_id: getDerivOauthClientId(),
             redirect_uri: DERIV_REDIRECT_URI_VALUE,
             hasCode: Boolean(code),
             hasCodeVerifier: Boolean(codeVerifier),
@@ -427,7 +426,7 @@ function DerivCallback() {
           const tokenResponse = await fetch("/api/deriv-token-exchange", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code, codeVerifier }),
+            body: JSON.stringify({ code, codeVerifier, oauthClientId: getDerivOauthClientId() }),
           });
           const tokenData = await responseJson<DerivTokenResponse>(tokenResponse, {
             error: "invalid_response",
@@ -483,8 +482,8 @@ function DerivCallback() {
             body: JSON.stringify({
               accessToken,
               appIdMode: "oauth",
-              oauthClientId: DERIV_CLIENT_ID_VALUE ?? "",
-              oauthAppId: DERIV_APP_ID_VALUE ?? "",
+              oauthClientId: getDerivOauthClientId() ?? "",
+              oauthAppId: getDerivOauthClientId() ?? "",
             }),
           });
           const accountsData = await responseJson<DerivAccountsResponse>(accountsResponse, {

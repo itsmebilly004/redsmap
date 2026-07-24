@@ -8,6 +8,7 @@ import {
 type TokenExchangeRequest = {
   code?: string;
   codeVerifier?: string;
+  oauthClientId?: string;
 };
 
 export const Route = createFileRoute("/api/deriv-token-exchange")({
@@ -15,12 +16,13 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          const { code, codeVerifier } = (await request.json()) as TokenExchangeRequest;
+          const { code, codeVerifier, oauthClientId } = (await request.json()) as TokenExchangeRequest;
+          const clientId = oauthClientId || DERIV_OAUTH_CLIENT_ID;
           console.log("[Deriv Token Exchange] request received", {
             hasCode: Boolean(code),
             hasCodeVerifier: Boolean(codeVerifier),
             redirect_uri: DERIV_REDIRECT_URI,
-            client_id: DERIV_OAUTH_CLIENT_ID,
+            client_id: clientId,
             redirectUriExactMatch:
               DERIV_REDIRECT_URI === "https://www.redsmaptraders.com/deriv-callback",
           });
@@ -28,7 +30,6 @@ export const Route = createFileRoute("/api/deriv-token-exchange")({
             return Response.json({ error: "Missing code or codeVerifier" }, { status: 400 });
           }
 
-          const clientId = DERIV_OAUTH_CLIENT_ID;
           if (!clientId) {
             console.error("[Deriv Token Exchange] missing client_id");
             return Response.json({ error: "Missing Deriv OAuth client_id" }, { status: 400 });
