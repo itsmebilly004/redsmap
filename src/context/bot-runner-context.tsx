@@ -921,7 +921,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             addJournal(`Deriv API Error: ${errMsg}`, "error");
             
             // If the error is related to authorization, restricted symbols, or the ticks subscription (req_id = 1) itself fails, halt the bot
-            if (msg.req_id === 1 || errorObj.code === "InvalidSymbol" || errorObj.code === "AuthorizationRequired") {
+            if (msg.req_id === 1 || msg.msg_type === "authorize" || errorObj.code === "InvalidSymbol" || errorObj.code === "AuthorizationRequired") {
                stopTickWs();
                return;
             }
