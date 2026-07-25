@@ -33,7 +33,7 @@ function DashboardLayout() {
   const navigate = useNavigate();
   const { location } = useRouterState();
   const pathname = location.pathname;
-  const isCloneSandbox = pathname.startsWith("/clone2006");
+  const isCloneSandbox = pathname.startsWith("/client");
   const { account } = useDerivBalanceContext();
   const selectedAccountIsDemo = account ? isDemoAccount(account) : false;
 
@@ -141,7 +141,7 @@ function DashboardLayout() {
             {items.map((item) => {
               let targetPath = item.to;
               if (isCloneSandbox) {
-                targetPath = item.to === "/" ? "/clone2006" : `/clone2006${item.to}`;
+                targetPath = item.to === "/" ? "/client" : `/client${item.to}`;
               }
 
               const active = item.exact
@@ -187,7 +187,7 @@ function DashboardLayout() {
             {items.map((item) => {
               let targetPath = item.to;
               if (isCloneSandbox) {
-                targetPath = item.to === "/" ? "/clone2006" : `/clone2006${item.to}`;
+                targetPath = item.to === "/" ? "/client" : `/client${item.to}`;
               }
 
               const active = item.exact

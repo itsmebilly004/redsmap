@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { TopShell } from "@/components/top-shell";
 
-export const Route = createFileRoute("/clone2006/dashboard/settings")({
+export const Route = createFileRoute("/client/dashboard/settings")({
   component: AdminPage,
 });
 

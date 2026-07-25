@@ -188,3 +188,48 @@ export async function subscribeOpenContract(
     }
   };
 }
+
+export async function subscribeProposal(
+  payload: DerivRecord,
+  onUpdate: (proposal: DerivRecord, message: DerivMessage) => void,
+  context: TradeRequestContext = {},
+) {
+  assertNoRejectedProposalProperties(payload, context.adapter);
+  const payloadWithSub = { ...payload, subscribe: 1 };
+
+  let active = true;
+  let subscriptionId: string | null = null;
+
+  const off = onMessage((message) => {
+    if (!active || message.msg_type !== "proposal") return;
+    const proposal = message.proposal;
+    if (!proposal) return;
+    if (subscriptionId && message.subscription?.id !== subscriptionId) return;
+    onUpdate(proposal, message);
+  });
+
+  let initial: DerivMessage;
+  try {
+    initial = await send(payloadWithSub);
+  } catch (error) {
+    console.warn("[Deriv Trading] proposal subscribe failed", {
+      failureReason: error instanceof Error ? error.message : String(error),
+      error,
+    });
+    throw error;
+  }
+
+  subscriptionId = String(initial.subscription?.id ?? "");
+  if (initial.proposal) {
+    onUpdate(initial.proposal, initial);
+  }
+
+  return async () => {
+    if (!active) return;
+    active = false;
+    off();
+    if (subscriptionId) {
+      await forgetSubscription(subscriptionId);
+    }
+  };
+}

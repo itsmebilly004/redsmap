@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { STRATEGIES } from "@/lib/strategies";
 
-export const Route = createFileRoute("/clone2006/strategies")({
+export const Route = createFileRoute("/client/strategies")({
   head: () => ({
     meta: [
       { title: "Advanced Trading Strategies — Redsmap Traders" },

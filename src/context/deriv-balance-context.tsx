@@ -6,6 +6,7 @@ import {
   buyProposal,
   sellContract,
   subscribeOpenContract,
+  subscribeProposal,
 } from "@/lib/deriv-trading-service";
 
 export function DerivBalanceProvider({ children }: { children: ReactNode }) {
@@ -18,6 +19,7 @@ export function DerivBalanceProvider({ children }: { children: ReactNode }) {
       buyProposal,
       sellContract,
       subscribeOpenContract,
+      subscribeProposal,
     };
   }, [balance]);
 

@@ -8,6 +8,21 @@ export type Database = {
   };
   public: {
     Tables: {
+      site_settings: {
+        Row: {
+          key: string;
+          value: string;
+        };
+        Insert: {
+          key: string;
+          value: string;
+        };
+        Update: {
+          key?: string;
+          value?: string;
+        };
+        Relationships: [];
+      };
       active_bot_sessions: {
         Row: {
           id: string;

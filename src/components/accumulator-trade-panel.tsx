@@ -46,7 +46,7 @@ type Props = {
 
 export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketChange }: Props) {
   const { user } = useAuth();
-  const { isSimulated, account, balance: accountBalance, currency, requestProposal, buyProposal, subscribeOpenContract, sellContract } = useDerivBalanceContext();
+  const { isSimulated, account, balance: accountBalance, currency, requestProposal, buyProposal, subscribeOpenContract, subscribeProposal, sellContract } = useDerivBalanceContext();
   const token = account?.deriv_token ?? null;
   const tradeCurrency = currency || account?.currency || "";
   const selectedAccountIsDemo = account ? isDemoAccount(account) : false;
@@ -74,6 +74,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
   const tradeIdRef = useRef<string | null>(null);
   const previewConfigRef = useRef(`${market}:${growthRate.toFixed(2)}`);
   const [previewEntrySpot, setPreviewEntrySpot] = useState<number | null>(null);
+  const [liveProposalBarriers, setLiveProposalBarriers] = useState<{ high: number; low: number } | null>(null);
 
   useEffect(() => {
     return () => {
@@ -130,14 +131,59 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
   }, []);
 
   useEffect(() => {
+    if (state.status === "active" || state.status === "lost" || state.status === "sold") {
+      setLiveProposalBarriers(null);
+      return;
+    }
+    if (!account || !token) return;
+
+    let active = true;
+    let unsub: (() => Promise<void>) | null = null;
+    const adapter = account.trading_adapter ?? "browser";
+
+    const timeoutId = setTimeout(() => {
+      if (!active) return;
+      const payload = buildAccumulatorProposalPayload(
+        {
+          currency: tradeCurrency,
+          growthRate,
+          market,
+          stake,
+          takeProfit: takeProfitEnabled ? takeProfit : null,
+        },
+        adapter,
+      );
+      subscribeProposal(payload, (proposal) => {
+        if (!active) return;
+        if ((proposal.high_barrier || proposal.barrier) && proposal.low_barrier) {
+          // Note: API returns barrier (high) and low_barrier. Wait! I'll check high_barrier vs barrier.
+          // Deriv proposals for accumulators usually return high_barrier and low_barrier.
+          setLiveProposalBarriers({
+            high: Number(proposal.high_barrier ?? proposal.barrier ?? 0),
+            low: Number(proposal.low_barrier ?? 0),
+          });
+        }
+      }, { adapter }).then((fn) => { if (!active) void fn(); else unsub = fn; }).catch((err) => {
+        console.warn("[Accumulator] Failed to subscribe to dynamic barriers", err);
+      });
+    }, 200);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+      if (unsub) void unsub();
+    };
+  }, [market, growthRate, stake, takeProfitEnabled, takeProfit, tradeCurrency, account, token, state.status, subscribeProposal]);
+
+  useEffect(() => {
     const liveContract =
       state.status === "active" || state.status === "lost" || state.status === "sold";
     const referenceSpot = liveContract
       ? (state.entrySpot ?? state.currentSpot ?? lastPrice ?? null)
       : (previewEntrySpot ?? lastPrice ?? null);
     const fallback = estimateAccumulatorBarriers(referenceSpot, growthRate);
-    const high = state.upperBarrier ?? fallback.high;
-    const low = state.lowerBarrier ?? fallback.low;
+    const high = state.upperBarrier ?? (liveContract ? fallback.high : (liveProposalBarriers?.high ?? fallback.high));
+    const low = state.lowerBarrier ?? (liveContract ? fallback.low : (liveProposalBarriers?.low ?? fallback.low));
     const currentSpot = liveContract
       ? (state.currentSpot ?? state.entrySpot ?? lastPrice ?? null)
       : (lastPrice ?? referenceSpot);
@@ -166,7 +212,8 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     });
   }, [
     growthRate,
-    lastPrice,
+    liveProposalBarriers?.high,
+    liveProposalBarriers?.low,
     onBarriers,
     stake,
     state.barrierBreached,

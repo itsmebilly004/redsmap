@@ -11,7 +11,7 @@ import { ensureBotXmlPresets, fetchBotXmlFromDatabase } from "@/lib/bot-xml-stor
 import { TRADING_BOT_ASSETS, type TradingBotAsset } from "@/lib/trading-bot-database";
 import { Zap, Target, Cpu, BrainCircuit, Flame, Rocket, Shield } from "lucide-react";
 
-export const Route = createFileRoute("/clone2006/trading-bots")({
+export const Route = createFileRoute("/client/trading-bots")({
   head: () => ({
     meta: [
       { title: "Trading Bot Presets - Redsmap Traders" },
@@ -67,7 +67,7 @@ function TradingBots() {
 
   async function handleDeployBot(bot: TradingBotAsset) {
     if (!user?.id) {
-      navigate({ to: "/clone2006/auth", search: { mode: "signin" } });
+      navigate({ to: "/client/auth", search: { mode: "signin" } });
       return;
     }
     setDeployingId(bot.id);
@@ -76,7 +76,7 @@ function TradingBots() {
       await importBotXmlIntoBuilderMemory(user.id, { name: bot.name, xml, presetId: bot.id });
       recordBotPresetActivity(user.id, "deployed", bot.name, bot.id);
       toast.success(`Imported "${bot.name}" into the bot builder.`);
-      navigate({ to: "/clone2006/bot-builder" });
+      navigate({ to: "/client/bot-builder" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not deploy this bot preset.";
       toast.error(message);
@@ -136,7 +136,7 @@ function TradingBots() {
                       </Button>
                     ) : (
                       <Button asChild size="lg" className="w-full rounded-xl font-bold shadow-glow">
-                        <Link to="/clone2006/auth" search={{ mode: "signin" }}>
+                        <Link to="/client/auth" search={{ mode: "signin" }}>
                           Sign in to deploy
                         </Link>
                       </Button>

@@ -30,12 +30,12 @@ export default class ToolbarStore {
   }
 
   setHasUndoStack(): void {
-    const workspace = window.Blockly?.derivWorkspace;
+    const workspace = (window as any).Blockly?.derivWorkspace;
     this.has_undo_stack = !!workspace?.undoStack_?.length;
   }
 
   setHasRedoStack(): void {
-    const workspace = window.Blockly?.derivWorkspace;
+    const workspace = (window as any).Blockly?.derivWorkspace;
     this.has_redo_stack = !!workspace?.redoStack_?.length;
   }
 
@@ -48,26 +48,26 @@ export default class ToolbarStore {
   }
 
   onResetClick(): void {
-    const workspace = window.Blockly?.derivWorkspace;
+    const workspace = (window as any).Blockly?.derivWorkspace;
     if (!workspace) return;
     this.setResetButtonState(true);
     workspace.cleanUp?.();
   }
 
   onUndoClick(): void {
-    window.Blockly?.derivWorkspace?.undo(false);
+    (window as any).Blockly?.derivWorkspace?.undo(false);
   }
 
   onRedoClick(): void {
-    window.Blockly?.derivWorkspace?.undo(true);
+    (window as any).Blockly?.derivWorkspace?.undo(true);
   }
 
   onSortClick(): void {
-    window.Blockly?.derivWorkspace?.cleanUp?.();
+    (window as any).Blockly?.derivWorkspace?.cleanUp?.();
   }
 
   onZoomInOutClick(is_zoom_in: boolean): void {
-    const workspace = window.Blockly?.getMainWorkspace?.();
+    const workspace = (window as any).Blockly?.getMainWorkspace?.();
     if (!workspace) return;
     const metrics = workspace.getMetrics?.();
     if (!metrics) return;

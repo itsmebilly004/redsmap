@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import type { Tables } from "@/integrations/supabase/types";
 
-export const Route = createFileRoute("/clone2006/dashboard/analytics")({
+export const Route = createFileRoute("/client/dashboard/analytics")({
   component: AnalyticsPage,
 });
 

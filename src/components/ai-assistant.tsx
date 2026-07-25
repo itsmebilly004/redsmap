@@ -378,8 +378,8 @@ export function AiAssistant({
     if (!bestBot || !user?.id) {
       if (!user?.id) {
         toast.error("Sign in to deploy a bot.");
-        const isClone = typeof window !== "undefined" && window.location.pathname.startsWith("/clone2006");
-        navigate({ to: (isClone ? "/clone2006/auth" : "/auth") as any, search: { mode: "signin" } });
+        const isClone = typeof window !== "undefined" && window.location.pathname.startsWith("/client");
+        navigate({ to: (isClone ? "/client/auth" : "/auth") as any, search: { mode: "signin" } });
       }
       return;
     }
@@ -418,8 +418,8 @@ export function AiAssistant({
       });
       toast.success(`Deployed ${bestBot.name} — auto-running on ${bestBot.marketLabel}.`);
       setOpen(false);
-      const isClone = typeof window !== "undefined" && window.location.pathname.startsWith("/clone2006");
-      navigate({ to: (isClone ? "/clone2006/bot-builder" : "/bot-builder") as any });
+      const isClone = typeof window !== "undefined" && window.location.pathname.startsWith("/client");
+      navigate({ to: (isClone ? "/client/bot-builder" : "/bot-builder") as any });
       // Auto-start the run once the deploy is persisted. The run loop lives in the
       // root BotRunnerProvider (survives navigation); the brief delay lets the
       // bot-builder workspace mount so block highlighting tracks the live run.
@@ -507,8 +507,8 @@ export function AiAssistant({
       type: "assistant",
     });
     setOpen(false);
-    const isClone = typeof window !== "undefined" && window.location.pathname.startsWith("/clone2006");
-    navigate({ to: (isClone ? "/clone2006" : "/") as any });
+    const isClone = typeof window !== "undefined" && window.location.pathname.startsWith("/client");
+    navigate({ to: (isClone ? "/client" : "/") as any });
   }
 
   return (

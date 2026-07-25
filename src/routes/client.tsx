@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { TopShell } from "@/components/top-shell";
 
-export const Route = createFileRoute("/clone2006")({
+export const Route = createFileRoute("/client")({
   component: TradingLayout,
 });
 
@@ -16,13 +16,13 @@ function TradingLayout() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (location.pathname === "/clone2006/auth") {
+    if (location.pathname === "/client/auth") {
       setIsAuthorized(true);
       return;
     }
     
     if (!loading && !user) {
-      navigate({ to: "/clone2006/auth", search: { mode: "signin" } });
+      navigate({ to: "/client/auth", search: { mode: "signin" } });
       return;
     }
 
@@ -45,7 +45,7 @@ function TradingLayout() {
     }
   }, [user, loading, location.pathname, navigate]);
 
-  if (location.pathname === "/clone2006/auth") {
+  if (location.pathname === "/client/auth") {
     return <Outlet />;
   }
 

@@ -5,7 +5,7 @@ import { DerivChart } from "@/components/deriv-chart";
 import { useAuth } from "@/hooks/use-auth";
 import { readRememberedMarket, rememberMarketSelection } from "@/lib/activity-memory";
 
-export const Route = createFileRoute("/clone2006/charts")({
+export const Route = createFileRoute("/client/charts")({
   head: () => ({
     meta: [
       { title: "Live Charts — Redsmap Traders" },

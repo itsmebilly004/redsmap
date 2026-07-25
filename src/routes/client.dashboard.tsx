@@ -16,7 +16,7 @@ import { TopShell } from "@/components/top-shell";
 import { disconnectAll, getActiveDerivTradingSession } from "@/lib/deriv";
 import { isDemoAccount } from "@/lib/deriv-account";
 
-export const Route = createFileRoute("/clone2006/dashboard")({
+export const Route = createFileRoute("/client/dashboard")({
   component: DashboardLayout,
 });
 
@@ -33,12 +33,12 @@ function DashboardLayout() {
   const navigate = useNavigate();
   const { location } = useRouterState();
   const pathname = location.pathname;
-  const isCloneSandbox = pathname.startsWith("/clone2006");
+  const isCloneSandbox = pathname.startsWith("/client");
   const { account } = useDerivBalanceContext();
   const selectedAccountIsDemo = account ? isDemoAccount(account) : false;
 
   useEffect(() => {
-    if (!loading && !user) navigate({ to: "/clone2006/auth", search: { mode: "signin" } });
+    if (!loading && !user) navigate({ to: "/client/auth", search: { mode: "signin" } });
   }, [user, loading, navigate]);
 
   useEffect(() => {
@@ -105,7 +105,7 @@ function DashboardLayout() {
     }
     disconnectAll();
     await supabase.auth.signOut();
-    navigate({ to: "/clone2006/auth", search: { mode: "signin" } });
+    navigate({ to: "/client/auth", search: { mode: "signin" } });
   }
 
   if (loading || !user) return null;
@@ -141,7 +141,7 @@ function DashboardLayout() {
             {items.map((item) => {
               let targetPath = item.to;
               if (isCloneSandbox) {
-                targetPath = item.to === "/" ? "/clone2006" : `/clone2006${item.to}`;
+                targetPath = item.to === "/" ? "/client" : `/client${item.to}`;
               }
 
               const active = item.exact
@@ -187,7 +187,7 @@ function DashboardLayout() {
             {items.map((item) => {
               let targetPath = item.to;
               if (isCloneSandbox) {
-                targetPath = item.to === "/" ? "/clone2006" : `/clone2006${item.to}`;
+                targetPath = item.to === "/" ? "/client" : `/client${item.to}`;
               }
 
               const active = item.exact

@@ -107,7 +107,7 @@ export function TopShell({
   const navigate = useNavigate();
   const { location } = useRouterState();
   const pathname = location.pathname;
-  const isCloneSandbox = pathname.startsWith("/clone2006");
+  const isCloneSandbox = pathname.startsWith("/client");
   const { account, accounts, balance, currency, refreshing, refreshBalances, switchAccount } =
     useDerivBalanceContext();
   const { theme, toggleTheme } = useTheme();
@@ -390,7 +390,7 @@ export function TopShell({
                     <div className="flex items-center gap-3">
                       {isCloneSandbox && (
                         <Link
-                          to="/clone2006/admin"
+                          to="/admin"
                           className="text-sm font-medium text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
                           onClick={() => setDropdownOpen(false)}
                         >
@@ -414,7 +414,7 @@ export function TopShell({
             <div className="flex flex-col items-end gap-0.5">
               {isCloneSandbox ? (
                 <Button asChild variant="outline" className="h-9">
-                  <Link to="/clone2006/dashboard/settings">Clone Settings</Link>
+                  <Link to="/client/dashboard/settings">Clone Settings</Link>
                 </Button>
               ) : (
                 <>
@@ -440,10 +440,10 @@ export function TopShell({
           {!user && (
             <div className="flex gap-1 sm:gap-2">
               <Button variant="ghost" asChild className="h-9 px-3 text-sm font-medium sm:px-4">
-                <Link to={(isCloneSandbox ? "/clone2006/auth" : "/auth") as any} search={{ mode: "signin" }}>Log in</Link>
+                <Link to={(isCloneSandbox ? "/client/auth" : "/auth") as any} search={{ mode: "signin" }}>Log in</Link>
               </Button>
               <Button asChild className="h-9 bg-[#3e3e3e] px-3 text-sm font-medium text-white shadow-sm sm:px-4">
-                <Link to={(isCloneSandbox ? "/clone2006/auth" : "/auth") as any} search={{ mode: "signup" }}>Sign up</Link>
+                <Link to={(isCloneSandbox ? "/client/auth" : "/auth") as any} search={{ mode: "signup" }}>Sign up</Link>
               </Button>
             </div>
           )}
@@ -456,14 +456,14 @@ export function TopShell({
             let targetPath = t.to;
             if (isCloneSandbox) {
               if (t.to === "/") {
-                targetPath = "/clone2006";
+                targetPath = "/client";
               } else if (!t.to.startsWith("/admin")) {
-                targetPath = `/clone2006${t.to}`;
+                targetPath = `/client${t.to}`;
               }
             }
 
             const active =
-              targetPath === "/" || targetPath === "/clone2006"
+              targetPath === "/" || targetPath === "/client"
                 ? pathname === targetPath || pathname === `${targetPath}/`
                 : pathname.startsWith(targetPath);
             const Icon = t.icon;

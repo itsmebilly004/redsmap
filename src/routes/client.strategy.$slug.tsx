@@ -3,7 +3,7 @@ import { TopShell } from "@/components/top-shell";
 import { getStrategyBySlug, STRATEGIES, type Strategy, type StrategyStep } from "@/lib/strategies";
 import { ArrowLeft, CheckCircle2, AlertTriangle, Lightbulb, ArrowRight } from "lucide-react";
 
-export const Route = createFileRoute("/clone2006/strategy/$slug")({
+export const Route = createFileRoute("/client/strategy/$slug")({
   loader: ({ params }) => {
     const s = getStrategyBySlug(params.slug);
     if (!s) throw notFound();

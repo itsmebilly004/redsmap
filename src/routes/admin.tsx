@@ -48,7 +48,7 @@ const supabaseAdminClient = createClient(
 );
 
 function AdminProfitsPage() {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
@@ -88,7 +88,7 @@ function AdminProfitsPage() {
   const [refereeModalStartDate, setRefereeModalStartDate] = useState<string>("");
   const [refereeModalEndDate, setRefereeModalEndDate] = useState<string>("");
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setloading] = useState(true);
 
   const fetchCloneUsers = async () => {
     const { data, error } = await supabase
@@ -107,12 +107,12 @@ function AdminProfitsPage() {
     async function checkAuthAndLoad() {
       if (authLoading) return;
       if (!user) {
-        setIsLoading(false);
+        setloading(false);
         setIsAdmin(false);
         return;
       }
 
-      setIsLoading(true);
+      setloading(true);
 
       const { data: profile, error: profileError } = await supabase
         .from("users")
@@ -123,13 +123,13 @@ function AdminProfitsPage() {
       if (profileError) {
         toast.error(`Auth check failed: ${profileError.message}`);
         setIsAdmin(false);
-        setIsLoading(false);
+        setloading(false);
         return;
       }
 
       if (!profile?.is_admin) {
         setIsAdmin(false);
-        setIsLoading(false);
+        setloading(false);
         return;
       }
 
@@ -263,7 +263,7 @@ function AdminProfitsPage() {
         setChartData(sortedChartData);
       }
 
-      setIsLoading(false);
+      setloading(false);
     }
     checkAuthAndLoad();
 
@@ -637,7 +637,7 @@ function AdminProfitsPage() {
 
   const handleDeleteCloneUser = async (id: string) => {
     if (!window.confirm("Are you sure you want to permanently delete this clone user?")) return;
-    const { error } = await supabase.rpc("delete_clone_user", { target_user_id: id });
+    const { error } = await (supabase as any).rpc("delete_clone_user", { target_user_id: id });
     if (error) {
       toast.error("Failed to delete user: " + error.message);
       return;
@@ -646,7 +646,7 @@ function AdminProfitsPage() {
     setCloneUsers(cloneUsers.filter(u => u.id !== id));
   };
 
-  if (authLoading || isLoading) {
+  if (authLoading || loading) {
     return (
       <TopShell>
         <div className="flex flex-1 items-center justify-center p-4">

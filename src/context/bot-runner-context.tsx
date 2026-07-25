@@ -763,8 +763,8 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       } catch { /* ignore */ }
     }
     if (!settings) {
-      const isClone = typeof window !== "undefined" && window.location.pathname.startsWith("/clone2006");
-      navigate({ to: (isClone ? "/clone2006/bot-builder" : "/bot-builder") as any });
+      const isClone = typeof window !== "undefined" && window.location.pathname.startsWith("/client");
+      navigate({ to: (isClone ? "/client/bot-builder" : "/bot-builder") as any });
       return;
     }
 

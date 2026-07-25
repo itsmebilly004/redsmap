@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { BrandLogo } from "@/components/brand-logo";
 
-export const Route = createFileRoute("/clone2006/auth")({
+export const Route = createFileRoute("/client/auth")({
   component: TradingAuthPage,
 });
 
@@ -30,7 +30,7 @@ function TradingAuthPage() {
       setLoading(false);
     } else {
       toast.success("Logged in successfully");
-      navigate({ to: "/clone2006" });
+      navigate({ to: "/client" });
     }
   };
 

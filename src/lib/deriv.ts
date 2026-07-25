@@ -2212,46 +2212,68 @@ async function smartSend(payload: DerivRecord, retryCount = 0): Promise<DerivMes
   return await publicSend(payload);
 }
 
+const fetchCandlesCache = new Map<string, Promise<Candle[]>>();
+
 export async function fetchCandles(
   symbol: string,
   granularity: number,
   count = 500,
 ): Promise<Candle[]> {
   if (!isBrowser) return [];
-  const res = await smartSend({
+  const key = `${symbol}:${granularity}:${count}`;
+  if (fetchCandlesCache.has(key)) return fetchCandlesCache.get(key)!;
+
+  const promise = smartSend({
     ticks_history: symbol,
     style: "candles",
     granularity,
     count,
     end: "latest",
     adjust_start_time: 1,
+  }).then((res) => {
+    return (res?.candles ?? []).map((c) => ({
+      time: Number(c.epoch),
+      open: Number(c.open),
+      high: Number(c.high),
+      low: Number(c.low),
+      close: Number(c.close),
+    }));
+  }).finally(() => {
+    setTimeout(() => fetchCandlesCache.delete(key), 2000);
   });
-  return (res?.candles ?? []).map((c) => ({
-    time: Number(c.epoch),
-    open: Number(c.open),
-    high: Number(c.high),
-    low: Number(c.low),
-    close: Number(c.close),
-  }));
+
+  fetchCandlesCache.set(key, promise);
+  return promise;
 }
+
+const fetchTicksCache = new Map<string, Promise<TickPoint[]>>();
 
 export async function fetchTicks(symbol: string, count = 500): Promise<TickPoint[]> {
   if (!isBrowser) return [];
-  const res = await smartSend({
+  const key = `${symbol}:${count}`;
+  if (fetchTicksCache.has(key)) return fetchTicksCache.get(key)!;
+
+  const promise = smartSend({
     ticks_history: symbol,
     style: "ticks",
     count,
     end: "latest",
     adjust_start_time: 1,
+  }).then((res) => {
+    const prices = res?.history?.prices ?? [];
+    const times = res?.history?.times ?? [];
+    return prices
+      .map((price, index: number) => ({
+        time: Number(times[index]),
+        value: Number(price),
+      }))
+      .filter((point: TickPoint) => Number.isFinite(point.time) && Number.isFinite(point.value));
+  }).finally(() => {
+    setTimeout(() => fetchTicksCache.delete(key), 2000);
   });
-  const prices = res?.history?.prices ?? [];
-  const times = res?.history?.times ?? [];
-  return prices
-    .map((price, index: number) => ({
-      time: Number(times[index]),
-      value: Number(price),
-    }))
-    .filter((point: TickPoint) => Number.isFinite(point.time) && Number.isFinite(point.value));
+
+  fetchTicksCache.set(key, promise);
+  return promise;
 }
 
 export async function getActiveSymbols(): Promise<ActiveSymbol[]> {

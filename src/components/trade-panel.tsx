@@ -131,7 +131,7 @@ export function TradingConnectionBadge({
   error: string | null;
   status: ConnectionStatus;
 }) {
-  const isCloneSandbox = typeof window !== "undefined" && window.location.pathname.startsWith("/clone2006");
+  const isCloneSandbox = typeof window !== "undefined" && window.location.pathname.startsWith("/client");
   
   const effectiveStatus = isCloneSandbox ? "connected" : status;
   const effectiveError = isCloneSandbox ? null : error;

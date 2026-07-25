@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { TopShell, PageHero } from "@/components/top-shell";
 import { Button } from "@/components/ui/button";
 
-export const Route = createFileRoute("/clone2006/copy-trading")({
+export const Route = createFileRoute("/client/copy-trading")({
   head: () => ({
     meta: [
       { title: "Copy Trading - Redsmap Traders" },

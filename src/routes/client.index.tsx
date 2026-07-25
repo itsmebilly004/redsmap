@@ -22,7 +22,7 @@ import { isDigitTrade } from "@/lib/trade-types";
 import { calculateDigitStats, digitsFromPrices } from "@/lib/digit-stats";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/clone2006/")({
+export const Route = createFileRoute("/client/")({
   head: () => ({
     meta: [
       { title: "Redsmap Traders - Real-time Deriv Trading Platform (Clone)" },
@@ -296,7 +296,7 @@ function Index() {
           </div>
           <div className="flex flex-wrap items-center gap-2 border-t border-[oklch(0.92_0.005_240)] bg-white px-4 py-2 dark:border-[#242424] dark:bg-[#151515]">
             <Link
-              to="/clone2006/bot-builder"
+              to="/client/bot-builder"
               aria-label="Open bot builder"
               title="Bot Builder"
               className="rounded-md p-1.5 font-mono text-xs text-[oklch(0.45_0.02_260)] transition-colors hover:bg-[#f2f3f4] hover:text-[#333333] dark:text-[#999999] dark:hover:bg-[#1f1f1f] dark:hover:text-white"
@@ -327,13 +327,13 @@ function Index() {
             </div>
             <div className="flex items-center gap-2">
               <Link
-                to="/clone2006/admin"
+                to="/admin"
                 className="text-[10px] font-medium text-red-500 hover:underline"
               >
                 Manage
               </Link>
               <Link
-                to="/clone2006/bot-builder"
+                to="/client/bot-builder"
                 className="flex items-center gap-1 rounded-md border border-[#d6d6d6] bg-white px-2 py-1.5 text-[10px] font-medium text-[#646464] dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:text-[#b7b7b7]"
               >
                 <Bot className="size-3" /> Bots

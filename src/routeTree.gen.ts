@@ -9,95 +9,45 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TradingBotsRouteImport } from './routes/trading-bots'
-import { Route as StrategiesRouteImport } from './routes/strategies'
-import { Route as RedirectRouteImport } from './routes/redirect'
-import { Route as DerivCallbackRouteImport } from './routes/deriv-callback'
-import { Route as DashboardRouteImport } from './routes/dashboard'
-import { Route as CopyTradingRouteImport } from './routes/copy-trading'
-import { Route as Clone2006RouteImport } from './routes/clone2006'
-import { Route as ChartsRouteImport } from './routes/charts'
-import { Route as BotBuilderRouteImport } from './routes/bot-builder'
-import { Route as AuthRouteImport } from './routes/auth'
-import { Route as AnalysisRouteImport } from './routes/analysis'
-import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
-import { Route as Clone2006IndexRouteImport } from './routes/clone2006.index'
-import { Route as StrategySlugRouteImport } from './routes/strategy.$slug'
-import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
-import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard.analytics'
-import { Route as Clone2006TradingBotsRouteImport } from './routes/clone2006.trading-bots'
-import { Route as Clone2006StrategiesRouteImport } from './routes/clone2006.strategies'
-import { Route as Clone2006DashboardRouteImport } from './routes/clone2006.dashboard'
-import { Route as Clone2006CopyTradingRouteImport } from './routes/clone2006.copy-trading'
-import { Route as Clone2006ChartsRouteImport } from './routes/clone2006.charts'
-import { Route as Clone2006BotBuilderRouteImport } from './routes/clone2006.bot-builder'
-import { Route as Clone2006AuthRouteImport } from './routes/clone2006.auth'
-import { Route as Clone2006AnalysisRouteImport } from './routes/clone2006.analysis'
-import { Route as ApiDerivTokenExchangeRouteImport } from './routes/api/deriv-token-exchange'
-import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-accounts'
-import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
-import { Route as ApiBotOrphanCheckRouteImport } from './routes/api/bot-orphan-check'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as AnalysisRouteImport } from './routes/analysis'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as BotBuilderRouteImport } from './routes/bot-builder'
+import { Route as ChartsRouteImport } from './routes/charts'
+import { Route as ClientRouteImport } from './routes/client'
+import { Route as CopyTradingRouteImport } from './routes/copy-trading'
+import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as DerivCallbackRouteImport } from './routes/deriv-callback'
+import { Route as RedirectRouteImport } from './routes/redirect'
+import { Route as StrategiesRouteImport } from './routes/strategies'
+import { Route as TradingBotsRouteImport } from './routes/trading-bots'
 import { Route as ApiBotHandoffRouteImport } from './routes/api/bot-handoff'
-import { Route as Clone2006DashboardIndexRouteImport } from './routes/clone2006.dashboard.index'
-import { Route as Clone2006StrategySlugRouteImport } from './routes/clone2006.strategy.$slug'
-import { Route as Clone2006DashboardSettingsRouteImport } from './routes/clone2006.dashboard.settings'
-import { Route as Clone2006DashboardAnalyticsRouteImport } from './routes/clone2006.dashboard.analytics'
+import { Route as ApiBotOrphanCheckRouteImport } from './routes/api/bot-orphan-check'
+import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
+import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-accounts'
+import { Route as ApiDerivTokenExchangeRouteImport } from './routes/api/deriv-token-exchange'
+import { Route as ClientIndexRouteImport } from './routes/client.index'
+import { Route as ClientAnalysisRouteImport } from './routes/client.analysis'
+import { Route as ClientAuthRouteImport } from './routes/client.auth'
+import { Route as ClientBotBuilderRouteImport } from './routes/client.bot-builder'
+import { Route as ClientChartsRouteImport } from './routes/client.charts'
+import { Route as ClientCopyTradingRouteImport } from './routes/client.copy-trading'
+import { Route as ClientDashboardRouteImport } from './routes/client.dashboard'
+import { Route as ClientStrategiesRouteImport } from './routes/client.strategies'
+import { Route as ClientTradingBotsRouteImport } from './routes/client.trading-bots'
+import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
+import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard.analytics'
+import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
+import { Route as StrategySlugRouteImport } from './routes/strategy.$slug'
+import { Route as ClientDashboardIndexRouteImport } from './routes/client.dashboard.index'
+import { Route as ClientDashboardAnalyticsRouteImport } from './routes/client.dashboard.analytics'
+import { Route as ClientDashboardSettingsRouteImport } from './routes/client.dashboard.settings'
+import { Route as ClientStrategySlugRouteImport } from './routes/client.strategy.$slug'
 
-const TradingBotsRoute = TradingBotsRouteImport.update({
-  id: '/trading-bots',
-  path: '/trading-bots',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StrategiesRoute = StrategiesRouteImport.update({
-  id: '/strategies',
-  path: '/strategies',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RedirectRoute = RedirectRouteImport.update({
-  id: '/redirect',
-  path: '/redirect',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DerivCallbackRoute = DerivCallbackRouteImport.update({
-  id: '/deriv-callback',
-  path: '/deriv-callback',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CopyTradingRoute = CopyTradingRouteImport.update({
-  id: '/copy-trading',
-  path: '/copy-trading',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const Clone2006Route = Clone2006RouteImport.update({
-  id: '/clone2006',
-  path: '/clone2006',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ChartsRoute = ChartsRouteImport.update({
-  id: '/charts',
-  path: '/charts',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BotBuilderRoute = BotBuilderRouteImport.update({
-  id: '/bot-builder',
-  path: '/bot-builder',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthRoute = AuthRouteImport.update({
-  id: '/auth',
-  path: '/auth',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AnalysisRoute = AnalysisRouteImport.update({
-  id: '/analysis',
-  path: '/analysis',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -105,94 +55,59 @@ const AdminRoute = AdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardIndexRoute = DashboardIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const Clone2006IndexRoute = Clone2006IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => Clone2006Route,
-} as any)
-const StrategySlugRoute = StrategySlugRouteImport.update({
-  id: '/strategy/$slug',
-  path: '/strategy/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardSettingsRoute = DashboardSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => DashboardRoute,
-} as any)
-const Clone2006TradingBotsRoute = Clone2006TradingBotsRouteImport.update({
-  id: '/trading-bots',
-  path: '/trading-bots',
-  getParentRoute: () => Clone2006Route,
-} as any)
-const Clone2006StrategiesRoute = Clone2006StrategiesRouteImport.update({
-  id: '/strategies',
-  path: '/strategies',
-  getParentRoute: () => Clone2006Route,
-} as any)
-const Clone2006DashboardRoute = Clone2006DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => Clone2006Route,
-} as any)
-const Clone2006CopyTradingRoute = Clone2006CopyTradingRouteImport.update({
-  id: '/copy-trading',
-  path: '/copy-trading',
-  getParentRoute: () => Clone2006Route,
-} as any)
-const Clone2006ChartsRoute = Clone2006ChartsRouteImport.update({
-  id: '/charts',
-  path: '/charts',
-  getParentRoute: () => Clone2006Route,
-} as any)
-const Clone2006BotBuilderRoute = Clone2006BotBuilderRouteImport.update({
-  id: '/bot-builder',
-  path: '/bot-builder',
-  getParentRoute: () => Clone2006Route,
-} as any)
-const Clone2006AuthRoute = Clone2006AuthRouteImport.update({
-  id: '/auth',
-  path: '/auth',
-  getParentRoute: () => Clone2006Route,
-} as any)
-const Clone2006AnalysisRoute = Clone2006AnalysisRouteImport.update({
+const AnalysisRoute = AnalysisRouteImport.update({
   id: '/analysis',
   path: '/analysis',
-  getParentRoute: () => Clone2006Route,
-} as any)
-const ApiDerivTokenExchangeRoute = ApiDerivTokenExchangeRouteImport.update({
-  id: '/api/deriv-token-exchange',
-  path: '/api/deriv-token-exchange',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiDerivAccountsRoute = ApiDerivAccountsRouteImport.update({
-  id: '/api/deriv-accounts',
-  path: '/api/deriv-accounts',
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiDerivAccountOtpRoute = ApiDerivAccountOtpRouteImport.update({
-  id: '/api/deriv-account-otp',
-  path: '/api/deriv-account-otp',
+const BotBuilderRoute = BotBuilderRouteImport.update({
+  id: '/bot-builder',
+  path: '/bot-builder',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiBotOrphanCheckRoute = ApiBotOrphanCheckRouteImport.update({
-  id: '/api/bot-orphan-check',
-  path: '/api/bot-orphan-check',
+const ChartsRoute = ChartsRouteImport.update({
+  id: '/charts',
+  path: '/charts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientRoute = ClientRouteImport.update({
+  id: '/client',
+  path: '/client',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CopyTradingRoute = CopyTradingRouteImport.update({
+  id: '/copy-trading',
+  path: '/copy-trading',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DerivCallbackRoute = DerivCallbackRouteImport.update({
+  id: '/deriv-callback',
+  path: '/deriv-callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RedirectRoute = RedirectRouteImport.update({
+  id: '/redirect',
+  path: '/redirect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StrategiesRoute = StrategiesRouteImport.update({
+  id: '/strategies',
+  path: '/strategies',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TradingBotsRoute = TradingBotsRouteImport.update({
+  id: '/trading-bots',
+  path: '/trading-bots',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiBotHandoffRoute = ApiBotHandoffRouteImport.update({
@@ -200,28 +115,112 @@ const ApiBotHandoffRoute = ApiBotHandoffRouteImport.update({
   path: '/api/bot-handoff',
   getParentRoute: () => rootRouteImport,
 } as any)
-const Clone2006DashboardIndexRoute = Clone2006DashboardIndexRouteImport.update({
+const ApiBotOrphanCheckRoute = ApiBotOrphanCheckRouteImport.update({
+  id: '/api/bot-orphan-check',
+  path: '/api/bot-orphan-check',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDerivAccountOtpRoute = ApiDerivAccountOtpRouteImport.update({
+  id: '/api/deriv-account-otp',
+  path: '/api/deriv-account-otp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDerivAccountsRoute = ApiDerivAccountsRouteImport.update({
+  id: '/api/deriv-accounts',
+  path: '/api/deriv-accounts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDerivTokenExchangeRoute = ApiDerivTokenExchangeRouteImport.update({
+  id: '/api/deriv-token-exchange',
+  path: '/api/deriv-token-exchange',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientIndexRoute = ClientIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => Clone2006DashboardRoute,
+  getParentRoute: () => ClientRoute,
 } as any)
-const Clone2006StrategySlugRoute = Clone2006StrategySlugRouteImport.update({
+const ClientAnalysisRoute = ClientAnalysisRouteImport.update({
+  id: '/analysis',
+  path: '/analysis',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientAuthRoute = ClientAuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientBotBuilderRoute = ClientBotBuilderRouteImport.update({
+  id: '/bot-builder',
+  path: '/bot-builder',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientChartsRoute = ClientChartsRouteImport.update({
+  id: '/charts',
+  path: '/charts',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientCopyTradingRoute = ClientCopyTradingRouteImport.update({
+  id: '/copy-trading',
+  path: '/copy-trading',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientDashboardRoute = ClientDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientStrategiesRoute = ClientStrategiesRouteImport.update({
+  id: '/strategies',
+  path: '/strategies',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientTradingBotsRoute = ClientTradingBotsRouteImport.update({
+  id: '/trading-bots',
+  path: '/trading-bots',
+  getParentRoute: () => ClientRoute,
+} as any)
+const DashboardIndexRoute = DashboardIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardSettingsRoute = DashboardSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const StrategySlugRoute = StrategySlugRouteImport.update({
   id: '/strategy/$slug',
   path: '/strategy/$slug',
-  getParentRoute: () => Clone2006Route,
+  getParentRoute: () => rootRouteImport,
 } as any)
-const Clone2006DashboardSettingsRoute =
-  Clone2006DashboardSettingsRouteImport.update({
-    id: '/settings',
-    path: '/settings',
-    getParentRoute: () => Clone2006DashboardRoute,
-  } as any)
-const Clone2006DashboardAnalyticsRoute =
-  Clone2006DashboardAnalyticsRouteImport.update({
+const ClientDashboardIndexRoute = ClientDashboardIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ClientDashboardRoute,
+} as any)
+const ClientDashboardAnalyticsRoute =
+  ClientDashboardAnalyticsRouteImport.update({
     id: '/analytics',
     path: '/analytics',
-    getParentRoute: () => Clone2006DashboardRoute,
+    getParentRoute: () => ClientDashboardRoute,
   } as any)
+const ClientDashboardSettingsRoute = ClientDashboardSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => ClientDashboardRoute,
+} as any)
+const ClientStrategySlugRoute = ClientStrategySlugRouteImport.update({
+  id: '/strategy/$slug',
+  path: '/strategy/$slug',
+  getParentRoute: () => ClientRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -230,7 +229,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/bot-builder': typeof BotBuilderRoute
   '/charts': typeof ChartsRoute
-  '/clone2006': typeof Clone2006RouteWithChildren
+  '/client': typeof ClientRouteWithChildren
   '/copy-trading': typeof CopyTradingRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/deriv-callback': typeof DerivCallbackRoute
@@ -242,23 +241,23 @@ export interface FileRoutesByFullPath {
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
-  '/clone2006/analysis': typeof Clone2006AnalysisRoute
-  '/clone2006/auth': typeof Clone2006AuthRoute
-  '/clone2006/bot-builder': typeof Clone2006BotBuilderRoute
-  '/clone2006/charts': typeof Clone2006ChartsRoute
-  '/clone2006/copy-trading': typeof Clone2006CopyTradingRoute
-  '/clone2006/dashboard': typeof Clone2006DashboardRouteWithChildren
-  '/clone2006/strategies': typeof Clone2006StrategiesRoute
-  '/clone2006/trading-bots': typeof Clone2006TradingBotsRoute
+  '/client/analysis': typeof ClientAnalysisRoute
+  '/client/auth': typeof ClientAuthRoute
+  '/client/bot-builder': typeof ClientBotBuilderRoute
+  '/client/charts': typeof ClientChartsRoute
+  '/client/copy-trading': typeof ClientCopyTradingRoute
+  '/client/dashboard': typeof ClientDashboardRouteWithChildren
+  '/client/strategies': typeof ClientStrategiesRoute
+  '/client/trading-bots': typeof ClientTradingBotsRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/strategy/$slug': typeof StrategySlugRoute
-  '/clone2006/': typeof Clone2006IndexRoute
+  '/client/': typeof ClientIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
-  '/clone2006/dashboard/analytics': typeof Clone2006DashboardAnalyticsRoute
-  '/clone2006/dashboard/settings': typeof Clone2006DashboardSettingsRoute
-  '/clone2006/strategy/$slug': typeof Clone2006StrategySlugRoute
-  '/clone2006/dashboard/': typeof Clone2006DashboardIndexRoute
+  '/client/dashboard/analytics': typeof ClientDashboardAnalyticsRoute
+  '/client/dashboard/settings': typeof ClientDashboardSettingsRoute
+  '/client/strategy/$slug': typeof ClientStrategySlugRoute
+  '/client/dashboard/': typeof ClientDashboardIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -277,22 +276,22 @@ export interface FileRoutesByTo {
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
-  '/clone2006/analysis': typeof Clone2006AnalysisRoute
-  '/clone2006/auth': typeof Clone2006AuthRoute
-  '/clone2006/bot-builder': typeof Clone2006BotBuilderRoute
-  '/clone2006/charts': typeof Clone2006ChartsRoute
-  '/clone2006/copy-trading': typeof Clone2006CopyTradingRoute
-  '/clone2006/strategies': typeof Clone2006StrategiesRoute
-  '/clone2006/trading-bots': typeof Clone2006TradingBotsRoute
+  '/client/analysis': typeof ClientAnalysisRoute
+  '/client/auth': typeof ClientAuthRoute
+  '/client/bot-builder': typeof ClientBotBuilderRoute
+  '/client/charts': typeof ClientChartsRoute
+  '/client/copy-trading': typeof ClientCopyTradingRoute
+  '/client/strategies': typeof ClientStrategiesRoute
+  '/client/trading-bots': typeof ClientTradingBotsRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/strategy/$slug': typeof StrategySlugRoute
-  '/clone2006': typeof Clone2006IndexRoute
+  '/client': typeof ClientIndexRoute
   '/dashboard': typeof DashboardIndexRoute
-  '/clone2006/dashboard/analytics': typeof Clone2006DashboardAnalyticsRoute
-  '/clone2006/dashboard/settings': typeof Clone2006DashboardSettingsRoute
-  '/clone2006/strategy/$slug': typeof Clone2006StrategySlugRoute
-  '/clone2006/dashboard': typeof Clone2006DashboardIndexRoute
+  '/client/dashboard/analytics': typeof ClientDashboardAnalyticsRoute
+  '/client/dashboard/settings': typeof ClientDashboardSettingsRoute
+  '/client/strategy/$slug': typeof ClientStrategySlugRoute
+  '/client/dashboard': typeof ClientDashboardIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -302,7 +301,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/bot-builder': typeof BotBuilderRoute
   '/charts': typeof ChartsRoute
-  '/clone2006': typeof Clone2006RouteWithChildren
+  '/client': typeof ClientRouteWithChildren
   '/copy-trading': typeof CopyTradingRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/deriv-callback': typeof DerivCallbackRoute
@@ -314,23 +313,23 @@ export interface FileRoutesById {
   '/api/deriv-account-otp': typeof ApiDerivAccountOtpRoute
   '/api/deriv-accounts': typeof ApiDerivAccountsRoute
   '/api/deriv-token-exchange': typeof ApiDerivTokenExchangeRoute
-  '/clone2006/analysis': typeof Clone2006AnalysisRoute
-  '/clone2006/auth': typeof Clone2006AuthRoute
-  '/clone2006/bot-builder': typeof Clone2006BotBuilderRoute
-  '/clone2006/charts': typeof Clone2006ChartsRoute
-  '/clone2006/copy-trading': typeof Clone2006CopyTradingRoute
-  '/clone2006/dashboard': typeof Clone2006DashboardRouteWithChildren
-  '/clone2006/strategies': typeof Clone2006StrategiesRoute
-  '/clone2006/trading-bots': typeof Clone2006TradingBotsRoute
+  '/client/analysis': typeof ClientAnalysisRoute
+  '/client/auth': typeof ClientAuthRoute
+  '/client/bot-builder': typeof ClientBotBuilderRoute
+  '/client/charts': typeof ClientChartsRoute
+  '/client/copy-trading': typeof ClientCopyTradingRoute
+  '/client/dashboard': typeof ClientDashboardRouteWithChildren
+  '/client/strategies': typeof ClientStrategiesRoute
+  '/client/trading-bots': typeof ClientTradingBotsRoute
   '/dashboard/analytics': typeof DashboardAnalyticsRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/strategy/$slug': typeof StrategySlugRoute
-  '/clone2006/': typeof Clone2006IndexRoute
+  '/client/': typeof ClientIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
-  '/clone2006/dashboard/analytics': typeof Clone2006DashboardAnalyticsRoute
-  '/clone2006/dashboard/settings': typeof Clone2006DashboardSettingsRoute
-  '/clone2006/strategy/$slug': typeof Clone2006StrategySlugRoute
-  '/clone2006/dashboard/': typeof Clone2006DashboardIndexRoute
+  '/client/dashboard/analytics': typeof ClientDashboardAnalyticsRoute
+  '/client/dashboard/settings': typeof ClientDashboardSettingsRoute
+  '/client/strategy/$slug': typeof ClientStrategySlugRoute
+  '/client/dashboard/': typeof ClientDashboardIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -341,7 +340,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/bot-builder'
     | '/charts'
-    | '/clone2006'
+    | '/client'
     | '/copy-trading'
     | '/dashboard'
     | '/deriv-callback'
@@ -353,23 +352,23 @@ export interface FileRouteTypes {
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
-    | '/clone2006/analysis'
-    | '/clone2006/auth'
-    | '/clone2006/bot-builder'
-    | '/clone2006/charts'
-    | '/clone2006/copy-trading'
-    | '/clone2006/dashboard'
-    | '/clone2006/strategies'
-    | '/clone2006/trading-bots'
+    | '/client/analysis'
+    | '/client/auth'
+    | '/client/bot-builder'
+    | '/client/charts'
+    | '/client/copy-trading'
+    | '/client/dashboard'
+    | '/client/strategies'
+    | '/client/trading-bots'
     | '/dashboard/analytics'
     | '/dashboard/settings'
     | '/strategy/$slug'
-    | '/clone2006/'
+    | '/client/'
     | '/dashboard/'
-    | '/clone2006/dashboard/analytics'
-    | '/clone2006/dashboard/settings'
-    | '/clone2006/strategy/$slug'
-    | '/clone2006/dashboard/'
+    | '/client/dashboard/analytics'
+    | '/client/dashboard/settings'
+    | '/client/strategy/$slug'
+    | '/client/dashboard/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -388,22 +387,22 @@ export interface FileRouteTypes {
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
-    | '/clone2006/analysis'
-    | '/clone2006/auth'
-    | '/clone2006/bot-builder'
-    | '/clone2006/charts'
-    | '/clone2006/copy-trading'
-    | '/clone2006/strategies'
-    | '/clone2006/trading-bots'
+    | '/client/analysis'
+    | '/client/auth'
+    | '/client/bot-builder'
+    | '/client/charts'
+    | '/client/copy-trading'
+    | '/client/strategies'
+    | '/client/trading-bots'
     | '/dashboard/analytics'
     | '/dashboard/settings'
     | '/strategy/$slug'
-    | '/clone2006'
+    | '/client'
     | '/dashboard'
-    | '/clone2006/dashboard/analytics'
-    | '/clone2006/dashboard/settings'
-    | '/clone2006/strategy/$slug'
-    | '/clone2006/dashboard'
+    | '/client/dashboard/analytics'
+    | '/client/dashboard/settings'
+    | '/client/strategy/$slug'
+    | '/client/dashboard'
   id:
     | '__root__'
     | '/'
@@ -412,7 +411,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/bot-builder'
     | '/charts'
-    | '/clone2006'
+    | '/client'
     | '/copy-trading'
     | '/dashboard'
     | '/deriv-callback'
@@ -424,23 +423,23 @@ export interface FileRouteTypes {
     | '/api/deriv-account-otp'
     | '/api/deriv-accounts'
     | '/api/deriv-token-exchange'
-    | '/clone2006/analysis'
-    | '/clone2006/auth'
-    | '/clone2006/bot-builder'
-    | '/clone2006/charts'
-    | '/clone2006/copy-trading'
-    | '/clone2006/dashboard'
-    | '/clone2006/strategies'
-    | '/clone2006/trading-bots'
+    | '/client/analysis'
+    | '/client/auth'
+    | '/client/bot-builder'
+    | '/client/charts'
+    | '/client/copy-trading'
+    | '/client/dashboard'
+    | '/client/strategies'
+    | '/client/trading-bots'
     | '/dashboard/analytics'
     | '/dashboard/settings'
     | '/strategy/$slug'
-    | '/clone2006/'
+    | '/client/'
     | '/dashboard/'
-    | '/clone2006/dashboard/analytics'
-    | '/clone2006/dashboard/settings'
-    | '/clone2006/strategy/$slug'
-    | '/clone2006/dashboard/'
+    | '/client/dashboard/analytics'
+    | '/client/dashboard/settings'
+    | '/client/strategy/$slug'
+    | '/client/dashboard/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -450,7 +449,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   BotBuilderRoute: typeof BotBuilderRoute
   ChartsRoute: typeof ChartsRoute
-  Clone2006Route: typeof Clone2006RouteWithChildren
+  ClientRoute: typeof ClientRouteWithChildren
   CopyTradingRoute: typeof CopyTradingRoute
   DashboardRoute: typeof DashboardRouteWithChildren
   DerivCallbackRoute: typeof DerivCallbackRoute
@@ -467,81 +466,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/trading-bots': {
-      id: '/trading-bots'
-      path: '/trading-bots'
-      fullPath: '/trading-bots'
-      preLoaderRoute: typeof TradingBotsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/strategies': {
-      id: '/strategies'
-      path: '/strategies'
-      fullPath: '/strategies'
-      preLoaderRoute: typeof StrategiesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/redirect': {
-      id: '/redirect'
-      path: '/redirect'
-      fullPath: '/redirect'
-      preLoaderRoute: typeof RedirectRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/deriv-callback': {
-      id: '/deriv-callback'
-      path: '/deriv-callback'
-      fullPath: '/deriv-callback'
-      preLoaderRoute: typeof DerivCallbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/copy-trading': {
-      id: '/copy-trading'
-      path: '/copy-trading'
-      fullPath: '/copy-trading'
-      preLoaderRoute: typeof CopyTradingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/clone2006': {
-      id: '/clone2006'
-      path: '/clone2006'
-      fullPath: '/clone2006'
-      preLoaderRoute: typeof Clone2006RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/charts': {
-      id: '/charts'
-      path: '/charts'
-      fullPath: '/charts'
-      preLoaderRoute: typeof ChartsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/bot-builder': {
-      id: '/bot-builder'
-      path: '/bot-builder'
-      fullPath: '/bot-builder'
-      preLoaderRoute: typeof BotBuilderRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/analysis': {
-      id: '/analysis'
-      path: '/analysis'
-      fullPath: '/analysis'
-      preLoaderRoute: typeof AnalysisRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -551,130 +480,81 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard/': {
-      id: '/dashboard/'
-      path: '/'
-      fullPath: '/dashboard/'
-      preLoaderRoute: typeof DashboardIndexRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/clone2006/': {
-      id: '/clone2006/'
-      path: '/'
-      fullPath: '/clone2006/'
-      preLoaderRoute: typeof Clone2006IndexRouteImport
-      parentRoute: typeof Clone2006Route
-    }
-    '/strategy/$slug': {
-      id: '/strategy/$slug'
-      path: '/strategy/$slug'
-      fullPath: '/strategy/$slug'
-      preLoaderRoute: typeof StrategySlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard/settings': {
-      id: '/dashboard/settings'
-      path: '/settings'
-      fullPath: '/dashboard/settings'
-      preLoaderRoute: typeof DashboardSettingsRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/dashboard/analytics': {
-      id: '/dashboard/analytics'
-      path: '/analytics'
-      fullPath: '/dashboard/analytics'
-      preLoaderRoute: typeof DashboardAnalyticsRouteImport
-      parentRoute: typeof DashboardRoute
-    }
-    '/clone2006/trading-bots': {
-      id: '/clone2006/trading-bots'
-      path: '/trading-bots'
-      fullPath: '/clone2006/trading-bots'
-      preLoaderRoute: typeof Clone2006TradingBotsRouteImport
-      parentRoute: typeof Clone2006Route
-    }
-    '/clone2006/strategies': {
-      id: '/clone2006/strategies'
-      path: '/strategies'
-      fullPath: '/clone2006/strategies'
-      preLoaderRoute: typeof Clone2006StrategiesRouteImport
-      parentRoute: typeof Clone2006Route
-    }
-    '/clone2006/dashboard': {
-      id: '/clone2006/dashboard'
-      path: '/dashboard'
-      fullPath: '/clone2006/dashboard'
-      preLoaderRoute: typeof Clone2006DashboardRouteImport
-      parentRoute: typeof Clone2006Route
-    }
-    '/clone2006/copy-trading': {
-      id: '/clone2006/copy-trading'
-      path: '/copy-trading'
-      fullPath: '/clone2006/copy-trading'
-      preLoaderRoute: typeof Clone2006CopyTradingRouteImport
-      parentRoute: typeof Clone2006Route
-    }
-    '/clone2006/charts': {
-      id: '/clone2006/charts'
-      path: '/charts'
-      fullPath: '/clone2006/charts'
-      preLoaderRoute: typeof Clone2006ChartsRouteImport
-      parentRoute: typeof Clone2006Route
-    }
-    '/clone2006/bot-builder': {
-      id: '/clone2006/bot-builder'
-      path: '/bot-builder'
-      fullPath: '/clone2006/bot-builder'
-      preLoaderRoute: typeof Clone2006BotBuilderRouteImport
-      parentRoute: typeof Clone2006Route
-    }
-    '/clone2006/auth': {
-      id: '/clone2006/auth'
-      path: '/auth'
-      fullPath: '/clone2006/auth'
-      preLoaderRoute: typeof Clone2006AuthRouteImport
-      parentRoute: typeof Clone2006Route
-    }
-    '/clone2006/analysis': {
-      id: '/clone2006/analysis'
+    '/analysis': {
+      id: '/analysis'
       path: '/analysis'
-      fullPath: '/clone2006/analysis'
-      preLoaderRoute: typeof Clone2006AnalysisRouteImport
-      parentRoute: typeof Clone2006Route
-    }
-    '/api/deriv-token-exchange': {
-      id: '/api/deriv-token-exchange'
-      path: '/api/deriv-token-exchange'
-      fullPath: '/api/deriv-token-exchange'
-      preLoaderRoute: typeof ApiDerivTokenExchangeRouteImport
+      fullPath: '/analysis'
+      preLoaderRoute: typeof AnalysisRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/deriv-accounts': {
-      id: '/api/deriv-accounts'
-      path: '/api/deriv-accounts'
-      fullPath: '/api/deriv-accounts'
-      preLoaderRoute: typeof ApiDerivAccountsRouteImport
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/deriv-account-otp': {
-      id: '/api/deriv-account-otp'
-      path: '/api/deriv-account-otp'
-      fullPath: '/api/deriv-account-otp'
-      preLoaderRoute: typeof ApiDerivAccountOtpRouteImport
+    '/bot-builder': {
+      id: '/bot-builder'
+      path: '/bot-builder'
+      fullPath: '/bot-builder'
+      preLoaderRoute: typeof BotBuilderRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/bot-orphan-check': {
-      id: '/api/bot-orphan-check'
-      path: '/api/bot-orphan-check'
-      fullPath: '/api/bot-orphan-check'
-      preLoaderRoute: typeof ApiBotOrphanCheckRouteImport
+    '/charts': {
+      id: '/charts'
+      path: '/charts'
+      fullPath: '/charts'
+      preLoaderRoute: typeof ChartsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client': {
+      id: '/client'
+      path: '/client'
+      fullPath: '/client'
+      preLoaderRoute: typeof ClientRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/copy-trading': {
+      id: '/copy-trading'
+      path: '/copy-trading'
+      fullPath: '/copy-trading'
+      preLoaderRoute: typeof CopyTradingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/deriv-callback': {
+      id: '/deriv-callback'
+      path: '/deriv-callback'
+      fullPath: '/deriv-callback'
+      preLoaderRoute: typeof DerivCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/redirect': {
+      id: '/redirect'
+      path: '/redirect'
+      fullPath: '/redirect'
+      preLoaderRoute: typeof RedirectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/strategies': {
+      id: '/strategies'
+      path: '/strategies'
+      fullPath: '/strategies'
+      preLoaderRoute: typeof StrategiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/trading-bots': {
+      id: '/trading-bots'
+      path: '/trading-bots'
+      fullPath: '/trading-bots'
+      preLoaderRoute: typeof TradingBotsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/bot-handoff': {
@@ -684,81 +564,200 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBotHandoffRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/clone2006/dashboard/': {
-      id: '/clone2006/dashboard/'
+    '/api/bot-orphan-check': {
+      id: '/api/bot-orphan-check'
+      path: '/api/bot-orphan-check'
+      fullPath: '/api/bot-orphan-check'
+      preLoaderRoute: typeof ApiBotOrphanCheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/deriv-account-otp': {
+      id: '/api/deriv-account-otp'
+      path: '/api/deriv-account-otp'
+      fullPath: '/api/deriv-account-otp'
+      preLoaderRoute: typeof ApiDerivAccountOtpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/deriv-accounts': {
+      id: '/api/deriv-accounts'
+      path: '/api/deriv-accounts'
+      fullPath: '/api/deriv-accounts'
+      preLoaderRoute: typeof ApiDerivAccountsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/deriv-token-exchange': {
+      id: '/api/deriv-token-exchange'
+      path: '/api/deriv-token-exchange'
+      fullPath: '/api/deriv-token-exchange'
+      preLoaderRoute: typeof ApiDerivTokenExchangeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client/': {
+      id: '/client/'
       path: '/'
-      fullPath: '/clone2006/dashboard/'
-      preLoaderRoute: typeof Clone2006DashboardIndexRouteImport
-      parentRoute: typeof Clone2006DashboardRoute
+      fullPath: '/client/'
+      preLoaderRoute: typeof ClientIndexRouteImport
+      parentRoute: typeof ClientRoute
     }
-    '/clone2006/strategy/$slug': {
-      id: '/clone2006/strategy/$slug'
-      path: '/strategy/$slug'
-      fullPath: '/clone2006/strategy/$slug'
-      preLoaderRoute: typeof Clone2006StrategySlugRouteImport
-      parentRoute: typeof Clone2006Route
+    '/client/analysis': {
+      id: '/client/analysis'
+      path: '/analysis'
+      fullPath: '/client/analysis'
+      preLoaderRoute: typeof ClientAnalysisRouteImport
+      parentRoute: typeof ClientRoute
     }
-    '/clone2006/dashboard/settings': {
-      id: '/clone2006/dashboard/settings'
-      path: '/settings'
-      fullPath: '/clone2006/dashboard/settings'
-      preLoaderRoute: typeof Clone2006DashboardSettingsRouteImport
-      parentRoute: typeof Clone2006DashboardRoute
+    '/client/auth': {
+      id: '/client/auth'
+      path: '/auth'
+      fullPath: '/client/auth'
+      preLoaderRoute: typeof ClientAuthRouteImport
+      parentRoute: typeof ClientRoute
     }
-    '/clone2006/dashboard/analytics': {
-      id: '/clone2006/dashboard/analytics'
+    '/client/bot-builder': {
+      id: '/client/bot-builder'
+      path: '/bot-builder'
+      fullPath: '/client/bot-builder'
+      preLoaderRoute: typeof ClientBotBuilderRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/charts': {
+      id: '/client/charts'
+      path: '/charts'
+      fullPath: '/client/charts'
+      preLoaderRoute: typeof ClientChartsRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/copy-trading': {
+      id: '/client/copy-trading'
+      path: '/copy-trading'
+      fullPath: '/client/copy-trading'
+      preLoaderRoute: typeof ClientCopyTradingRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/dashboard': {
+      id: '/client/dashboard'
+      path: '/dashboard'
+      fullPath: '/client/dashboard'
+      preLoaderRoute: typeof ClientDashboardRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/strategies': {
+      id: '/client/strategies'
+      path: '/strategies'
+      fullPath: '/client/strategies'
+      preLoaderRoute: typeof ClientStrategiesRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/trading-bots': {
+      id: '/client/trading-bots'
+      path: '/trading-bots'
+      fullPath: '/client/trading-bots'
+      preLoaderRoute: typeof ClientTradingBotsRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/dashboard/': {
+      id: '/dashboard/'
+      path: '/'
+      fullPath: '/dashboard/'
+      preLoaderRoute: typeof DashboardIndexRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/analytics': {
+      id: '/dashboard/analytics'
       path: '/analytics'
-      fullPath: '/clone2006/dashboard/analytics'
-      preLoaderRoute: typeof Clone2006DashboardAnalyticsRouteImport
-      parentRoute: typeof Clone2006DashboardRoute
+      fullPath: '/dashboard/analytics'
+      preLoaderRoute: typeof DashboardAnalyticsRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/settings': {
+      id: '/dashboard/settings'
+      path: '/settings'
+      fullPath: '/dashboard/settings'
+      preLoaderRoute: typeof DashboardSettingsRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/strategy/$slug': {
+      id: '/strategy/$slug'
+      path: '/strategy/$slug'
+      fullPath: '/strategy/$slug'
+      preLoaderRoute: typeof StrategySlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client/dashboard/': {
+      id: '/client/dashboard/'
+      path: '/'
+      fullPath: '/client/dashboard/'
+      preLoaderRoute: typeof ClientDashboardIndexRouteImport
+      parentRoute: typeof ClientDashboardRoute
+    }
+    '/client/dashboard/analytics': {
+      id: '/client/dashboard/analytics'
+      path: '/analytics'
+      fullPath: '/client/dashboard/analytics'
+      preLoaderRoute: typeof ClientDashboardAnalyticsRouteImport
+      parentRoute: typeof ClientDashboardRoute
+    }
+    '/client/dashboard/settings': {
+      id: '/client/dashboard/settings'
+      path: '/settings'
+      fullPath: '/client/dashboard/settings'
+      preLoaderRoute: typeof ClientDashboardSettingsRouteImport
+      parentRoute: typeof ClientDashboardRoute
+    }
+    '/client/strategy/$slug': {
+      id: '/client/strategy/$slug'
+      path: '/strategy/$slug'
+      fullPath: '/client/strategy/$slug'
+      preLoaderRoute: typeof ClientStrategySlugRouteImport
+      parentRoute: typeof ClientRoute
     }
   }
 }
 
-interface Clone2006DashboardRouteChildren {
-  Clone2006DashboardAnalyticsRoute: typeof Clone2006DashboardAnalyticsRoute
-  Clone2006DashboardSettingsRoute: typeof Clone2006DashboardSettingsRoute
-  Clone2006DashboardIndexRoute: typeof Clone2006DashboardIndexRoute
+interface ClientDashboardRouteChildren {
+  ClientDashboardAnalyticsRoute: typeof ClientDashboardAnalyticsRoute
+  ClientDashboardSettingsRoute: typeof ClientDashboardSettingsRoute
+  ClientDashboardIndexRoute: typeof ClientDashboardIndexRoute
 }
 
-const Clone2006DashboardRouteChildren: Clone2006DashboardRouteChildren = {
-  Clone2006DashboardAnalyticsRoute: Clone2006DashboardAnalyticsRoute,
-  Clone2006DashboardSettingsRoute: Clone2006DashboardSettingsRoute,
-  Clone2006DashboardIndexRoute: Clone2006DashboardIndexRoute,
+const ClientDashboardRouteChildren: ClientDashboardRouteChildren = {
+  ClientDashboardAnalyticsRoute: ClientDashboardAnalyticsRoute,
+  ClientDashboardSettingsRoute: ClientDashboardSettingsRoute,
+  ClientDashboardIndexRoute: ClientDashboardIndexRoute,
 }
 
-const Clone2006DashboardRouteWithChildren =
-  Clone2006DashboardRoute._addFileChildren(Clone2006DashboardRouteChildren)
-
-interface Clone2006RouteChildren {
-  Clone2006AnalysisRoute: typeof Clone2006AnalysisRoute
-  Clone2006AuthRoute: typeof Clone2006AuthRoute
-  Clone2006BotBuilderRoute: typeof Clone2006BotBuilderRoute
-  Clone2006ChartsRoute: typeof Clone2006ChartsRoute
-  Clone2006CopyTradingRoute: typeof Clone2006CopyTradingRoute
-  Clone2006DashboardRoute: typeof Clone2006DashboardRouteWithChildren
-  Clone2006StrategiesRoute: typeof Clone2006StrategiesRoute
-  Clone2006TradingBotsRoute: typeof Clone2006TradingBotsRoute
-  Clone2006IndexRoute: typeof Clone2006IndexRoute
-  Clone2006StrategySlugRoute: typeof Clone2006StrategySlugRoute
-}
-
-const Clone2006RouteChildren: Clone2006RouteChildren = {
-  Clone2006AnalysisRoute: Clone2006AnalysisRoute,
-  Clone2006AuthRoute: Clone2006AuthRoute,
-  Clone2006BotBuilderRoute: Clone2006BotBuilderRoute,
-  Clone2006ChartsRoute: Clone2006ChartsRoute,
-  Clone2006CopyTradingRoute: Clone2006CopyTradingRoute,
-  Clone2006DashboardRoute: Clone2006DashboardRouteWithChildren,
-  Clone2006StrategiesRoute: Clone2006StrategiesRoute,
-  Clone2006TradingBotsRoute: Clone2006TradingBotsRoute,
-  Clone2006IndexRoute: Clone2006IndexRoute,
-  Clone2006StrategySlugRoute: Clone2006StrategySlugRoute,
-}
-
-const Clone2006RouteWithChildren = Clone2006Route._addFileChildren(
-  Clone2006RouteChildren,
+const ClientDashboardRouteWithChildren = ClientDashboardRoute._addFileChildren(
+  ClientDashboardRouteChildren,
 )
+
+interface ClientRouteChildren {
+  ClientAnalysisRoute: typeof ClientAnalysisRoute
+  ClientAuthRoute: typeof ClientAuthRoute
+  ClientBotBuilderRoute: typeof ClientBotBuilderRoute
+  ClientChartsRoute: typeof ClientChartsRoute
+  ClientCopyTradingRoute: typeof ClientCopyTradingRoute
+  ClientDashboardRoute: typeof ClientDashboardRouteWithChildren
+  ClientStrategiesRoute: typeof ClientStrategiesRoute
+  ClientTradingBotsRoute: typeof ClientTradingBotsRoute
+  ClientIndexRoute: typeof ClientIndexRoute
+  ClientStrategySlugRoute: typeof ClientStrategySlugRoute
+}
+
+const ClientRouteChildren: ClientRouteChildren = {
+  ClientAnalysisRoute: ClientAnalysisRoute,
+  ClientAuthRoute: ClientAuthRoute,
+  ClientBotBuilderRoute: ClientBotBuilderRoute,
+  ClientChartsRoute: ClientChartsRoute,
+  ClientCopyTradingRoute: ClientCopyTradingRoute,
+  ClientDashboardRoute: ClientDashboardRouteWithChildren,
+  ClientStrategiesRoute: ClientStrategiesRoute,
+  ClientTradingBotsRoute: ClientTradingBotsRoute,
+  ClientIndexRoute: ClientIndexRoute,
+  ClientStrategySlugRoute: ClientStrategySlugRoute,
+}
+
+const ClientRouteWithChildren =
+  ClientRoute._addFileChildren(ClientRouteChildren)
 
 interface DashboardRouteChildren {
   DashboardAnalyticsRoute: typeof DashboardAnalyticsRoute
@@ -783,7 +782,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   BotBuilderRoute: BotBuilderRoute,
   ChartsRoute: ChartsRoute,
-  Clone2006Route: Clone2006RouteWithChildren,
+  ClientRoute: ClientRouteWithChildren,
   CopyTradingRoute: CopyTradingRoute,
   DashboardRoute: DashboardRouteWithChildren,
   DerivCallbackRoute: DerivCallbackRoute,
@@ -800,12 +799,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

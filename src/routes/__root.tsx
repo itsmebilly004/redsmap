@@ -114,7 +114,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  const isClone = useRouterState({ select: (s) => s.location.pathname.startsWith("/clone2006") });
+  const isClone = useRouterState({ select: (s) => s.location.pathname.startsWith("/client") });
 
   const Provider = isClone ? SimulatedTradingProvider : DerivBalanceProvider;
 

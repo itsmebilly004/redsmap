@@ -7,7 +7,7 @@ const search = z.object({
   preset: z.string().optional(),
 });
 
-export const Route = createFileRoute("/clone2006/bot-builder")({
+export const Route = createFileRoute("/client/bot-builder")({
   component: BotBuilderPage,
   validateSearch: search,
   ssr: false,

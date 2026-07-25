@@ -14,7 +14,7 @@ import { Link } from "@tanstack/react-router";
 import type { Tables } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/clone2006/dashboard/")({
+export const Route = createFileRoute("/client/dashboard/")({
   component: DashboardHome,
 });
 
@@ -120,7 +120,7 @@ function DashboardHome() {
         <div className="min-w-0 rounded-xl border border-border bg-card/80 p-4 text-card-foreground shadow-sm backdrop-blur-sm sm:p-5 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-sm font-medium text-foreground">Recent trades</h3>
-            <Link to="/clone2006/dashboard/analytics" className="text-xs text-primary hover:underline">
+            <Link to="/client/dashboard/analytics" className="text-xs text-primary hover:underline">
               View all â†’
             </Link>
           </div>
@@ -134,7 +134,7 @@ function DashboardHome() {
                 size="sm"
                 className="mt-4 bg-[oklch(0.7_0.17_150)] text-white hover:bg-[oklch(0.65_0.17_150)]"
               >
-                <Link to="/clone2006">Start trading</Link>
+                <Link to="/client">Start trading</Link>
               </Button>
             </div>
           ) : (
@@ -209,14 +209,14 @@ function DashboardHome() {
             ))}
           </ul>
           <Button asChild variant="outline" className="mt-4 w-full">
-            <Link to="/clone2006">Open trade desk</Link>
+            <Link to="/client">Open trade desk</Link>
           </Button>
 
           <Button
             asChild
             className="mt-2 w-full bg-[oklch(0.7_0.17_150)] text-white hover:bg-[oklch(0.65_0.17_150)]"
           >
-            <Link to="/clone2006/bot-builder">
+            <Link to="/client/bot-builder">
               <Bot className="mr-1.5 size-4" /> Launch bot builder
             </Link>
           </Button>

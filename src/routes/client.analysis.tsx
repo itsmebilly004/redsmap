@@ -16,7 +16,7 @@ import { readRememberedMarket, rememberMarketSelection } from "@/lib/activity-me
 import { calculateDigitStats, digitsFromPrices, lastDigitFromPrice } from "@/lib/digit-stats";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/clone2006/analysis")({
+export const Route = createFileRoute("/client/analysis")({
   head: () => ({
     meta: [
       { title: "Analysis Tool — Redsmap Traders" },
