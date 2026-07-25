@@ -47,7 +47,7 @@ import {
   type BotVarState,
   type OhlcCandle,
 } from "@/lib/bot-xml-runtime";
-import { DERIV_LEGACY_WEBSOCKET_URL, DERIV_LEGACY_APP_ID } from "@/lib/deriv-config";
+import { DERIV_LEGACY_WEBSOCKET_URL, DERIV_LEGACY_APP_ID, getDerivLegacyAppId } from "@/lib/deriv-config";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -874,14 +874,14 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     let stopTickWs: () => void = () => {};
 
     const openTickWs = () => {
-      const ws = new WebSocket(`${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${DERIV_LEGACY_APP_ID}`);
+      const ws = new WebSocket(`${DERIV_LEGACY_WEBSOCKET_URL}?app_id=${getDerivLegacyAppId()}`);
       currentTickWs = ws;
       tickSubId = null;
       ohlcSubId = null;
 
-      ws.onopen = () => {
-        tickReconnectAttempts = 0;
-        ws.send(JSON.stringify({ ticks: settings!.symbol, subscribe: 1 }));
+      const subscribeToMarketData = () => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({ ticks: settings!.symbol, subscribe: 1, req_id: 1 }));
         ws.send(JSON.stringify({
           ticks_history: settings!.symbol,
           adjust_start_time: 1,
@@ -890,17 +890,48 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
           granularity: ohlcGranularity,
           style: "candles",
           subscribe: 1,
+          req_id: 2,
         }));
+      };
+
+      ws.onopen = () => {
+        tickReconnectAttempts = 0;
+        
         // Keepalive ping every 25 seconds
         if (pingIntervalId) clearInterval(pingIntervalId);
         pingIntervalId = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ ping: 1 }));
         }, 25000);
+
+        const currentToken = accountRef.current?.deriv_token;
+        if (currentToken) {
+          ws.send(JSON.stringify({ authorize: currentToken }));
+        } else {
+          subscribeToMarketData();
+        }
       };
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data as string) as Record<string, unknown>;
+          
+          if (msg.error) {
+            const errorObj = msg.error as Record<string, unknown>;
+            const errMsg = String(errorObj.message ?? "Unknown error");
+            addJournal(`Deriv API Error: ${errMsg}`, "error");
+            
+            // If the error is related to authorization, restricted symbols, or the ticks subscription (req_id = 1) itself fails, halt the bot
+            if (msg.req_id === 1 || errorObj.code === "InvalidSymbol" || errorObj.code === "AuthorizationRequired") {
+               stopTickWs();
+               return;
+            }
+          }
+
+          if (msg.msg_type === "authorize") {
+            subscribeToMarketData();
+            return;
+          }
+
           const sub = msg.subscription as Record<string, unknown> | undefined;
 
           if (msg.msg_type === "candles" && Array.isArray(msg.candles)) {
@@ -999,6 +1030,11 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
           currentTickWs.close();
         }
       } catch { /* ignore */ }
+      
+      if (pendingTickResolveRef.current) {
+        pendingTickResolveRef.current(null);
+        pendingTickResolveRef.current = null;
+      }
     };
     stopTickWsFnRef.current = stopTickWs;
 

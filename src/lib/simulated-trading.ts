@@ -279,7 +279,7 @@ export async function simulatedSubscribeOpenContract(
         payout = won ? (Number(state?.payout) || Number(state?.stake) * 1.95) : 0;
       }
 
-      const profit = payout - Number(state.stake);
+      const profit = payout - Number(state?.stake ?? 0);
 
       if (payout > 0) {
          const { data: sessionData } = await supabase
@@ -310,7 +310,7 @@ export async function simulatedSubscribeOpenContract(
         profit,
         payout,
         sell_price: payout,
-        buy_price: state.stake,
+        buy_price: state?.stake ?? 0,
         entry_spot: entrySpot,
         exit_tick: currentSpot,
         currency: "USD"

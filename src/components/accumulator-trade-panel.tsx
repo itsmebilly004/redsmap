@@ -182,8 +182,14 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
       ? (state.entrySpot ?? state.currentSpot ?? lastPrice ?? null)
       : (previewEntrySpot ?? lastPrice ?? null);
     const fallback = estimateAccumulatorBarriers(referenceSpot, growthRate);
-    const high = state.upperBarrier ?? (liveContract ? fallback.high : (liveProposalBarriers?.high ?? fallback.high));
-    const low = state.lowerBarrier ?? (liveContract ? fallback.low : (liveProposalBarriers?.low ?? fallback.low));
+    const proposalHigh = liveProposalBarriers && referenceSpot != null 
+      ? (Math.abs(liveProposalBarriers.high) < referenceSpot / 2 ? referenceSpot + liveProposalBarriers.high : liveProposalBarriers.high) 
+      : null;
+    const proposalLow = liveProposalBarriers && referenceSpot != null 
+      ? (Math.abs(liveProposalBarriers.low) < referenceSpot / 2 ? referenceSpot + liveProposalBarriers.low : liveProposalBarriers.low) 
+      : null;
+    const high = state.upperBarrier ?? (liveContract ? fallback.high : (proposalHigh ?? fallback.high));
+    const low = state.lowerBarrier ?? (liveContract ? fallback.low : (proposalLow ?? fallback.low));
     const currentSpot = liveContract
       ? (state.currentSpot ?? state.entrySpot ?? lastPrice ?? null)
       : (lastPrice ?? referenceSpot);
