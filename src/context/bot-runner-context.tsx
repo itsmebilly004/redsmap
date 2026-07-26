@@ -922,6 +922,9 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             
             // If the error is related to authorization, restricted symbols, or the ticks subscription (req_id = 1) itself fails, halt the bot
             if (msg.req_id === 1 || msg.msg_type === "authorize" || errorObj.code === "InvalidSymbol" || errorObj.code === "AuthorizationRequired") {
+               if (errorObj.code === "InvalidToken" || msg.msg_type === "authorize") {
+                 _globalObserver?.emit("client.invalid_token");
+               }
                stopTickWs();
                return;
             }
@@ -1528,6 +1531,11 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     if (statusRef.current === "running") {
       stopBot();
       return;
+    }
+    if (serverModeRef.current) {
+      serverModeRef.current = false;
+      setServerMode(false);
+      serverSessionIdRef.current = null;
     }
     const workspace = getDerivWorkspace();
     const hasBlocks = (workspace?.getAllBlocks?.()?.length ?? 0) > 0;
