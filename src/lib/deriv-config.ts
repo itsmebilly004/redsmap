@@ -1,6 +1,6 @@
 // Default values
 let dynamicLegacyAppId = "133647";
-let dynamicOauthClientId = "33dKDiaoKZ0hKLgNW0IzW";
+let dynamicOauthClientId = "33XhrbOUhFTwUrjC29kcP";
 
 export function setDynamicAppIds(legacyId: string, oauthId: string) {
   if (legacyId) dynamicLegacyAppId = legacyId;
