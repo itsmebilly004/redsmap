@@ -726,6 +726,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
       setActiveTab("journal");
       addJournal("Run blocked: no Deriv account selected.", "error");
       toast.error("Connect and select a Deriv account before running the bot.");
+      setStatus("stopped");
       return;
     }
 
@@ -772,6 +773,9 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     if (!currentAccount) {
       toast.error("Connect and select a Deriv account before running the bot.");
       addJournal("Run blocked: no Deriv account selected.", "error");
+      setStatus("stopped");
+      footerBotRunningRef.current = false;
+      botRunModeRef.current = null;
       return;
     }
 
@@ -903,8 +907,8 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ ping: 1 }));
         }, 25000);
 
-        const currentToken = accountRef.current?.deriv_token;
-        if (currentToken) {
+        const currentToken = accountRef.current?.deriv_token?.trim();
+        if (currentToken && currentToken !== "undefined" && currentToken !== "null") {
           ws.send(JSON.stringify({ authorize: currentToken }));
         } else {
           subscribeToMarketData();
