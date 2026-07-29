@@ -147,6 +147,9 @@ function getMutation(el: Element): Element | null {
   for (const child of el.children) {
     if (child.tagName === "mutation") return child;
   }
+  return null;
+}
+
 function calcSMA(data: number[], period: number): number[] {
   const result: number[] = [];
   let sum = 0;
