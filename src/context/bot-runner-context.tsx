@@ -319,40 +319,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     [addJournal],
   );
 
-  // ── Check for active server sessions on mount (user returned after closing browser) ──
-  useEffect(() => {
-    if (!user?.id) return;
-    const check = async () => {
-      try {
-        const { data } = await supabase
-          .from("active_bot_sessions")
-          .select("id, status, running_profit, completed_runs")
-          .eq("user_id", user.id)
-          .in("status", ["running", "pending"])
-          .order("started_at", { ascending: false })
-          .limit(1)
-          .single();
-        if (data && !serverSessionIdRef.current) {
-          serverSessionIdRef.current = data.id;
-          serverModeRef.current = true;
-          setServerMode(true);
-          setStatus("running");
-          setStats((prev) => ({
-            ...prev,
-            totalProfitLoss: data.running_profit,
-            runs: data.completed_runs,
-          }));
-          addJournal("Bot is running in the background on the server. Resuming live updates.", "info");
-          subscribeToServerSession(data.id);
-        }
-      } catch {
-        // No active server session — that's fine
-      }
-    };
-    void check();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
-
+  // ── (Removed auto-resume check to prevent bot from starting on login) ──
   // ── visibilitychange: hand off to server after 20s of inactivity ──────────
   useEffect(() => {
     const handleVisibility = () => {
@@ -908,7 +875,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
         }, 25000);
 
         const currentToken = accountRef.current?.deriv_token?.trim();
-        if (currentToken && currentToken !== "undefined" && currentToken !== "null") {
+        if (currentToken && /^[a-zA-Z0-9_.-]{10,32}$/.test(currentToken)) {
           ws.send(JSON.stringify({ authorize: currentToken }));
         } else {
           subscribeToMarketData();
