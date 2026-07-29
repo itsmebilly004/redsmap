@@ -147,13 +147,107 @@ function getMutation(el: Element): Element | null {
   for (const child of el.children) {
     if (child.tagName === "mutation") return child;
   }
-  return null;
+function calcSMA(data: number[], period: number): number[] {
+  const result: number[] = [];
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    sum += data[i];
+    if (i >= period) sum -= data[i - period];
+    if (i >= period - 1) result.push(sum / period);
+    else result.push(0);
+  }
+  return result;
+}
+
+function calcEMA(data: number[], period: number): number[] {
+  const result: number[] = [];
+  const k = 2 / (period + 1);
+  let ema = data[0] || 0;
+  for (let i = 0; i < data.length; i++) {
+    if (i === 0) { result.push(ema); continue; }
+    ema = data[i] * k + ema * (1 - k);
+    result.push(ema);
+  }
+  return result;
+}
+
+function calcRSI(data: number[], period: number): number[] {
+  const result: number[] = [];
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period && i < data.length; i++) {
+    const diff = data[i] - data[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  for (let i = 0; i < data.length; i++) {
+    if (i < period) { result.push(0); continue; }
+    if (i > period) {
+      const diff = data[i] - data[i - 1];
+      avgGain = (avgGain * (period - 1) + (diff > 0 ? diff : 0)) / period;
+      avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
+    }
+    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    result.push(avgLoss === 0 ? 100 : 100 - (100 / (1 + rs)));
+  }
+  return result;
+}
+
+function calcMACD(data: number[], fast: number, slow: number, signal: number): number[][] {
+  const fastEma = calcEMA(data, fast);
+  const slowEma = calcEMA(data, slow);
+  const macd: number[] = [];
+  for (let i = 0; i < data.length; i++) macd.push(fastEma[i] - slowEma[i]);
+  const signalLine = calcEMA(macd, signal);
+  const histogram: number[] = [];
+  for (let i = 0; i < data.length; i++) histogram.push(macd[i] - signalLine[i]);
+  return [macd, signalLine, histogram];
+}
+
+function calcBB(data: number[], period: number, stdUp: number, stdDown: number): number[][] {
+  const sma = calcSMA(data, period);
+  const upper: number[] = [], lower: number[] = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) { upper.push(0); lower.push(0); continue; }
+    let sumSq = 0;
+    for (let j = 0; j < period; j++) {
+      const diff = data[i - j] - sma[i];
+      sumSq += diff * diff;
+    }
+    const stdDev = Math.sqrt(sumSq / period);
+    upper.push(sma[i] + stdDev * stdUp);
+    lower.push(sma[i] - stdDev * stdDown);
+  }
+  return [sma, upper, lower];
+}
+
+function parseIndicatorArgs(block: Element, state: BotVarState) {
+  let inputList = state.tickPrices;
+  let period = 10, upMultiplier = 5, downMultiplier = 5, fastEmaPeriod = 12, slowEmaPeriod = 26, signalEmaPeriod = 9;
+  let current = getStatementBlock(block, "STATEMENT");
+  while (current) {
+    const type = current.getAttribute("type") ?? "";
+    if (type === "input_list") {
+      const val = evalListExpr(getValueBlock(current, "INPUT_LIST"), state);
+      if (val && val.length > 0) inputList = val;
+    } else if (type === "period") period = Number(evalExpr(getValueBlock(current, "PERIOD"), state)) || 10;
+    else if (type === "std_dev_multiplier_up") upMultiplier = Number(evalExpr(getValueBlock(current, "UPMULTIPLIER"), state)) || 5;
+    else if (type === "std_dev_multiplier_down") downMultiplier = Number(evalExpr(getValueBlock(current, "DOWNMULTIPLIER"), state)) || 5;
+    else if (type === "fast_ema_period") fastEmaPeriod = Number(evalExpr(getValueBlock(current, "FAST_EMA_PERIOD"), state)) || 12;
+    else if (type === "slow_ema_period") slowEmaPeriod = Number(evalExpr(getValueBlock(current, "SLOW_EMA_PERIOD"), state)) || 26;
+    else if (type === "signal_ema_period") signalEmaPeriod = Number(evalExpr(getValueBlock(current, "SIGNAL_EMA_PERIOD"), state)) || 9;
+    current = nextBlock(current);
+  }
+  return { inputList, period, upMultiplier, downMultiplier, fastEmaPeriod, slowEmaPeriod, signalEmaPeriod };
 }
 
 function isListBlock(block: Element | null): boolean {
   if (!block) return false;
   const type = block.getAttribute("type") ?? "";
-  return type === "lastDigitList" || type === "lists_create_with";
+  return type === "lastDigitList" || type === "lists_create_with" || 
+         type === "smaa_statement" || type === "emaa_statement" || 
+         type === "rsia_statement" || type === "macda_statement" || 
+         type === "bba_statement" || type === "ticks" || type === "ohlc";
 }
 
 function evalListExpr(block: Element | null, state: BotVarState): number[] {
@@ -174,6 +268,30 @@ function evalListExpr(block: Element | null, state: BotVarState): number[] {
         result.push(Number(evalExpr(getValueBlock(block, `ADD${i}`), state)));
       }
       return result;
+    }
+    case "ticks":
+      return [...state.tickPrices];
+    case "smaa_statement": {
+      const args = parseIndicatorArgs(block, state);
+      return calcSMA(args.inputList, args.period);
+    }
+    case "emaa_statement": {
+      const args = parseIndicatorArgs(block, state);
+      return calcEMA(args.inputList, args.period);
+    }
+    case "rsia_statement": {
+      const args = parseIndicatorArgs(block, state);
+      return calcRSI(args.inputList, args.period);
+    }
+    case "macda_statement": {
+      const field = Number(getField(block, "MACDFIELDS_LIST") || "0");
+      const args = parseIndicatorArgs(block, state);
+      return calcMACD(args.inputList, args.fastEmaPeriod, args.slowEmaPeriod, args.signalEmaPeriod)[field] || [];
+    }
+    case "bba_statement": {
+      const field = Number(getField(block, "BBRESULT_LIST") || "0");
+      const args = parseIndicatorArgs(block, state);
+      return calcBB(args.inputList, args.period, args.upMultiplier, args.downMultiplier)[field] || [];
     }
     default:
       return [];
@@ -519,6 +637,22 @@ function evalExpr(block: Element | null, state: BotVarState): number | boolean |
       if (!proc) return 0;
       const args = proc.params.map((_, i) => evalExpr(getValueBlock(block, `ARG${i}`), state));
       return callProcedure(name, args, state);
+    }
+
+    case "sma_statement": {
+      const args = parseIndicatorArgs(block, state);
+      const arr = calcSMA(args.inputList, args.period);
+      return arr.length > 0 ? (arr[arr.length - 1] ?? 0) : 0;
+    }
+    case "ema_statement": {
+      const args = parseIndicatorArgs(block, state);
+      const arr = calcEMA(args.inputList, args.period);
+      return arr.length > 0 ? (arr[arr.length - 1] ?? 0) : 0;
+    }
+    case "rsi_statement": {
+      const args = parseIndicatorArgs(block, state);
+      const arr = calcRSI(args.inputList, args.period);
+      return arr.length > 0 ? (arr[arr.length - 1] ?? 0) : 0;
     }
 
     default:

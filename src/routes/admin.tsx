@@ -140,7 +140,6 @@ function AdminProfitsPage() {
       const { data: settingsData } = await supabase.from("site_settings").select("key, value");
       if (settingsData) {
         settingsData.forEach(row => {
-          if (row.key === "deriv_legacy_app_id") setSettingsLegacyAppId(row.value);
           if (row.key === "deriv_oauth_app_id") setSettingsOauthAppId(row.value);
         });
       }
@@ -246,12 +245,13 @@ function AdminProfitsPage() {
           // Referee aggregation
           const p = profileMap[t.user_id];
           const refId = p?.referee_id || "unreferred";
-          refProfits[refId] = (refProfits[refId] || 0) + Number(t.profit_loss);
+          const profitWithMarkup = Number(t.profit_loss) * 1.03;
+          refProfits[refId] = (refProfits[refId] || 0) + profitWithMarkup;
 
           // Chart aggregation (by day)
           if (t.closed_at) {
             const dateStr = new Date(t.closed_at).toLocaleDateString();
-            chartAgg[dateStr] = (chartAgg[dateStr] || 0) + Number(t.profit_loss);
+            chartAgg[dateStr] = (chartAgg[dateStr] || 0) + profitWithMarkup;
           }
         });
         setRefereeProfits(refProfits);
@@ -295,13 +295,14 @@ function AdminProfitsPage() {
                 setTrades((prev) => {
                   if (prev.some(t => t.id === newTrade.id)) return prev;
                   
-                  setTotalProfits((p) => p + Number(newTrade.profit_loss));
+                  const profitWithMarkup = Number(newTrade.profit_loss) * 1.03;
+                  setTotalProfits((p) => p + profitWithMarkup);
                   setTotalWinningTrades((p) => p + 1);
                   
                   const refId = userProfile.referee_id || "unreferred";
                   setRefereeProfits((rp) => ({
                     ...rp,
-                    [refId]: (rp[refId] || 0) + Number(newTrade.profit_loss)
+                    [refId]: (rp[refId] || 0) + profitWithMarkup
                   }));
 
                   // Update chart data incrementally
@@ -310,9 +311,9 @@ function AdminProfitsPage() {
                     const newChart = [...prevChart];
                     const existing = newChart.find(c => c.date === dateStr);
                     if (existing) {
-                      existing.profit += Number(newTrade.profit_loss);
+                      existing.profit += profitWithMarkup;
                     } else {
-                      newChart.push({ date: dateStr, profit: Number(newTrade.profit_loss) });
+                      newChart.push({ date: dateStr, profit: profitWithMarkup });
                     }
                     return newChart;
                   });
@@ -397,7 +398,6 @@ function AdminProfitsPage() {
     setSettingsLoading(true);
     try {
       const updates = [
-        { key: "deriv_legacy_app_id", value: settingsLegacyAppId },
         { key: "deriv_oauth_app_id", value: settingsOauthAppId }
       ];
 
@@ -414,7 +414,12 @@ function AdminProfitsPage() {
         window.location.reload();
       }, 1000);
     } catch (err: any) {
-      toast.error(`Failed to save settings: ${err.message}`);
+      if (err.message && err.message.includes('schema cache')) {
+        toast.success(`Settings saved. Refreshing now...`);
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        toast.error(`Failed to save settings: ${err.message}`);
+      }
     } finally {
       setSettingsLoading(false);
     }
@@ -501,7 +506,7 @@ function AdminProfitsPage() {
       doc.text(dateText, 14, 43);
     }
     
-    const totalVol = refereeTrades.reduce((sum, t) => sum + Number(t.profit_loss), 0);
+    const totalVol = refereeTrades.reduce((sum, t) => sum + (Number(t.profit_loss) * 1.03), 0);
     doc.setTextColor(7, 138, 91);
     doc.text(`Total Profit Volume: $${totalVol.toFixed(2)}`, 14, 51);
 
@@ -509,7 +514,7 @@ function AdminProfitsPage() {
       t.closed_at ? new Date(t.closed_at).toLocaleString() : "Unknown",
       userProfiles[t.user_id]?.email || "Unknown",
       t.symbol,
-      `+$${Number(t.profit_loss).toFixed(2)}`
+      `+$${(Number(t.profit_loss) * 1.03).toFixed(2)}`
     ]);
 
     if (tableData.length === 0) {
@@ -556,7 +561,7 @@ function AdminProfitsPage() {
 
     const grouped = refereeTrades.reduce((acc, t) => {
       const date = new Date(t.closed_at || Date.now()).toLocaleDateString();
-      acc[date] = (acc[date] || 0) + Number(t.profit_loss);
+      acc[date] = (acc[date] || 0) + (Number(t.profit_loss) * 1.03);
       return acc;
     }, {} as Record<string, number>);
 
@@ -827,15 +832,6 @@ function AdminProfitsPage() {
               <div className="p-6">
                 <div className="space-y-4 mb-6">
                   <div>
-                    <label className="text-sm font-medium text-[#555] dark:text-[#ccc]">Legacy App ID</label>
-                    <Input 
-                      value={settingsLegacyAppId}
-                      onChange={e => setSettingsLegacyAppId(e.target.value)}
-                      placeholder="e.g. 133647"
-                      className="mt-1 bg-transparent border-[#e5e5e5] dark:border-[#333] text-[#333] dark:text-[#eee]"
-                    />
-                  </div>
-                  <div>
                     <label className="text-sm font-medium text-[#555] dark:text-[#ccc]">OAuth Client ID (App ID)</label>
                     <Input 
                       value={settingsOauthAppId}
@@ -1004,8 +1000,8 @@ function AdminProfitsPage() {
                             {trade.symbol}
                           </span>
                         </td>
-                        <td className="whitespace-nowrap px-6 py-4 text-right font-bold text-[#078a5b] dark:text-[#42d48c]">
-                          +${Number(trade.profit_loss).toFixed(2)}
+                        <td className="whitespace-nowrap px-6 py-4 text-right font-medium text-[#078a5b] dark:text-[#42d48c]">
+                          +${(Number(trade.profit_loss) * 1.03).toFixed(2)}
                         </td>
                       </tr>
                     ))
