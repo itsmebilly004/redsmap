@@ -293,7 +293,7 @@ function Index() {
 
   return (
     <TopShell>
-      {/* â”€â”€ Desktop layout: chart left, trade panel right â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Desktop layout: chart left, trade panel right ────────────────── */}
       {!isMobile && (
         <>
           <div
@@ -372,7 +372,7 @@ function Index() {
         </>
       )}
 
-      {/* â”€â”€ Mobile layout: Deriv-style, price header + scrollable params + sticky buy/sell â”€â”€ */}
+      {/* ── Mobile layout: Deriv-style, price header + scrollable params + sticky buy/sell ── */}
       {isMobile && (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden" style={{ height: "calc(100dvh - 11rem)" }}>
           {/* Sticky price header */}
@@ -396,7 +396,7 @@ function Index() {
             <MobileDigitStatsRow tickPrices={tickPrices} currentPrice={price} />
           )}
 
-          {/* Scrollable content: trade params â†’ chart */}
+          {/* Scrollable content: trade params -> chart */}
           <div className="min-h-0 flex-1 overflow-y-auto pb-20 bg-[oklch(0.97_0.003_240)] dark:bg-[#0e0e0e]">
             <div className="p-2 pb-0 max-h-[45vh] overflow-y-auto overscroll-contain">
               <TradePanel
@@ -446,7 +446,7 @@ function Index() {
   );
 }
 
-// â”€â”€ Mobile digit stats row (DCircles) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mobile digit stats row (DCircles) ──────────────────────────────────
 
 function MobileDigitStatsRow({
   tickPrices,

@@ -3,6 +3,7 @@ import { localize } from '@deriv-com/translations';
 const CRYPTO_CURRENCIES = ['BTC', 'ETH', 'LTC', 'BCH', 'UST'];
 
 // Import the centralized function from multiplier-utils to avoid circular dependency
+// @ts-ignore
 import { isMultipliersAvailable } from '../scratch/utils/multiplier-utils';
 
 export const config = () => ({

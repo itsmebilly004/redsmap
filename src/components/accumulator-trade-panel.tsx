@@ -151,9 +151,9 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
           stake,
           takeProfit: takeProfitEnabled ? takeProfit : null,
         },
-        adapter,
+        adapter as any,
       );
-      subscribeProposal(payload, (proposal) => {
+      subscribeProposal?.(payload, (proposal: any) => {
         if (!active) return;
         if ((proposal.high_barrier || proposal.barrier) && proposal.low_barrier) {
           // Note: API returns barrier (high) and low_barrier. Wait! I'll check high_barrier vs barrier.
@@ -163,7 +163,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
             low: Number(proposal.low_barrier ?? 0),
           });
         }
-      }, { adapter }).then((fn) => { if (!active) void fn(); else unsub = fn; }).catch((err) => {
+      }, { adapter: adapter as any }).then((fn: any) => { if (!active) void fn(); else unsub = fn; }).catch((err: any) => {
         console.warn("[Accumulator] Failed to subscribe to dynamic barriers", err);
       });
     }, 200);
@@ -544,7 +544,7 @@ export function AccumulatorTradePanel({ lastPrice, market, onBarriers, onMarketC
     }
     setBusy(true);
     try {
-      if (!isSimulated) {
+      if (!isSimulated && account) {
         await ensureDerivTradingConnection(account, { context: "accumulator-sell" });
       }
       const response = await sellContract(state.contractId, state.sellPrice);

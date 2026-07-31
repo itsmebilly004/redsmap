@@ -379,7 +379,7 @@ export function AiAssistant({
       if (!user?.id) {
         toast.error("Sign in to deploy a bot.");
         const isClone = typeof window !== "undefined" && window.location.pathname.startsWith("/client");
-        navigate({ to: (isClone ? "/client/auth" : "/auth") as any, search: { mode: "signin" } });
+        navigate({ to: (isClone ? "/client/auth" : "/auth") as any, search: { mode: "signin" } as any });
       }
       return;
     }

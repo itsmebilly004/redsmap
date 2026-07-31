@@ -12,6 +12,11 @@ export interface ITradingContext extends LiveBalance {
     contractId: string,
     onUpdate: (contract: Record<string, unknown>, message: DerivMessage) => void
   ) => Promise<() => Promise<void>>;
+  subscribeProposal?: (
+    payload: Record<string, unknown>,
+    onUpdate: (proposal: Record<string, unknown>, message: DerivMessage) => void,
+    context?: TradeRequestContext
+  ) => Promise<() => Promise<void>>;
 }
 
 const TradingContext = createContext<ITradingContext | null>(null);

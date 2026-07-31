@@ -1,73 +1,18 @@
 import { supabase } from "@/integrations/supabase/client";
-import { type DerivMessage } from "@/lib/deriv";
+import { type DerivMessage, send, onMessage } from "@/lib/deriv";
 import { type TradeRequestContext } from "@/lib/deriv-trading-service";
 import { DERIV_LEGACY_APP_ID } from "@/lib/deriv-config";
 
-// Unauthenticated WebSocket for free API calls (proposals, ticks)
-let freeWs: WebSocket | null = null;
-let msgId = 1;
-const pendingRequests = new Map<number, { resolve: (res: any) => void; reject: (err: any) => void }>();
 const tickSubscribers = new Map<string, Set<(tick: any) => void>>();
 
-function getFreeWs(): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
-    if (freeWs && freeWs.readyState === WebSocket.OPEN) {
-      return resolve(freeWs);
-    }
-    if (freeWs && freeWs.readyState === WebSocket.CONNECTING) {
-      const interval = setInterval(() => {
-        if (freeWs?.readyState === WebSocket.OPEN) {
-          clearInterval(interval);
-          resolve(freeWs);
-        } else if (freeWs?.readyState === WebSocket.CLOSED) {
-          clearInterval(interval);
-          reject(new Error("WebSocket closed"));
-        }
-      }, 100);
-      return;
-    }
-
-    const ws = new WebSocket(`wss://ws.binaryws.com/websockets/v3?app_id=${DERIV_LEGACY_APP_ID || 1089}`);
-    ws.onopen = () => {
-      freeWs = ws;
-      resolve(ws);
-    };
-    ws.onerror = (err) => {
-      console.error("[SimulatedTrading] Free WS Error", err);
-      reject(err);
-    };
-    ws.onclose = () => {
-      freeWs = null;
-    };
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.req_id && pendingRequests.has(data.req_id)) {
-          const { resolve, reject } = pendingRequests.get(data.req_id)!;
-          pendingRequests.delete(data.req_id);
-          if (data.error) reject(data.error);
-          else resolve(data);
-        }
-        
-        if (data.msg_type === "tick" && data.tick) {
-          const symbol = data.tick.symbol;
-          if (tickSubscribers.has(symbol)) {
-            tickSubscribers.get(symbol)!.forEach((cb) => cb(data.tick));
-          }
-        }
-      } catch (e) {
-        console.error("Failed to parse simulated ws message", e);
+if (typeof window !== "undefined") {
+  onMessage((data: any) => {
+    if (data.msg_type === "tick" && data.tick) {
+      const symbol = data.tick.symbol;
+      if (tickSubscribers.has(symbol)) {
+        tickSubscribers.get(symbol)!.forEach((cb) => cb(data.tick));
       }
-    };
-  });
-}
-
-async function sendFreeWs(payload: Record<string, any>): Promise<any> {
-  const ws = await getFreeWs();
-  return new Promise((resolve, reject) => {
-    const req_id = msgId++;
-    pendingRequests.set(req_id, { resolve, reject });
-    ws.send(JSON.stringify({ ...payload, req_id }));
+    }
   });
 }
 
@@ -86,9 +31,9 @@ export async function simulatedRequestProposal(payload: Record<string, unknown>,
     delete requestPayload.underlying_symbol;
   }
   try {
-    const response = await sendFreeWs(requestPayload);
-    if (response.proposal?.id) {
-      activeProposals.set(response.proposal.id, { payload, proposal: response.proposal });
+    const response = await send(requestPayload);
+    if ((response.proposal as any)?.id) {
+      activeProposals.set((response.proposal as any).id, { payload, proposal: response.proposal });
     }
     return response as DerivMessage;
   } catch (error) {
@@ -316,10 +261,10 @@ export async function simulatedSubscribeOpenContract(
         currency: "USD"
       };
 
-      onUpdate(contractState, { proposal_open_contract: contractState } as any);
+      onUpdate(contractState, { msg_type: "proposal_open_contract", proposal_open_contract: contractState } as any);
       
       if (subscriptionId) {
-        await sendFreeWs({ forget: subscriptionId }).catch(()=>null);
+        await send({ forget: subscriptionId }).catch(()=>null);
       }
     } else {
       let profit = (currentSpot - entrySpot) > 0 ? (Number(state?.stake || 0) * 0.5) : -(Number(state?.stake || 0) * 0.5);
@@ -344,7 +289,7 @@ export async function simulatedSubscribeOpenContract(
         current_spot: currentSpot,
         currency: "USD"
       };
-      onUpdate(contractState, { proposal_open_contract: contractState } as any);
+      onUpdate(contractState, { msg_type: "proposal_open_contract", proposal_open_contract: contractState } as any);
     }
   };
 
@@ -354,8 +299,8 @@ export async function simulatedSubscribeOpenContract(
   tickSubscribers.get(symbol)!.add(tickCallback);
 
   try {
-    const res = await sendFreeWs({ ticks: symbol });
-    subscriptionId = res.subscription?.id;
+    const res = await send({ ticks: symbol });
+    subscriptionId = (res.subscription as any)?.id ?? null;
   } catch (e) {
     console.warn("Failed to subscribe to ticks for simulation", e);
   }
@@ -366,7 +311,7 @@ export async function simulatedSubscribeOpenContract(
       tickSubscribers.get(symbol)!.delete(tickCallback);
     }
     if (subscriptionId) {
-      await sendFreeWs({ forget: subscriptionId }).catch(()=>null);
+      await send({ forget: subscriptionId }).catch(()=>null);
     }
   };
 }

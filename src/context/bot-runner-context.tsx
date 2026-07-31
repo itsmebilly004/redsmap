@@ -32,6 +32,7 @@ import {
   readSavedWorkspaceXml,
 } from "@/external/bot-builder/workspace-persistence";
 // Trading functions now come from context
+import { requestProposal } from "@/lib/deriv-trading-service";
 import { buildStandardProposalPayload, type ProposalInput } from "@/lib/trade-proposal-builder";
 import {
   initBotState,
@@ -354,7 +355,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
                 completed_runs: handoffRunsRef.current,
               })
               .eq("id", sessionId)
-              .catch(() => {});
+              .then(undefined, () => {});
             if (supabaseUrl && anonKey) {
               fetch(`${supabaseUrl}/functions/v1/run-bot`, {
                 method: "POST",
@@ -656,7 +657,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
         .from("active_bot_sessions")
         .update({ status: "stopped", stop_reason: "manual", stopped_at: new Date().toISOString() })
         .eq("id", sessionId)
-        .catch(() => {});
+        .then(undefined, () => {});
       serverSessionIdRef.current = null;
     }
     if (serverModeRef.current) {
@@ -794,7 +795,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
                 completed_runs: handoffRunsRef.current,
               })
               .eq("id", sid)
-              .catch(() => {});
+              .then(undefined, () => {});
           }, 30_000);
         }
       } catch { /* session creation is best-effort */ }
@@ -1252,7 +1253,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             // Not awaited in the hot path — chained non-blocking after settlement.
             // Errors are surfaced (console + journal) so a broken schema / RLS
             // rejection doesn't silently drop the bot's history off the dashboard.
-            const dbInsertPromise: Promise<string | null> = userRef.current?.id
+            const dbInsertPromise: PromiseLike<string | null> = userRef.current?.id
               ? supabase.from("trades").insert({
                   user_id: userRef.current.id, deriv_contract_id: isSimulated ? `SIM_${contractId}` : currentAccount.is_virtual ? `DEMO_${contractId}` : contractId,
                   symbol: snapshot.symbol, trade_type: contractType,
@@ -1266,8 +1267,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
                     return null;
                   }
                   return data ? String(data.id) : null;
-                })
-                .catch((error) => {
+                }, (error: any) => {
                   console.error("[Bot] Trade insert threw", error);
                   return null;
                 })
@@ -1277,7 +1277,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
             settlement = await waitForSettlement(
               contractId,
               (abort) => { settlementAbortRef.current = abort; },
-              (cid, cb) => derivContextRef.current.subscribeOpenContract(cid, cb),
+              (cid: string, cb: any) => derivContextRef.current.subscribeOpenContract(cid, cb),
               onContractUpdate,
             );
             settlementAbortRef.current = null;
@@ -1317,7 +1317,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
                 }).eq("id", dbTradeId).then(({ error }) => {
                   if (error) console.error("[Bot] Could not finalise trade row", error);
                 });
-              }).catch((error) => {
+              }).then(undefined, (error: any) => {
                 console.error("[Bot] Trade settlement update threw", error);
               });
             }
@@ -1437,7 +1437,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
 
       stopTickWs();
       stopTickWsFnRef.current = null;
-      balanceSubCleanupRef.current?.();
+      (balanceSubCleanupRef.current as any)?.();
       balanceSubCleanupRef.current = null;
       void refreshBalances("footer-bot-run-complete", currentAccount.account_id).catch(() => {});
       setStatus("stopped");
@@ -1467,7 +1467,7 @@ export function BotRunnerProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       stopTickWs();
       stopTickWsFnRef.current = null;
-      balanceSubCleanupRef.current?.();
+      (balanceSubCleanupRef.current as any)?.();
       balanceSubCleanupRef.current = null;
       const message = getDerivTradingErrorMessage(error);
       footerBotRunningRef.current = false;

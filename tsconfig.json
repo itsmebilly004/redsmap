@@ -1,5 +1,6 @@
 {
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "eslint.config.js"],
+  "exclude": ["src/external/bot-builder/pages-source"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

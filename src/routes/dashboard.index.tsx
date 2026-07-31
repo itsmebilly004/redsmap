@@ -121,7 +121,7 @@ function DashboardHome() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-sm font-medium text-foreground">Recent trades</h3>
             <Link to="/dashboard/analytics" className="text-xs text-primary hover:underline">
-              View all â†’
+              View all →
             </Link>
           </div>
           {trades.length === 0 ? (

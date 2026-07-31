@@ -42,7 +42,7 @@ export const Localize: React.FC<LocalizeProps> = ({ i18n_default_text, values, c
           const inner = match[2];
           const node = components[componentIndex];
           if (React.isValidElement(node)) {
-            return React.cloneElement(node, { key: idx }, inner ?? (node as React.ReactElement).props?.children);
+            return React.cloneElement(node, { key: idx }, inner ?? (node as any).props?.children);
           }
           return <React.Fragment key={idx}>{inner}</React.Fragment>;
         }

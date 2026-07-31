@@ -979,7 +979,7 @@ export function TradePanel({
     }
     setBusy(true);
     try {
-      if (!isSimulated) {
+      if (!isSimulated && account) {
         await ensureDerivTradingConnection(account, { context: "standard-sell" });
       }
       const response = await sellContract(activeContract.contractId, (activeContract.buyPrice ?? 0) + (activeContract.currentProfit ?? 0));

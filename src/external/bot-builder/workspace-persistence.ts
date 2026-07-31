@@ -395,10 +395,10 @@ export function sanitizeDbotXml(xml: string): string {
     ) as Element | undefined;
     if (!firstBlock) return serialize();
     walk(firstBlock, null);
-    if (!tradeoptionsBlock) return serialize(); // Already correct; may have renamed type="trade".
-
+    if (!tradeoptionsBlock) return serialize();
+    const toBlock = tradeoptionsBlock as Element;
     // Detach tradeoptions from the chain, re-linking any successor block.
-    const ownNext = Array.from(tradeoptionsBlock.children).find(
+    const ownNext = Array.from(toBlock.children).find(
       (c) => c.tagName.toLowerCase() === "next",
     ) as Element | undefined;
     const successor = ownNext
@@ -406,25 +406,27 @@ export function sanitizeDbotXml(xml: string): string {
           (c) => c.tagName.toLowerCase() === "block",
         ) as Element | undefined)
       : undefined;
-    if (ownNext) tradeoptionsBlock.removeChild(ownNext);
+    if (ownNext) toBlock.removeChild(ownNext);
 
-    if (tradeoptionsParentNext === null) {
+    const toParentNext = tradeoptionsParentNext as Element | null;
+
+    if (toParentNext === null) {
       // tradeoptions was the first block in the statement.
-      tradeOptionsStmt.removeChild(tradeoptionsBlock);
+      tradeOptionsStmt.removeChild(toBlock);
       if (successor) tradeOptionsStmt.appendChild(successor);
     } else {
-      tradeoptionsParentNext.removeChild(tradeoptionsBlock);
+      toParentNext.removeChild(toBlock);
       if (successor) {
-        tradeoptionsParentNext.appendChild(successor);
+        toParentNext.appendChild(successor);
       } else {
-        tradeoptionsParentNext.parentElement?.removeChild(tradeoptionsParentNext);
+        toParentNext.parentElement?.removeChild(toParentNext);
       }
     }
 
     // Remove any residual <next> left on tradeoptions (defensive).
-    for (const c of Array.from(tradeoptionsBlock.children)) {
+    for (const c of Array.from(toBlock.children)) {
       if (c.tagName.toLowerCase() === "next") {
-        tradeoptionsBlock.removeChild(c);
+        toBlock.removeChild(c);
         break;
       }
     }

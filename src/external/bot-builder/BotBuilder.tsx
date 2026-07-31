@@ -307,7 +307,7 @@ const BotBuilderInner = observer(() => {
       }
     };
     // Mount-only: run init exactly once per route mount. Auth resolution
-    // (userId null â†’ uuid) and preset URL changes are handled by their own
+    // (userId null -> uuid) and preset URL changes are handled by their own
     // effects so we never re-inject Blockly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -337,9 +337,9 @@ const BotBuilderInner = observer(() => {
   // When the user signs in AFTER the bot-builder has already mounted (late auth
   // resolution), ensure the workspace is persisted under the user-specific key.
   // Two cases:
-  //   1. Guest edits exist and no user key yet â†’ promote anonymous work.
+  //   1. Guest edits exist and no user key yet -> promote anonymous work.
   //   2. Auth resolved after dbot init completed (race): init read the null key
-  //      (null â†’ "guest"), found nothing, so the workspace was loaded from
+  //      (null -> "guest"), found nothing, so the workspace was loaded from
   //      localForage. The user key might already exist (prior session) but the
   //      current workspace is the authoritative live state — snapshot it now so
   //      future mounts that DO resolve auth before dbot init read the right XML.

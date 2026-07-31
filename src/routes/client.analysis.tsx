@@ -230,7 +230,7 @@ function Analysis() {
                   <div key={i} className="relative flex flex-col items-center">
                     {isCurrent && (
                       <div className="absolute -top-6 rounded-md bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white shadow">
-                        â–¾
+                        ▾
                       </div>
                     )}
                     <div
@@ -245,11 +245,11 @@ function Analysis() {
                     <div className="mt-1 text-xs font-semibold">{counts[i]}</div>
                     <div className="text-xs text-muted-foreground">{realPct.toFixed(1)}%</div>
                     {isMax && (
-                      <div className="mt-0.5 text-[9px] font-semibold text-blue-600">â†‘ most</div>
+                      <div className="mt-0.5 text-[9px] font-semibold text-blue-600">↑ most</div>
                     )}
                     {isMin && (
                       <div className="mt-0.5 text-[9px] font-semibold text-muted-foreground">
-                        â†“ least
+                        ↓ least
                       </div>
                     )}
                   </div>

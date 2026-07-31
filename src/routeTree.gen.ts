@@ -9,95 +9,45 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AdminRouteImport } from './routes/admin'
-import { Route as AnalysisRouteImport } from './routes/analysis'
-import { Route as AuthRouteImport } from './routes/auth'
-import { Route as BotBuilderRouteImport } from './routes/bot-builder'
-import { Route as ChartsRouteImport } from './routes/charts'
-import { Route as ClientRouteImport } from './routes/client'
-import { Route as CopyTradingRouteImport } from './routes/copy-trading'
-import { Route as DashboardRouteImport } from './routes/dashboard'
-import { Route as DerivCallbackRouteImport } from './routes/deriv-callback'
-import { Route as RedirectRouteImport } from './routes/redirect'
-import { Route as StrategiesRouteImport } from './routes/strategies'
 import { Route as TradingBotsRouteImport } from './routes/trading-bots'
-import { Route as ApiBotHandoffRouteImport } from './routes/api/bot-handoff'
-import { Route as ApiBotOrphanCheckRouteImport } from './routes/api/bot-orphan-check'
-import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
-import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-accounts'
-import { Route as ApiDerivTokenExchangeRouteImport } from './routes/api/deriv-token-exchange'
-import { Route as ClientIndexRouteImport } from './routes/client.index'
-import { Route as ClientAnalysisRouteImport } from './routes/client.analysis'
-import { Route as ClientAuthRouteImport } from './routes/client.auth'
-import { Route as ClientBotBuilderRouteImport } from './routes/client.bot-builder'
-import { Route as ClientChartsRouteImport } from './routes/client.charts'
-import { Route as ClientCopyTradingRouteImport } from './routes/client.copy-trading'
-import { Route as ClientDashboardRouteImport } from './routes/client.dashboard'
-import { Route as ClientStrategiesRouteImport } from './routes/client.strategies'
-import { Route as ClientTradingBotsRouteImport } from './routes/client.trading-bots'
+import { Route as StrategiesRouteImport } from './routes/strategies'
+import { Route as RedirectRouteImport } from './routes/redirect'
+import { Route as DerivCallbackRouteImport } from './routes/deriv-callback'
+import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as CopyTradingRouteImport } from './routes/copy-trading'
+import { Route as ClientRouteImport } from './routes/client'
+import { Route as ChartsRouteImport } from './routes/charts'
+import { Route as BotBuilderRouteImport } from './routes/bot-builder'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AnalysisRouteImport } from './routes/analysis'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
-import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard.analytics'
-import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
+import { Route as ClientIndexRouteImport } from './routes/client.index'
 import { Route as StrategySlugRouteImport } from './routes/strategy.$slug'
+import { Route as DashboardSettingsRouteImport } from './routes/dashboard.settings'
+import { Route as DashboardAnalyticsRouteImport } from './routes/dashboard.analytics'
+import { Route as ClientTradingBotsRouteImport } from './routes/client.trading-bots'
+import { Route as ClientStrategiesRouteImport } from './routes/client.strategies'
+import { Route as ClientDashboardRouteImport } from './routes/client.dashboard'
+import { Route as ClientCopyTradingRouteImport } from './routes/client.copy-trading'
+import { Route as ClientChartsRouteImport } from './routes/client.charts'
+import { Route as ClientBotBuilderRouteImport } from './routes/client.bot-builder'
+import { Route as ClientAuthRouteImport } from './routes/client.auth'
+import { Route as ClientAnalysisRouteImport } from './routes/client.analysis'
+import { Route as ApiDerivTokenExchangeRouteImport } from './routes/api/deriv-token-exchange'
+import { Route as ApiDerivAccountsRouteImport } from './routes/api/deriv-accounts'
+import { Route as ApiDerivAccountOtpRouteImport } from './routes/api/deriv-account-otp'
+import { Route as ApiBotOrphanCheckRouteImport } from './routes/api/bot-orphan-check'
+import { Route as ApiBotHandoffRouteImport } from './routes/api/bot-handoff'
 import { Route as ClientDashboardIndexRouteImport } from './routes/client.dashboard.index'
-import { Route as ClientDashboardAnalyticsRouteImport } from './routes/client.dashboard.analytics'
-import { Route as ClientDashboardSettingsRouteImport } from './routes/client.dashboard.settings'
 import { Route as ClientStrategySlugRouteImport } from './routes/client.strategy.$slug'
+import { Route as ClientDashboardSettingsRouteImport } from './routes/client.dashboard.settings'
+import { Route as ClientDashboardAnalyticsRouteImport } from './routes/client.dashboard.analytics'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminRoute = AdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AnalysisRoute = AnalysisRouteImport.update({
-  id: '/analysis',
-  path: '/analysis',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthRoute = AuthRouteImport.update({
-  id: '/auth',
-  path: '/auth',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BotBuilderRoute = BotBuilderRouteImport.update({
-  id: '/bot-builder',
-  path: '/bot-builder',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ChartsRoute = ChartsRouteImport.update({
-  id: '/charts',
-  path: '/charts',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClientRoute = ClientRouteImport.update({
-  id: '/client',
-  path: '/client',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CopyTradingRoute = CopyTradingRouteImport.update({
-  id: '/copy-trading',
-  path: '/copy-trading',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DerivCallbackRoute = DerivCallbackRouteImport.update({
-  id: '/deriv-callback',
-  path: '/deriv-callback',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RedirectRoute = RedirectRouteImport.update({
-  id: '/redirect',
-  path: '/redirect',
+const TradingBotsRoute = TradingBotsRouteImport.update({
+  id: '/trading-bots',
+  path: '/trading-bots',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StrategiesRoute = StrategiesRouteImport.update({
@@ -105,84 +55,79 @@ const StrategiesRoute = StrategiesRouteImport.update({
   path: '/strategies',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TradingBotsRoute = TradingBotsRouteImport.update({
-  id: '/trading-bots',
-  path: '/trading-bots',
+const RedirectRoute = RedirectRouteImport.update({
+  id: '/redirect',
+  path: '/redirect',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiBotHandoffRoute = ApiBotHandoffRouteImport.update({
-  id: '/api/bot-handoff',
-  path: '/api/bot-handoff',
+const DerivCallbackRoute = DerivCallbackRouteImport.update({
+  id: '/deriv-callback',
+  path: '/deriv-callback',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiBotOrphanCheckRoute = ApiBotOrphanCheckRouteImport.update({
-  id: '/api/bot-orphan-check',
-  path: '/api/bot-orphan-check',
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiDerivAccountOtpRoute = ApiDerivAccountOtpRouteImport.update({
-  id: '/api/deriv-account-otp',
-  path: '/api/deriv-account-otp',
+const CopyTradingRoute = CopyTradingRouteImport.update({
+  id: '/copy-trading',
+  path: '/copy-trading',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiDerivAccountsRoute = ApiDerivAccountsRouteImport.update({
-  id: '/api/deriv-accounts',
-  path: '/api/deriv-accounts',
+const ClientRoute = ClientRouteImport.update({
+  id: '/client',
+  path: '/client',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiDerivTokenExchangeRoute = ApiDerivTokenExchangeRouteImport.update({
-  id: '/api/deriv-token-exchange',
-  path: '/api/deriv-token-exchange',
+const ChartsRoute = ChartsRouteImport.update({
+  id: '/charts',
+  path: '/charts',
   getParentRoute: () => rootRouteImport,
+} as any)
+const BotBuilderRoute = BotBuilderRouteImport.update({
+  id: '/bot-builder',
+  path: '/bot-builder',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalysisRoute = AnalysisRouteImport.update({
+  id: '/analysis',
+  path: '/analysis',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardIndexRoute = DashboardIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DashboardRoute,
 } as any)
 const ClientIndexRoute = ClientIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ClientRoute,
 } as any)
-const ClientAnalysisRoute = ClientAnalysisRouteImport.update({
-  id: '/analysis',
-  path: '/analysis',
-  getParentRoute: () => ClientRoute,
+const StrategySlugRoute = StrategySlugRouteImport.update({
+  id: '/strategy/$slug',
+  path: '/strategy/$slug',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const ClientAuthRoute = ClientAuthRouteImport.update({
-  id: '/auth',
-  path: '/auth',
-  getParentRoute: () => ClientRoute,
-} as any)
-const ClientBotBuilderRoute = ClientBotBuilderRouteImport.update({
-  id: '/bot-builder',
-  path: '/bot-builder',
-  getParentRoute: () => ClientRoute,
-} as any)
-const ClientChartsRoute = ClientChartsRouteImport.update({
-  id: '/charts',
-  path: '/charts',
-  getParentRoute: () => ClientRoute,
-} as any)
-const ClientCopyTradingRoute = ClientCopyTradingRouteImport.update({
-  id: '/copy-trading',
-  path: '/copy-trading',
-  getParentRoute: () => ClientRoute,
-} as any)
-const ClientDashboardRoute = ClientDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => ClientRoute,
-} as any)
-const ClientStrategiesRoute = ClientStrategiesRouteImport.update({
-  id: '/strategies',
-  path: '/strategies',
-  getParentRoute: () => ClientRoute,
-} as any)
-const ClientTradingBotsRoute = ClientTradingBotsRouteImport.update({
-  id: '/trading-bots',
-  path: '/trading-bots',
-  getParentRoute: () => ClientRoute,
-} as any)
-const DashboardIndexRoute = DashboardIndexRouteImport.update({
-  id: '/',
-  path: '/',
+const DashboardSettingsRoute = DashboardSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => DashboardRoute,
 } as any)
 const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
@@ -190,19 +135,84 @@ const DashboardAnalyticsRoute = DashboardAnalyticsRouteImport.update({
   path: '/analytics',
   getParentRoute: () => DashboardRoute,
 } as any)
-const DashboardSettingsRoute = DashboardSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => DashboardRoute,
+const ClientTradingBotsRoute = ClientTradingBotsRouteImport.update({
+  id: '/trading-bots',
+  path: '/trading-bots',
+  getParentRoute: () => ClientRoute,
 } as any)
-const StrategySlugRoute = StrategySlugRouteImport.update({
-  id: '/strategy/$slug',
-  path: '/strategy/$slug',
+const ClientStrategiesRoute = ClientStrategiesRouteImport.update({
+  id: '/strategies',
+  path: '/strategies',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientDashboardRoute = ClientDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientCopyTradingRoute = ClientCopyTradingRouteImport.update({
+  id: '/copy-trading',
+  path: '/copy-trading',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientChartsRoute = ClientChartsRouteImport.update({
+  id: '/charts',
+  path: '/charts',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientBotBuilderRoute = ClientBotBuilderRouteImport.update({
+  id: '/bot-builder',
+  path: '/bot-builder',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientAuthRoute = ClientAuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientAnalysisRoute = ClientAnalysisRouteImport.update({
+  id: '/analysis',
+  path: '/analysis',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ApiDerivTokenExchangeRoute = ApiDerivTokenExchangeRouteImport.update({
+  id: '/api/deriv-token-exchange',
+  path: '/api/deriv-token-exchange',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDerivAccountsRoute = ApiDerivAccountsRouteImport.update({
+  id: '/api/deriv-accounts',
+  path: '/api/deriv-accounts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDerivAccountOtpRoute = ApiDerivAccountOtpRouteImport.update({
+  id: '/api/deriv-account-otp',
+  path: '/api/deriv-account-otp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBotOrphanCheckRoute = ApiBotOrphanCheckRouteImport.update({
+  id: '/api/bot-orphan-check',
+  path: '/api/bot-orphan-check',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBotHandoffRoute = ApiBotHandoffRouteImport.update({
+  id: '/api/bot-handoff',
+  path: '/api/bot-handoff',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClientDashboardIndexRoute = ClientDashboardIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ClientDashboardRoute,
+} as any)
+const ClientStrategySlugRoute = ClientStrategySlugRouteImport.update({
+  id: '/strategy/$slug',
+  path: '/strategy/$slug',
+  getParentRoute: () => ClientRoute,
+} as any)
+const ClientDashboardSettingsRoute = ClientDashboardSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => ClientDashboardRoute,
 } as any)
 const ClientDashboardAnalyticsRoute =
@@ -211,16 +221,6 @@ const ClientDashboardAnalyticsRoute =
     path: '/analytics',
     getParentRoute: () => ClientDashboardRoute,
   } as any)
-const ClientDashboardSettingsRoute = ClientDashboardSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => ClientDashboardRoute,
-} as any)
-const ClientStrategySlugRoute = ClientStrategySlugRouteImport.update({
-  id: '/strategy/$slug',
-  path: '/strategy/$slug',
-  getParentRoute: () => ClientRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -466,81 +466,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin': {
-      id: '/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/analysis': {
-      id: '/analysis'
-      path: '/analysis'
-      fullPath: '/analysis'
-      preLoaderRoute: typeof AnalysisRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/bot-builder': {
-      id: '/bot-builder'
-      path: '/bot-builder'
-      fullPath: '/bot-builder'
-      preLoaderRoute: typeof BotBuilderRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/charts': {
-      id: '/charts'
-      path: '/charts'
-      fullPath: '/charts'
-      preLoaderRoute: typeof ChartsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/client': {
-      id: '/client'
-      path: '/client'
-      fullPath: '/client'
-      preLoaderRoute: typeof ClientRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/copy-trading': {
-      id: '/copy-trading'
-      path: '/copy-trading'
-      fullPath: '/copy-trading'
-      preLoaderRoute: typeof CopyTradingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/deriv-callback': {
-      id: '/deriv-callback'
-      path: '/deriv-callback'
-      fullPath: '/deriv-callback'
-      preLoaderRoute: typeof DerivCallbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/redirect': {
-      id: '/redirect'
-      path: '/redirect'
-      fullPath: '/redirect'
-      preLoaderRoute: typeof RedirectRouteImport
+    '/trading-bots': {
+      id: '/trading-bots'
+      path: '/trading-bots'
+      fullPath: '/trading-bots'
+      preLoaderRoute: typeof TradingBotsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/strategies': {
@@ -550,47 +480,89 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StrategiesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/trading-bots': {
-      id: '/trading-bots'
-      path: '/trading-bots'
-      fullPath: '/trading-bots'
-      preLoaderRoute: typeof TradingBotsRouteImport
+    '/redirect': {
+      id: '/redirect'
+      path: '/redirect'
+      fullPath: '/redirect'
+      preLoaderRoute: typeof RedirectRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/bot-handoff': {
-      id: '/api/bot-handoff'
-      path: '/api/bot-handoff'
-      fullPath: '/api/bot-handoff'
-      preLoaderRoute: typeof ApiBotHandoffRouteImport
+    '/deriv-callback': {
+      id: '/deriv-callback'
+      path: '/deriv-callback'
+      fullPath: '/deriv-callback'
+      preLoaderRoute: typeof DerivCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/bot-orphan-check': {
-      id: '/api/bot-orphan-check'
-      path: '/api/bot-orphan-check'
-      fullPath: '/api/bot-orphan-check'
-      preLoaderRoute: typeof ApiBotOrphanCheckRouteImport
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/deriv-account-otp': {
-      id: '/api/deriv-account-otp'
-      path: '/api/deriv-account-otp'
-      fullPath: '/api/deriv-account-otp'
-      preLoaderRoute: typeof ApiDerivAccountOtpRouteImport
+    '/copy-trading': {
+      id: '/copy-trading'
+      path: '/copy-trading'
+      fullPath: '/copy-trading'
+      preLoaderRoute: typeof CopyTradingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/deriv-accounts': {
-      id: '/api/deriv-accounts'
-      path: '/api/deriv-accounts'
-      fullPath: '/api/deriv-accounts'
-      preLoaderRoute: typeof ApiDerivAccountsRouteImport
+    '/client': {
+      id: '/client'
+      path: '/client'
+      fullPath: '/client'
+      preLoaderRoute: typeof ClientRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/deriv-token-exchange': {
-      id: '/api/deriv-token-exchange'
-      path: '/api/deriv-token-exchange'
-      fullPath: '/api/deriv-token-exchange'
-      preLoaderRoute: typeof ApiDerivTokenExchangeRouteImport
+    '/charts': {
+      id: '/charts'
+      path: '/charts'
+      fullPath: '/charts'
+      preLoaderRoute: typeof ChartsRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/bot-builder': {
+      id: '/bot-builder'
+      path: '/bot-builder'
+      fullPath: '/bot-builder'
+      preLoaderRoute: typeof BotBuilderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/analysis': {
+      id: '/analysis'
+      path: '/analysis'
+      fullPath: '/analysis'
+      preLoaderRoute: typeof AnalysisRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard/': {
+      id: '/dashboard/'
+      path: '/'
+      fullPath: '/dashboard/'
+      preLoaderRoute: typeof DashboardIndexRouteImport
+      parentRoute: typeof DashboardRoute
     }
     '/client/': {
       id: '/client/'
@@ -599,67 +571,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientIndexRouteImport
       parentRoute: typeof ClientRoute
     }
-    '/client/analysis': {
-      id: '/client/analysis'
-      path: '/analysis'
-      fullPath: '/client/analysis'
-      preLoaderRoute: typeof ClientAnalysisRouteImport
-      parentRoute: typeof ClientRoute
+    '/strategy/$slug': {
+      id: '/strategy/$slug'
+      path: '/strategy/$slug'
+      fullPath: '/strategy/$slug'
+      preLoaderRoute: typeof StrategySlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/client/auth': {
-      id: '/client/auth'
-      path: '/auth'
-      fullPath: '/client/auth'
-      preLoaderRoute: typeof ClientAuthRouteImport
-      parentRoute: typeof ClientRoute
-    }
-    '/client/bot-builder': {
-      id: '/client/bot-builder'
-      path: '/bot-builder'
-      fullPath: '/client/bot-builder'
-      preLoaderRoute: typeof ClientBotBuilderRouteImport
-      parentRoute: typeof ClientRoute
-    }
-    '/client/charts': {
-      id: '/client/charts'
-      path: '/charts'
-      fullPath: '/client/charts'
-      preLoaderRoute: typeof ClientChartsRouteImport
-      parentRoute: typeof ClientRoute
-    }
-    '/client/copy-trading': {
-      id: '/client/copy-trading'
-      path: '/copy-trading'
-      fullPath: '/client/copy-trading'
-      preLoaderRoute: typeof ClientCopyTradingRouteImport
-      parentRoute: typeof ClientRoute
-    }
-    '/client/dashboard': {
-      id: '/client/dashboard'
-      path: '/dashboard'
-      fullPath: '/client/dashboard'
-      preLoaderRoute: typeof ClientDashboardRouteImport
-      parentRoute: typeof ClientRoute
-    }
-    '/client/strategies': {
-      id: '/client/strategies'
-      path: '/strategies'
-      fullPath: '/client/strategies'
-      preLoaderRoute: typeof ClientStrategiesRouteImport
-      parentRoute: typeof ClientRoute
-    }
-    '/client/trading-bots': {
-      id: '/client/trading-bots'
-      path: '/trading-bots'
-      fullPath: '/client/trading-bots'
-      preLoaderRoute: typeof ClientTradingBotsRouteImport
-      parentRoute: typeof ClientRoute
-    }
-    '/dashboard/': {
-      id: '/dashboard/'
-      path: '/'
-      fullPath: '/dashboard/'
-      preLoaderRoute: typeof DashboardIndexRouteImport
+    '/dashboard/settings': {
+      id: '/dashboard/settings'
+      path: '/settings'
+      fullPath: '/dashboard/settings'
+      preLoaderRoute: typeof DashboardSettingsRouteImport
       parentRoute: typeof DashboardRoute
     }
     '/dashboard/analytics': {
@@ -669,18 +592,95 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAnalyticsRouteImport
       parentRoute: typeof DashboardRoute
     }
-    '/dashboard/settings': {
-      id: '/dashboard/settings'
-      path: '/settings'
-      fullPath: '/dashboard/settings'
-      preLoaderRoute: typeof DashboardSettingsRouteImport
-      parentRoute: typeof DashboardRoute
+    '/client/trading-bots': {
+      id: '/client/trading-bots'
+      path: '/trading-bots'
+      fullPath: '/client/trading-bots'
+      preLoaderRoute: typeof ClientTradingBotsRouteImport
+      parentRoute: typeof ClientRoute
     }
-    '/strategy/$slug': {
-      id: '/strategy/$slug'
-      path: '/strategy/$slug'
-      fullPath: '/strategy/$slug'
-      preLoaderRoute: typeof StrategySlugRouteImport
+    '/client/strategies': {
+      id: '/client/strategies'
+      path: '/strategies'
+      fullPath: '/client/strategies'
+      preLoaderRoute: typeof ClientStrategiesRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/dashboard': {
+      id: '/client/dashboard'
+      path: '/dashboard'
+      fullPath: '/client/dashboard'
+      preLoaderRoute: typeof ClientDashboardRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/copy-trading': {
+      id: '/client/copy-trading'
+      path: '/copy-trading'
+      fullPath: '/client/copy-trading'
+      preLoaderRoute: typeof ClientCopyTradingRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/charts': {
+      id: '/client/charts'
+      path: '/charts'
+      fullPath: '/client/charts'
+      preLoaderRoute: typeof ClientChartsRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/bot-builder': {
+      id: '/client/bot-builder'
+      path: '/bot-builder'
+      fullPath: '/client/bot-builder'
+      preLoaderRoute: typeof ClientBotBuilderRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/auth': {
+      id: '/client/auth'
+      path: '/auth'
+      fullPath: '/client/auth'
+      preLoaderRoute: typeof ClientAuthRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/client/analysis': {
+      id: '/client/analysis'
+      path: '/analysis'
+      fullPath: '/client/analysis'
+      preLoaderRoute: typeof ClientAnalysisRouteImport
+      parentRoute: typeof ClientRoute
+    }
+    '/api/deriv-token-exchange': {
+      id: '/api/deriv-token-exchange'
+      path: '/api/deriv-token-exchange'
+      fullPath: '/api/deriv-token-exchange'
+      preLoaderRoute: typeof ApiDerivTokenExchangeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/deriv-accounts': {
+      id: '/api/deriv-accounts'
+      path: '/api/deriv-accounts'
+      fullPath: '/api/deriv-accounts'
+      preLoaderRoute: typeof ApiDerivAccountsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/deriv-account-otp': {
+      id: '/api/deriv-account-otp'
+      path: '/api/deriv-account-otp'
+      fullPath: '/api/deriv-account-otp'
+      preLoaderRoute: typeof ApiDerivAccountOtpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/bot-orphan-check': {
+      id: '/api/bot-orphan-check'
+      path: '/api/bot-orphan-check'
+      fullPath: '/api/bot-orphan-check'
+      preLoaderRoute: typeof ApiBotOrphanCheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/bot-handoff': {
+      id: '/api/bot-handoff'
+      path: '/api/bot-handoff'
+      fullPath: '/api/bot-handoff'
+      preLoaderRoute: typeof ApiBotHandoffRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/client/dashboard/': {
@@ -690,12 +690,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientDashboardIndexRouteImport
       parentRoute: typeof ClientDashboardRoute
     }
-    '/client/dashboard/analytics': {
-      id: '/client/dashboard/analytics'
-      path: '/analytics'
-      fullPath: '/client/dashboard/analytics'
-      preLoaderRoute: typeof ClientDashboardAnalyticsRouteImport
-      parentRoute: typeof ClientDashboardRoute
+    '/client/strategy/$slug': {
+      id: '/client/strategy/$slug'
+      path: '/strategy/$slug'
+      fullPath: '/client/strategy/$slug'
+      preLoaderRoute: typeof ClientStrategySlugRouteImport
+      parentRoute: typeof ClientRoute
     }
     '/client/dashboard/settings': {
       id: '/client/dashboard/settings'
@@ -704,12 +704,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientDashboardSettingsRouteImport
       parentRoute: typeof ClientDashboardRoute
     }
-    '/client/strategy/$slug': {
-      id: '/client/strategy/$slug'
-      path: '/strategy/$slug'
-      fullPath: '/client/strategy/$slug'
-      preLoaderRoute: typeof ClientStrategySlugRouteImport
-      parentRoute: typeof ClientRoute
+    '/client/dashboard/analytics': {
+      id: '/client/dashboard/analytics'
+      path: '/analytics'
+      fullPath: '/client/dashboard/analytics'
+      preLoaderRoute: typeof ClientDashboardAnalyticsRouteImport
+      parentRoute: typeof ClientDashboardRoute
     }
   }
 }
@@ -799,3 +799,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

@@ -2,7 +2,9 @@ import Cookies from 'js-cookie';
 import CommonStore from '@/stores/common-store';
 import { TAuthData } from '@/types/api-types';
 import { clearAuthData } from '@/utils/auth-utils';
+// @ts-ignore
 import { observer as globalObserver } from '../../utils/observer';
+// @ts-ignore
 import { doUntilDone, socket_state } from '../tradeEngine/utils/helpers';
 import {
     CONNECTION_STATUS,
@@ -12,8 +14,11 @@ import {
     setIsAuthorized,
     setIsAuthorizing,
 } from './observables/connection-status-stream';
+// @ts-ignore
 import ApiHelpers from './api-helpers';
+// @ts-ignore
 import { generateDerivApiInstance, V2GetActiveClientId, V2GetActiveToken } from './appId';
+// @ts-ignore
 import chart_api from './chart-api';
 
 type CurrentSubscription = {
